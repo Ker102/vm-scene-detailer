@@ -36,6 +36,11 @@ mirror; sources here are canonical).
 - Verification is mandatory and two-sided: numeric checks AND rendered previews
   inspected visually (numbers alone miss float/gap defects).
 
+## Versioning
+
+Every version bump = a git tag + a GitHub release on this repo. Current:
+**v2.2**. Deliverable copies are rebuilt from the tagged source.
+
 ## Roadmap
 
 - v2.2 (in flight): pack adapter, ajar-door quarantine, windows layer on the starter.
