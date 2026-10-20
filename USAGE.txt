@@ -1,0 +1,193 @@
+VM_SceneDetailer v2 - USAGE (Blender 5.2)
+=========================================
+
+WHAT THIS IS
+------------
+A Geometry Nodes "semantic architectural application" engine:
+  * VM_SceneDetailer - scatters props, FITS architectural parts onto walls,
+    and applies CLADDING row courses (shingles/planks), with per-zone surface
+    materials on the base mesh.
+  * VM_RoofCap - generates a pitched gable/hip roof over any mesh with a flat top.
+
+Files in this folder:
+  VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
+  VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
+  build_engine.py - deterministic generator (rebuilds everything from scratch)
+  preview_*.png - rendered proofs for each stage (incl. preview_door_closeup.png,
+    a fitted door standing proud of the wall planks)
+  verification_v2.json - numeric proof log
+  VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
+  (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+SCENE CONTENTS - WHAT TO LOOK AT, WHAT TO IGNORE
+------------------------------------------------
+* LOOK AT: "StarterCube" + "StarterGround" (near x=0, y=-40) - the v2
+  worked example described below. The preview_starter_house.png render is
+  exactly this.
+* IGNORE/DELETE FREELY: "HouseA" and "HouseB" (near the origin) and their
+  floating platform + furniture - these are the OLD v1 demo scenes kept for
+  comparison. The furniture hovering around them is v1 Scatter mode doing its
+  debris job; it is NOT part of the house workflow and not a bug.
+
+QUICK START: MAKE A LITTLE HOUSE FROM A CUBE
+--------------------------------------------
+1. Open VM_Starter.blend. Look at the object "StarterCube" (at x=0, y=-40).
+   It is a plain 2m cube with four modifiers - that is the whole recipe
+   (order matters, top to bottom in the modifier stack):
+     a. VM_SceneDetailer      -> wall plank cladding (run BEFORE the roof so
+                                 gable ends are not over-clad)
+     b. VM_RoofCap            -> adds the pitched roof
+     c. VM_SceneDetailer      -> roof shingle courses
+     d. VM_SceneDetailer      -> one fitted door
+   "StarterGround" has a fifth VM_SceneDetailer in Scatter mode for debris.
+2. To build it yourself on any cube:
+   - Add > Mesh > Cube (2m). Optionally set its origin so the base sits at z=0.
+   - Modifier Properties > Add Modifier > Geometry Nodes, pick "VM_SceneDetailer".
+     Set Placement Mode = Cladding for the walls (see panels below).
+   - Add another Geometry Nodes modifier, pick "VM_RoofCap".
+     Pitch 35 deg, Overhang 0.25 m, Style Gable, Roof Material = your material.
+   - Stack as many VM_SceneDetailer modifiers as you want (one per job:
+     wall cladding, roof cladding, doors, debris...). Later modifiers see the
+     geometry produced by earlier ones, so roof cladding automatically lands on
+     the VM_RoofCap roof. Sampling always ignores earlier INSTANCES, so tiles
+     never get clad with more tiles.
+3. Press F12. Done.
+
+THE VM_SceneDetailer PANELS
+---------------------------
+Assets
+  Primary Props      collection of variants to instance (one object per variant)
+  Debris/Trash Props collection of debris variants
+  Debris Ratio       0..1 fraction of slots that get debris instead of primary
+
+Placement
+  Placement Mode     Scatter = v1 random scatter over ALL faces (old default)
+                     Fit     = architectural placement on zone faces
+                     Cladding= regular row/slot courses on zone faces
+  Embed              Fit: sinks the instance's BACK face (the wall-contact face,
+                     see ASSET PREP RULES) into the placement plane by this
+                     depth. Final offset along the face normal = Backing Offset
+                     - Embed. (0.02 default = tiny sink.)
+  Backing Offset     Fit (new in v2.1): distance from the sampled face along the
+                     OUTWARD normal to the placement plane the variant's back
+                     face lands on. Set it to the surface buildup in front of
+                     the base wall (e.g. the cladding layer thickness) and the
+                     fitted part sits ON the cladding instead of behind it.
+                     Default 0.0 = old behavior (placement plane = base wall).
+  Fit Jitter         Fit: tiny random rotation in radians (0 = perfectly flush)
+  Drop To Ground     Fit: puts the instance origin at the host's base height so
+                     base-origin parts (doors) stand on the ground line
+  Row Height         Cladding: course pitch along the stack direction (0.22 m)
+  Row Overlap        Cladding: courses are drawn 1/(1-Overlap) taller so they
+                     overlap like shingles (0.35 = 35% covered)
+  Stagger            Cladding: row phase shift in fraction of slot width
+                     (0.5 = classic half-offset shingle bond)
+  Jitter             Cladding: per-slot position noise (0.01 m)
+  Slot Width         Cladding: tile width in meters. Slot pitch =
+                     Slot Width * (1 - Row Overlap). Set it to your variants'
+                     average width (0.25 for the generated shingles, 2.0 for
+                     the generated planks). GN cannot measure variants, so this
+                     is explicit rather than automatic. Tiles are scaled to fit
+                     their slot width, and slots/rows are spread to exactly
+                     cover the face, so nothing juts past the face edges on
+                     quad faces. On triangles (gable ends) courses are laid out
+                     on the face bounding box - prefer small tiles there, or
+                     clad the walls before adding VM_RoofCap.
+
+Distribution
+  Density            instances per square meter (Scatter and Fit modes)
+  Seed               deterministic random seed
+  Surface Offset     Scatter: offset along the face normal (v1 behavior)
+  Align To Normal    Scatter: Z-align instances to the face normal (v1 behavior)
+
+Variation
+  Random Rot X/Y/Z   Scatter random rotation amounts (v1)
+  Scale Min/Max      random uniform scale; Cladding additionally stretches the
+                     tile height by 1/(1-Row Overlap)
+  Tint Amount        per-instance tint stored in the instance color attribute
+
+Zones
+  Face Zone          All / Walls / Roof / Floor - which faces Fit and Cladding
+                     sample. Scatter ignores this (v1 = all faces).
+  Wall Slope         faces with |N.z| <= this are Walls (default 0.35)
+  Roof Slope         faces with N.z >= this are Roof, N.z <= -this are Floor
+                     (default 0.7). A 35 deg pitched roof has N.z ~ 0.82 = Roof.
+
+Materials
+  Wall/Roof/Floor Material
+                     applied to the BASE MESH (the host itself) by zone via
+                     Set Material. Leave a socket EMPTY to leave that zone's
+                     existing material alone (safe for old scenes). Instanced
+                     props always keep their own materials.
+
+Masks / Cleanup
+  (unchanged from v1) random mask, vertical gradient mask, proximity mask,
+  Max Instances hard cap (exact).
+
+VM_RoofCap
+----------
+Pitch      roof slope angle (35 deg default)
+Overhang   eave overhang in meters (0.25)
+Style      Gable = ridge runs the full length; Hip = ridge shortened by half the
+           short side (on a square footprint this becomes a pyramid)
+Roof Material  applied to the generated roof faces (empty = untouched)
+
+Works on any host with a flat top face at the top of its bounding box
+(the 2m cube is the reference case).
+
+ASSET PREP RULES (variant collections)
+--------------------------------------
+* One object per variant, real-world scale, transforms applied.
+* Convention: X = width (along the row), Y = depth (along the face normal),
+  Z = height (along the row stack / world up).
+* STRICT WALL-CONTACT ORIGIN (v2.1, enforced by build_engine.py): the depth
+  axis Y has its origin ON the wall-contact (back) face - local y = 0 is the
+  face that touches the wall, local +Y points outward along the face normal.
+  Doors and handles additionally keep x centered and z at the base (so Drop To
+  Ground works); cladding tiles keep x/z centered (so slot placement works).
+  Because every variant's back face is at y = 0, a fitted part's wall-contact
+  plane lands at the SAME distance for every variant depth - no more "some
+  doors float off the wall, others sink behind the planks".
+* Put variants in a dedicated collection and hide it from viewport/render
+  (Geometry Nodes still reads it).
+* The WornWoodenDoorsPack import is re-oriented automatically by build_engine.py
+  to the convention above. Handles are kept in a SEPARATE collection and never
+  mix with doors.
+* Do NOT use the WoodShinglesMaterial demo spheres as tile variants - they are
+  1m spheres with baked shingles. Use the generated Shingle_/Plank_ tile
+  collections (built by build_engine.py with the library textures) instead.
+
+STRICT WALL-CONTACT / KEEP-CLEAR-OF-CLADDING CONTRACT (v2.1)
+------------------------------------------------------------
+Fit places the variant's back face at: base wall plane + (Backing Offset -
+Embed) along the outward face normal. To mount a part ON TOP of a cladding
+layer, set Backing Offset to the cladding buildup in front of the base wall
+plus any clear gap you want, and keep Embed as the small sink.
+
+Worked demo numbers (VM_Starter.blend "VM_SceneDetailer_Door"):
+  wall planks      : 0.02 m thick tiles sitting ON the wall (y=0 at the wall)
+  door modifier    : Backing Offset 0.045, Embed 0.02
+  -> door back plane lands 0.025 m off the base wall = planks_thickness (0.02)
+     + 0.005 m clear gap, tangent-to-proud of the plank outer plane
+  -> door front face is ~0.09-0.15 m proud of the plank outer plane
+  -> zero world-bbox intersection with any plank (>= 0.0018 m pairwise gap)
+  (the wall plank cladding demo uses Jitter 0.002 m so this gap holds exactly;
+   the demo door Seed 229 is the deterministic seed whose 3 fitted doors all
+   clear the wall corners - no door bbox reaches a perpendicular wall's planks)
+Measured on the delivered blends by build_engine.py and logged in
+verification_v2.json (checks accept(a), accept(b), accept(c)); see
+preview_door_closeup.png for the visual proof.
+
+TEXTURES ARE PACKED (v2.1)
+--------------------------
+Every image datablock is PACKED into each delivered .blend before saving
+(bpy.ops.file.pack_all() + per-image pack fallback). The files open with zero
+missing/magenta textures even if ViperMeshAssets is absent - no image filepath
+outside the blend is load-bearing. verification_v2.json logs
+"images_packed: N/N" per delivered blend (all image datablocks, all packed).
+
+REBUILDING FROM SCRATCH
+-----------------------
+  cd <blender dir> && ./blender -b --python build_engine.py
+Deterministic: fixed seeds, same output every run. The script also re-runs the
+full numeric verification suite and re-renders the preview PNGs.
