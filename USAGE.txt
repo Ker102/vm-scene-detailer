@@ -13,8 +13,13 @@ Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
   build_engine.py - deterministic generator (rebuilds everything from scratch)
+  pack_ingest.py - GENERIC ZERO-CONFIG asset-pack adapter (see PACK ADAPTER
+    below); ingests any glTF/OBJ pack into classified variant collections
+  <Pack>_ingest.json - per-pack ingest reports (decisions, scale factors,
+    quarantine reasons) for WornWoodenDoorsPack + the 4 window packs
   preview_*.png - rendered proofs for each stage (incl. preview_door_closeup.png,
-    a fitted door standing proud of the wall planks)
+    preview_window_closeup.png and preview_starter_house.png: doors/windows
+    mounted against the wall planks)
   verification_v2.json - numeric proof log
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
@@ -32,14 +37,15 @@ SCENE CONTENTS - WHAT TO LOOK AT, WHAT TO IGNORE
 QUICK START: MAKE A LITTLE HOUSE FROM A CUBE
 --------------------------------------------
 1. Open VM_Starter.blend. Look at the object "StarterCube" (at x=0, y=-40).
-   It is a plain 2m cube with four modifiers - that is the whole recipe
+   It is a plain 2m cube with five modifiers - that is the whole recipe
    (order matters, top to bottom in the modifier stack):
      a. VM_SceneDetailer      -> wall plank cladding (run BEFORE the roof so
                                  gable ends are not over-clad)
      b. VM_RoofCap            -> adds the pitched roof
      c. VM_SceneDetailer      -> roof shingle courses
-     d. VM_SceneDetailer      -> one fitted door
-   "StarterGround" has a fifth VM_SceneDetailer in Scatter mode for debris.
+     d. VM_SceneDetailer      -> fitted doors (VM_Doors collection)
+     e. VM_SceneDetailer      -> fitted windows (VM_Windows collection, v2.2)
+   "StarterGround" has a sixth VM_SceneDetailer in Scatter mode for debris.
 2. To build it yourself on any cube:
    - Add > Mesh > Cube (2m). Optionally set its origin so the base sits at z=0.
    - Modifier Properties > Add Modifier > Geometry Nodes, pick "VM_SceneDetailer".
@@ -140,22 +146,84 @@ ASSET PREP RULES (variant collections)
 * One object per variant, real-world scale, transforms applied.
 * Convention: X = width (along the row), Y = depth (along the face normal),
   Z = height (along the row stack / world up).
-* STRICT WALL-CONTACT ORIGIN (v2.1, enforced by build_engine.py): the depth
-  axis Y has its origin ON the wall-contact (back) face - local y = 0 is the
-  face that touches the wall, local +Y points outward along the face normal.
-  Doors and handles additionally keep x centered and z at the base (so Drop To
-  Ground works); cladding tiles keep x/z centered (so slot placement works).
-  Because every variant's back face is at y = 0, a fitted part's wall-contact
-  plane lands at the SAME distance for every variant depth - no more "some
-  doors float off the wall, others sink behind the planks".
+* STRICT WALL-CONTACT ORIGIN (v2.1, enforced by build_engine.py/pack_ingest.py):
+  the depth axis Y has its origin ON the wall-contact (back) face - local y = 0
+  is the face that touches the wall, local +Y points outward along the face
+  normal. Doors and handles additionally keep x centered and z at the base (so
+  Drop To Ground works); cladding tiles keep x/z centered (so slot placement
+  works). Because every variant's back face is at y = 0, a fitted part's
+  wall-contact plane lands at the SAME distance for every variant depth - no
+  more "some doors float off the wall, others sink behind the planks".
 * Put variants in a dedicated collection and hide it from viewport/render
   (Geometry Nodes still reads it).
-* The WornWoodenDoorsPack import is re-oriented automatically by build_engine.py
-  to the convention above. Handles are kept in a SEPARATE collection and never
-  mix with doors.
+* v2.2: you no longer hand-prep packs - run pack_ingest.py (below) and it
+  enforces all of the above automatically for ANY glTF/OBJ pack. The demo
+  VM_Doors/VM_DoorHandles/VM_Windows collections are pure adapter output.
 * Do NOT use the WoodShinglesMaterial demo spheres as tile variants - they are
   1m spheres with baked shingles. Use the generated Shingle_/Plank_ tile
   collections (built by build_engine.py with the library textures) instead.
+
+PACK ADAPTER: pack_ingest.py (v2.2, zero configuration)
+--------------------------------------------------------
+One routine, NO pack-specific parameters: run the SAME command on any pack -
+doors, windows, shingles, props - and get engine-ready normalized variant
+collections plus an ingest report:
+
+  cd <blender dir> && ./blender -b --python pack_ingest.py -- \
+      [--out DIR] [--save-blend] <pack.gltf|pack.obj|pack-dir> [...]
+
+It has been run unmodified on WornWoodenDoorsPack and all 4 window packs
+(WeatheredWoodenWindow, BrokenWindow01, BrokenWindow07, MedievalWindows);
+the <Pack>_ingest.json files in this folder are that run's output.
+
+What it does per object (deterministic, thresholds are generic constants):
+  1. imports the pack; non-mesh leftovers (empties/rig nodes) are dropped and
+     counted in the report
+  2. normalizes scale to real-world meters from the authored mesh geometry:
+     max dimension > 40 units -> cm-scale pack, auto-scaled 0.01 (logged per
+     object and per pack); > 4 m or < 0.05 m in every axis -> flagged
+  3. auto-orients: thin axis -> Y (depth), largest -> Z (height), middle -> X
+     (width); proper rotation only (never mirrored); origin at the engine's
+     wall-contact contract (slabs: x centered, y=0 on the back face, z at the
+     base; tiles: x/z centered; props: centered on the ground). The pack's
+     SHOWROOM LAYOUT (object transforms, e.g. shutters posed swung-open) is
+     discarded - a variant is its authored shape, re-derived from the mesh.
+  4. classifies by bbox aspect (depth = thinnest extent after orienting):
+       WALLFLAT  depth <= 25% of min(width, height) AND flat  -> wall slab
+       TILE      flat AND small (max(w,h) <= 0.6 m)            -> cladding tile
+       PROP      anything else (handles, boxes, chunky parts)
+  5. auto-quarantines unfit meshes into <Pack>_Quarantine with per-object
+     reasons - they NEVER mix into Fit collections:
+       degenerate          some axis < 4 mm (zero-thickness sheets, glass)
+       multi-part leftover >=2 connected shells that fall apart into loose
+                           clusters (gap > max(2 mm, 0.4% of size))
+       non-flat (ajar)     PCA thickness > 1.05 x bbox depth: the panel is
+                           swung/splayed inside its own bbox, so a
+                           bbox-normalized wall fit leaves it hanging in the
+                           air off the wall plane (this is the "floating door"
+                           failure mode - e.g. the WornWoodenDoorsPack's
+                           splayed "Worn Doorframe_*" pieces are quarantined
+                           here and never reach VM_Doors)
+  6. writes <Pack>_ingest.json (counts per class, per-object decisions, scale
+     factors, quarantine reasons) and prints the same table.
+
+WINDOWS LAYER (v2.2)
+--------------------
+The starter's fifth modifier is another VM_SceneDetailer in Fit mode with the
+VM_Windows collection - adapter output from WeatheredWoodenWindow (louvered
+shutter slabs) plus a BrokenWindow01 window unit as a second style. SAME node
+group as the doors, different collection: that is the "different pack, same
+engine" proof. Windows use the identical wall-contact contract as doors
+(Backing Offset 0.0435, Embed 0.02 -> back plane tangent to the plank outer
+plane) and are placed with a deterministic RESEED (build_engine.py searches
+seed space on a hidden rig whose host geometry is identical to the starter's,
+because the engine samples only the host mesh): the chosen seed keeps windows
+on the walls (never on roof gables, never hanging off a wall corner), at
+window height (base 0.25-1.05 m, top below the wall top), and with ZERO
+window/door, window/window and window/plank bbox intersections (the same
+world-bbox measurement as the door/plank check). To place windows in your own
+scene: add a Fit-mode VM_SceneDetailer, point Primary Props at a windows
+collection from pack_ingest, and change Seed until placement suits your scene.
 
 STRICT WALL-CONTACT / KEEP-CLEAR-OF-CLADDING CONTRACT (v2.1)
 ------------------------------------------------------------
@@ -164,19 +232,30 @@ Embed) along the outward face normal. To mount a part ON TOP of a cladding
 layer, set Backing Offset to the cladding buildup in front of the base wall
 plus any clear gap you want, and keep Embed as the small sink.
 
-Worked demo numbers (VM_Starter.blend "VM_SceneDetailer_Door"):
-  wall planks      : 0.02 m thick tiles sitting ON the wall (y=0 at the wall)
-  door modifier    : Backing Offset 0.045, Embed 0.02
-  -> door back plane lands 0.025 m off the base wall = planks_thickness (0.02)
-     + 0.005 m clear gap, tangent-to-proud of the plank outer plane
-  -> door front face is ~0.09-0.15 m proud of the plank outer plane
-  -> zero world-bbox intersection with any plank (>= 0.0018 m pairwise gap)
+Worked demo numbers (VM_Starter.blend "VM_SceneDetailer_Door" + "_Windows"):
+  wall planks      : 0.02 m thick tiles sitting ON the wall (y=0 at the wall);
+                     measured plank outer plane 0.02315-0.02317 m (bend+jitter)
+  door modifier    : Backing Offset 0.0435, Embed 0.02
+  -> door back plane lands 0.0235 m off the base wall = TANGENT to the plank
+     outer plane (0.0003-0.0005 m contact-level gap to the frontmost planks -
+     no hairline daylight at the junction), still inside the accept(a)
+     tolerance band (planks_thickness + 0.005 +/- 0.005) and never behind the
+     planks
+  -> door front face is ~0.09-0.11 m proud of the plank outer plane (the door
+     slabs are 0.086-0.108 m thick; v2.2 VM_Doors holds only the adapter's
+     wall-flat slabs - the pack's deeper splayed "Worn Doorframe_*" pieces are
+     quarantined as non-flat (ajar) and never fitted)
+  -> zero world-bbox intersection with any plank (contact-level pairwise gap)
   (the wall plank cladding demo uses Jitter 0.002 m so this gap holds exactly;
    the demo door Seed 229 is the deterministic seed whose 3 fitted doors all
-   clear the wall corners - no door bbox reaches a perpendicular wall's planks)
+   clear the wall corners - no door bbox reaches a perpendicular wall's planks;
+   windows use the same contract and a deterministic reseed - see WINDOWS LAYER)
 Measured on the delivered blends by build_engine.py and logged in
-verification_v2.json (checks accept(a), accept(b), accept(c)); see
-preview_door_closeup.png for the visual proof.
+verification_v2.json (checks accept(a), accept(b), accept(c) - v2.2: accept(c)
+covers "all wall-flat door variants" instead of the old fixed "8 door variants",
+since VM_Doors is now adapter-filtered; every other check is unchanged).
+See preview_door_closeup.png / preview_window_closeup.png /
+preview_starter_house.png for the visual proof.
 
 TEXTURES ARE PACKED (v2.1)
 --------------------------

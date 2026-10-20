@@ -1,5 +1,245 @@
 {
   "results": {
+    "pack_ingest": {
+      "WornWoodenDoorsPack": {
+        "counts": {
+          "WALLFLAT": 5,
+          "TILE": 0,
+          "PROP": 3,
+          "Quarantine": 3
+        },
+        "meshes": 11,
+        "non_mesh_dropped": 14,
+        "scale_factors": {
+          "Door Handle.005_Doors_0": 1.0,
+          "Door Handle.008_Doors_0": 1.0,
+          "Door Handle.009_Doors_0": 1.0,
+          "Worn Door_001_Doors_0": 1.0,
+          "Worn Door_002_Doors_0": 1.0,
+          "Worn Door_004_Doors_0": 1.0,
+          "Worn Door_005_Doors_0": 1.0,
+          "Worn Door_006_Doors_0": 1.0,
+          "Worn Doorframe_004_Doors_0": 1.0,
+          "Worn Doorframe_005_Doors_0": 1.0,
+          "Worn Doorframe_006_Doors_0": 1.0
+        },
+        "flags": [],
+        "quarantine": [
+          {
+            "name": "WornWoodenDoorsPack_Q01_Worn_Doorframe_004_Doors_0",
+            "source": "Worn Doorframe_004_Doors_0",
+            "reason": "non-flat (ajar): PCA thickness 0.1591 m > 1.05 x bbox depth 0.1476 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
+          },
+          {
+            "name": "WornWoodenDoorsPack_Q02_Worn_Doorframe_005_Doors_0",
+            "source": "Worn Doorframe_005_Doors_0",
+            "reason": "non-flat (ajar): PCA thickness 0.1591 m > 1.05 x bbox depth 0.1476 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
+          },
+          {
+            "name": "WornWoodenDoorsPack_Q03_Worn_Doorframe_006_Doors_0",
+            "source": "Worn Doorframe_006_Doors_0",
+            "reason": "non-flat (ajar): PCA thickness 0.1591 m > 1.05 x bbox depth 0.1476 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
+          }
+        ],
+        "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/doors/WornWoodenDoorsPack/scene.gltf"
+      },
+      "WeatheredWoodenWindow": {
+        "counts": {
+          "WALLFLAT": 2,
+          "TILE": 0,
+          "PROP": 1,
+          "Quarantine": 0
+        },
+        "meshes": 3,
+        "non_mesh_dropped": 6,
+        "scale_factors": {
+          "WoodenWindowFrame_WoodenWindow_MTL_0": 0.01,
+          "WoodenWindowLeft_WoodenWindow_MTL_0": 0.01,
+          "WoodenWindowRight_WoodenWindow_MTL_0": 0.01
+        },
+        "flags": [
+          "WoodenWindowFrame_WoodenWindow_MTL_0: cm-scale pack (max dim 149.2 units) auto-scaled 0.01",
+          "WoodenWindowLeft_WoodenWindow_MTL_0: cm-scale pack (max dim 180.0 units) auto-scaled 0.01",
+          "WoodenWindowRight_WoodenWindow_MTL_0: cm-scale pack (max dim 180.0 units) auto-scaled 0.01"
+        ],
+        "quarantine": [],
+        "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/WeatheredWoodenWindow/scene.gltf"
+      },
+      "BrokenWindow01": {
+        "counts": {
+          "WALLFLAT": 1,
+          "TILE": 0,
+          "PROP": 1,
+          "Quarantine": 1
+        },
+        "meshes": 3,
+        "non_mesh_dropped": 5,
+        "scale_factors": {
+          "defaultMaterial": 1.0,
+          "defaultMaterial.001": 1.0,
+          "defaultMaterial.002": 1.0
+        },
+        "flags": [],
+        "quarantine": [
+          {
+            "name": "BrokenWindow01_Q01_defaultMaterial",
+            "source": "defaultMaterial",
+            "reason": "degenerate/zero-thickness sheet (min extent 0.0000 m < 0.004 m)"
+          }
+        ],
+        "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/BrokenWindow01/scene.gltf"
+      },
+      "BrokenWindow07": {
+        "counts": {
+          "WALLFLAT": 1,
+          "TILE": 0,
+          "PROP": 1,
+          "Quarantine": 1
+        },
+        "meshes": 3,
+        "non_mesh_dropped": 5,
+        "scale_factors": {
+          "defaultMaterial": 1.0,
+          "defaultMaterial.001": 1.0,
+          "defaultMaterial.002": 1.0
+        },
+        "flags": [],
+        "quarantine": [
+          {
+            "name": "BrokenWindow07_Q01_defaultMaterial",
+            "source": "defaultMaterial",
+            "reason": "degenerate/zero-thickness sheet (min extent 0.0000 m < 0.004 m)"
+          }
+        ],
+        "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/BrokenWindow07/scene.gltf"
+      },
+      "MedievalWindows": {
+        "counts": {
+          "WALLFLAT": 15,
+          "TILE": 0,
+          "PROP": 5,
+          "Quarantine": 15
+        },
+        "meshes": 35,
+        "non_mesh_dropped": 35,
+        "scale_factors": {
+          "Object_11": 1.0,
+          "Object_13": 1.0,
+          "Object_15": 1.0,
+          "Object_17": 1.0,
+          "Object_19": 1.0,
+          "Object_21": 1.0,
+          "Object_23": 1.0,
+          "Object_25": 1.0,
+          "Object_27": 1.0,
+          "Object_29": 1.0,
+          "Object_31": 1.0,
+          "Object_33": 1.0,
+          "Object_35": 1.0,
+          "Object_37": 1.0,
+          "Object_39": 1.0,
+          "Object_4": 1.0,
+          "Object_41": 1.0,
+          "Object_43": 1.0,
+          "Object_45": 1.0,
+          "Object_47": 1.0,
+          "Object_49": 1.0,
+          "Object_5": 1.0,
+          "Object_51": 1.0,
+          "Object_53": 1.0,
+          "Object_55": 1.0,
+          "Object_57": 1.0,
+          "Object_59": 1.0,
+          "Object_61": 1.0,
+          "Object_63": 1.0,
+          "Object_65": 1.0,
+          "Object_67": 1.0,
+          "Object_69": 1.0,
+          "Object_7": 1.0,
+          "Object_8": 1.0,
+          "Object_9": 1.0
+        },
+        "flags": [],
+        "quarantine": [
+          {
+            "name": "MedievalWindows_Q01_Object_11",
+            "source": "Object_11",
+            "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.7 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q02_Object_19",
+            "source": "Object_19",
+            "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.7 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q03_Object_21",
+            "source": "Object_21",
+            "reason": "non-flat (ajar): PCA thickness 0.0490 m > 1.05 x bbox depth 0.0460 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
+          },
+          {
+            "name": "MedievalWindows_Q04_Object_25",
+            "source": "Object_25",
+            "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q05_Object_29",
+            "source": "Object_29",
+            "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q06_Object_33",
+            "source": "Object_33",
+            "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q07_Object_37",
+            "source": "Object_37",
+            "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.7 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q08_Object_43",
+            "source": "Object_43",
+            "reason": "multi-part leftover: 4 connected shells split into 2 loose clusters (gap > 3.4 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q09_Object_47",
+            "source": "Object_47",
+            "reason": "non-flat (ajar): PCA thickness 0.0495 m > 1.05 x bbox depth 0.0460 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
+          },
+          {
+            "name": "MedievalWindows_Q10_Object_5",
+            "source": "Object_5",
+            "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 5.7 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q11_Object_51",
+            "source": "Object_51",
+            "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q12_Object_53",
+            "source": "Object_53",
+            "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 3.2 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q13_Object_59",
+            "source": "Object_59",
+            "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q14_Object_65",
+            "source": "Object_65",
+            "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.0 mm) - not one part"
+          },
+          {
+            "name": "MedievalWindows_Q15_Object_7",
+            "source": "Object_7",
+            "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.5 mm) - not one part"
+          }
+        ],
+        "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/MedievalWindows/scene.gltf"
+      }
+    },
     "v1_default": {
       "n_instances": 62,
       "instance_verts": 16214,
@@ -913,15 +1153,29 @@
       "distinct_scales": 46,
       "distinct_yaws": 56
     },
+    "windows_seed_search": {
+      "seed": 95,
+      "seeds_tried": 96,
+      "fallback": {
+        "seed": 95,
+        "visible": 2,
+        "min_gap": 0.00157
+      },
+      "full_stack_ok": true,
+      "full_stack_visible": 2,
+      "full_stack_min_gap": 0.00157
+    },
     "starter_house": {
-      "n_instances": 794,
-      "instance_verts": 7123,
+      "n_instances": 796,
+      "instance_verts": 8644,
       "host_verts": 8,
-      "total_verts": 7131,
+      "total_verts": 8652,
       "freq": {
-        "Door_05": 1,
+        "Window_02": 1,
+        "Window_01": 1,
         "Door_04": 1,
-        "Door_08": 1,
+        "Door_03": 1,
+        "Door_02": 1,
         "Shingle_04": 194,
         "Shingle_01": 189,
         "Shingle_02": 174,
@@ -930,20 +1184,20 @@
         "Plank_03": 24,
         "Plank_01": 29
       },
-      "distinct_scales": 4,
+      "distinct_scales": 5,
       "distinct_yaws": 4
     },
     "fit_walls_density0.6": {
       "n_instances": 10,
-      "instance_verts": 1692,
+      "instance_verts": 2682,
       "host_verts": 8,
-      "total_verts": 1700,
+      "total_verts": 2690,
       "freq": {
-        "Door_07": 5,
-        "Door_04": 2,
-        "Door_06": 1,
-        "Door_01": 1,
-        "Door_05": 1
+        "Door_03": 3,
+        "Door_05": 1,
+        "Door_02": 4,
+        "Door_04": 1,
+        "Door_01": 1
       },
       "distinct_scales": 1,
       "distinct_yaws": 4
@@ -1145,12 +1399,11 @@
     },
     "sweep_fit_0.1": {
       "n_instances": 2,
-      "instance_verts": 357,
+      "instance_verts": 936,
       "host_verts": 8,
-      "total_verts": 365,
+      "total_verts": 944,
       "freq": {
-        "Door_07": 1,
-        "Door_04": 1
+        "Door_03": 2
       },
       "distinct_scales": 1,
       "distinct_yaws": 2
@@ -1190,13 +1443,14 @@
     },
     "sweep_fit_0.35": {
       "n_instances": 6,
-      "instance_verts": 761,
+      "instance_verts": 2210,
       "host_verts": 8,
-      "total_verts": 769,
+      "total_verts": 2218,
       "freq": {
-        "Door_07": 4,
-        "Door_04": 1,
-        "Door_06": 1
+        "Door_03": 3,
+        "Door_05": 1,
+        "Door_02": 1,
+        "Door_04": 1
       },
       "distinct_scales": 1,
       "distinct_yaws": 4
@@ -1236,15 +1490,15 @@
     },
     "sweep_fit_0.6": {
       "n_instances": 10,
-      "instance_verts": 1692,
+      "instance_verts": 2682,
       "host_verts": 8,
-      "total_verts": 1700,
+      "total_verts": 2690,
       "freq": {
-        "Door_07": 5,
-        "Door_04": 2,
-        "Door_06": 1,
-        "Door_01": 1,
-        "Door_05": 1
+        "Door_03": 3,
+        "Door_05": 1,
+        "Door_02": 4,
+        "Door_04": 1,
+        "Door_01": 1
       },
       "distinct_scales": 1,
       "distinct_yaws": 4
@@ -1299,17 +1553,15 @@
     },
     "cap_fit": {
       "n_instances": 25,
-      "instance_verts": 5898,
+      "instance_verts": 6916,
       "host_verts": 8,
-      "total_verts": 5906,
+      "total_verts": 6924,
       "freq": {
-        "Door_07": 7,
-        "Door_04": 3,
-        "Door_06": 3,
-        "Door_01": 2,
+        "Door_03": 5,
         "Door_05": 4,
-        "Door_03": 4,
-        "Door_02": 2
+        "Door_02": 8,
+        "Door_04": 7,
+        "Door_01": 1
       },
       "distinct_scales": 1,
       "distinct_yaws": 2
@@ -1359,84 +1611,123 @@
     },
     "images_packed": {
       "VM_Starter.blend": {
-        "total": 63,
-        "packed": 63,
+        "total": 88,
+        "packed": 88,
         "unpacked": []
       },
       "VM_SceneDetailer.blend": {
-        "total": 63,
-        "packed": 63,
+        "total": 88,
+        "packed": 88,
         "unpacked": []
       },
       "VM_RoofCap.blend": {
-        "total": 63,
-        "packed": 63,
+        "total": 88,
+        "packed": 88,
         "unpacked": []
       }
+    },
+    "acceptance_windows": {
+      "per_window": [
+        {
+          "name": "Window_02",
+          "wall": "x-",
+          "base_z": 0.543,
+          "top_z": 1.443,
+          "back_dist": 0.0235,
+          "front_dist": 0.08385,
+          "plank_outer": 0.02298,
+          "proud": 0.06087
+        },
+        {
+          "name": "Window_01",
+          "wall": "x-",
+          "base_z": 0.6318,
+          "top_z": 1.5318,
+          "back_dist": 0.0235,
+          "front_dist": 0.08385,
+          "plank_outer": 0.02298,
+          "proud": 0.06087
+        }
+      ],
+      "pairs": 7,
+      "intersecting": 0,
+      "min_pairwise_gap": 0.23915,
+      "plank_pairs": 160,
+      "plank_intersecting": 0,
+      "plank_min_gap": 0.00157,
+      "modifier": {
+        "backing_offset": 0.04349999874830246,
+        "embed": 0.019999999552965164
+      },
+      "variant_back_dist": {
+        "Window_01": 0.0235,
+        "Window_02": 0.0235,
+        "Window_03": 0.0235
+      },
+      "variant_y_min": {
+        "Window_01": 0.0,
+        "Window_02": 0.0,
+        "Window_03": 0.0
+      },
+      "variant_spread": 0.0,
+      "node_group_shared": true
     },
     "acceptance_doors": {
       "per_door": [
         {
-          "name": "Door_05",
-          "wall": "y-",
-          "back_dist": 0.025,
-          "front_dist": 0.11066,
-          "plank_outer": 0.02315,
-          "proud": 0.08752
-        },
-        {
           "name": "Door_04",
           "wall": "y-",
-          "back_dist": 0.025,
-          "front_dist": 0.11066,
+          "back_dist": 0.0235,
+          "front_dist": 0.10916,
           "plank_outer": 0.02315,
-          "proud": 0.08752
+          "proud": 0.08601
         },
         {
-          "name": "Door_08",
+          "name": "Door_03",
+          "wall": "y-",
+          "back_dist": 0.0235,
+          "front_dist": 0.10916,
+          "plank_outer": 0.02315,
+          "proud": 0.08601
+        },
+        {
+          "name": "Door_02",
           "wall": "y+",
-          "back_dist": 0.025,
-          "front_dist": 0.1726,
+          "back_dist": 0.0235,
+          "front_dist": 0.10916,
           "plank_outer": 0.02317,
-          "proud": 0.14943
+          "proud": 0.08599
         }
       ],
       "pairs": 240,
       "intersecting": 0,
-      "min_pairwise_gap": 0.00183,
+      "min_pairwise_gap": 0.00032,
       "planks_thickness": 0.02,
       "modifier": {
-        "backing_offset": 0.04500000178813934,
+        "backing_offset": 0.04349999874830246,
         "embed": 0.019999999552965164
       },
       "variant_back_dist": {
-        "Door_01": 0.025,
-        "Door_02": 0.025,
-        "Door_03": 0.025,
-        "Door_04": 0.025,
-        "Door_05": 0.025,
-        "Door_06": 0.025,
-        "Door_07": 0.025,
-        "Door_08": 0.025
+        "Door_01": 0.0235,
+        "Door_02": 0.0235,
+        "Door_03": 0.0235,
+        "Door_04": 0.0235,
+        "Door_05": 0.0235
       },
       "variant_y_min": {
         "Door_01": 0.0,
         "Door_02": 0.0,
         "Door_03": 0.0,
         "Door_04": 0.0,
-        "Door_05": 0.0,
-        "Door_06": 0.0,
-        "Door_07": 0.0,
-        "Door_08": 0.0
+        "Door_05": 0.0
       },
       "variant_spread": 0.0,
       "variant_variance": 0.0,
       "live_back_dist": {
-        "Door_05": 0.025,
-        "Door_04": 0.025,
-        "Door_08": 0.025,
-        "Door_07": -0.03,
-        "Door_06": -0.03,
+        "Door_04": 0.0235,
+        "Door_03": 0.0235,
+        "Door_02": 0.0235,
+        "Door_05": -0.03,
         "Door_01": -0.03
       },
       "testfit_instances": 10,
@@ -1562,7 +1853,7 @@
     {
       "name": "starter: doors on cube walls (no gable-end floaters), well separated",
       "pass": true,
-      "detail": "on_cube_walls=True (back plane at r=1.025), min separation=0.91m, pos=[(0.5041, -1.025, 0.0), (-0.4065, -1.025, 0.0), (0.1509, 1.025, 0.0)]"
+      "detail": "on_cube_walls=True (back plane at r=1.024), min separation=0.91m, pos=[(0.5041, -1.0235, 0.0), (-0.4065, -1.0235, 0.0), (0.1509, 1.0235, 0.0)]"
     },
     {
       "name": "sweep: scatter counts increase with density",
@@ -1640,34 +1931,79 @@
       "detail": "slots=['VM_RoofClayTiles', None]"
     },
     {
-      "name": "images_packed VM_Starter.blend: 63/63",
+      "name": "images_packed VM_Starter.blend: 88/88",
       "pass": true,
-      "detail": "63/63 image datablocks packed, unpacked=[]"
+      "detail": "88/88 image datablocks packed, unpacked=[]"
     },
     {
       "name": "accept(a): door back plane = planks_thickness + small tolerance, front proud >= 0.005",
       "pass": true,
-      "detail": "back distances [0.025, 0.025, 0.025] (target 0.02+0.005 +/- 0.005), proud [0.08752, 0.08752, 0.14943]"
+      "detail": "back distances [0.0235, 0.0235, 0.0235] (target 0.02+0.005 +/- 0.005), proud [0.08601, 0.08601, 0.08599]"
     },
     {
       "name": "accept(b): zero door/plank bbox intersection, min pairwise gap >= 0",
       "pass": true,
-      "detail": "240 door-plank world-bbox pairs, intersecting=0, min pairwise gap=0.00183 m"
+      "detail": "240 door-plank world-bbox pairs, intersecting=0, min pairwise gap=0.00032 m"
     },
     {
-      "name": "accept(c): back-plane distance variance across all 8 door variants <= 0.005 m",
+      "name": "windows: 2-3 fitted windows on the house",
       "pass": true,
-      "detail": "per-variant back distances {'Door_01': 0.025, 'Door_02': 0.025, 'Door_03': 0.025, 'Door_04': 0.025, 'Door_05': 0.025, 'Door_06': 0.025, 'Door_07': 0.025, 'Door_08': 0.025}, spread=0.000000 m, variance=0.00000000 m^2, y_min spread=0.000000 m"
+      "detail": "2 windows: ['Window_02', 'Window_01']"
     },
     {
-      "name": "images_packed VM_SceneDetailer.blend: 63/63",
+      "name": "windows: same wall-contact contract as doors (back plane = planks_thickness + 0.005 +/- 0.005)",
       "pass": true,
-      "detail": "63/63 image datablocks packed, unpacked=[]"
+      "detail": "back distances [0.0235, 0.0235] (target 0.02+0.005 +/- 0.005), proud [0.06087, 0.06087]"
     },
     {
-      "name": "images_packed VM_RoofCap.blend: 63/63",
+      "name": "windows: zero window/door and window/window bbox intersection",
       "pass": true,
-      "detail": "63/63 image datablocks packed, unpacked=[]"
+      "detail": "7 window-door/window-window world-bbox pairs, intersecting=0, min pairwise gap=0.23915 m"
+    },
+    {
+      "name": "windows: zero window/plank bbox intersection (like the door/plank check)",
+      "pass": true,
+      "detail": "160 window-plank world-bbox pairs, intersecting=0, min pairwise gap=0.00157 m"
+    },
+    {
+      "name": "windows: bases at window height, tops below the wall top",
+      "pass": true,
+      "detail": "bases [0.543, 0.6318], tops [1.443, 1.5318]"
+    },
+    {
+      "name": "windows: 0 back-plane variance across all window variants at one setting",
+      "pass": true,
+      "detail": "per-variant back distances {'Window_01': 0.0235, 'Window_02': 0.0235, 'Window_03': 0.0235}, spread=0.000000 m, modifier Backing Offset=0.04349999874830246, Embed=0.019999999552965164"
+    },
+    {
+      "name": "windows layer: same VM_SceneDetailer node group, different pack collection (different pack, same engine)",
+      "pass": true,
+      "detail": "node group shared with the door modifier: True; windows collection: ['Window_01', 'Window_02', 'Window_03']"
+    },
+    {
+      "name": "accept(c): back-plane distance variance across all wall-flat door variants <= 0.005 m (v2.2: VM_Doors holds the adapter's wall-flat slabs only)",
+      "pass": true,
+      "detail": "5 variants, per-variant back distances {'Door_01': 0.0235, 'Door_02': 0.0235, 'Door_03': 0.0235, 'Door_04': 0.0235, 'Door_05': 0.0235}, spread=0.000000 m, variance=0.00000000 m^2, y_min spread=0.000000 m"
+    },
+    {
+      "name": "images_packed VM_SceneDetailer.blend: 88/88",
+      "pass": true,
+      "detail": "88/88 image datablocks packed, unpacked=[]"
+    },
+    {
+      "name": "images_packed VM_RoofCap.blend: 88/88",
+      "pass": true,
+      "detail": "88/88 image datablocks packed, unpacked=[]"
+    },
+    {
+      "name": "adapter: VM_Doors holds wall-flat slabs only (quarantined/props never mix in)",
+      "pass": true,
+      "detail": "VM_Doors=['Door_01', 'Door_02', 'Door_03', 'Door_04', 'Door_05'], quarantine=20 objects kept in <Pack>_Quarantine, misfiled=[]"
+    },
+    {
+      "name": "adapter: 5 packs classified by pack_ingest.py with zero pack-specific parameters",
+      "pass": true,
+      "detail": "packs=['BrokenWindow01', 'BrokenWindow07', 'MedievalWindows', 'WeatheredWoodenWindow', 'WornWoodenDoorsPack']; counts={'WornWoodenDoorsPack': {'WALLFLAT': 5, 'TILE': 0, 'PROP': 3, 'Quarantine': 3}, 'WeatheredWoodenWindow': {'WALLFLAT': 2, 'TILE': 0, 'PROP': 1, 'Quarantine': 0}, 'BrokenWindow01': {'WALLFLAT': 1, 'TILE': 0, 'PROP': 1, 'Quarantine': 1}, 'BrokenWindow07': {'WALLFLAT': 1, 'TILE': 0, 'PROP': 1, 'Quarantine': 1}, 'MedievalWindows': {'WALLFLAT': 15, 'TILE': 0, 'PROP': 5, 'Quarantine': 15}}"
     }
   ]
 }

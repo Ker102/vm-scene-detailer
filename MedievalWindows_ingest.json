@@ -1,0 +1,837 @@
+{
+ "pack": "MedievalWindows",
+ "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/MedievalWindows/scene.gltf",
+ "ingester": "pack_ingest.py (zero-config)",
+ "objects_seen": 70,
+ "meshes": 35,
+ "non_mesh_dropped": 35,
+ "scale_factors": {
+  "Object_11": 1.0,
+  "Object_13": 1.0,
+  "Object_15": 1.0,
+  "Object_17": 1.0,
+  "Object_19": 1.0,
+  "Object_21": 1.0,
+  "Object_23": 1.0,
+  "Object_25": 1.0,
+  "Object_27": 1.0,
+  "Object_29": 1.0,
+  "Object_31": 1.0,
+  "Object_33": 1.0,
+  "Object_35": 1.0,
+  "Object_37": 1.0,
+  "Object_39": 1.0,
+  "Object_4": 1.0,
+  "Object_41": 1.0,
+  "Object_43": 1.0,
+  "Object_45": 1.0,
+  "Object_47": 1.0,
+  "Object_49": 1.0,
+  "Object_5": 1.0,
+  "Object_51": 1.0,
+  "Object_53": 1.0,
+  "Object_55": 1.0,
+  "Object_57": 1.0,
+  "Object_59": 1.0,
+  "Object_61": 1.0,
+  "Object_63": 1.0,
+  "Object_65": 1.0,
+  "Object_67": 1.0,
+  "Object_69": 1.0,
+  "Object_7": 1.0,
+  "Object_8": 1.0,
+  "Object_9": 1.0
+ },
+ "flags": [],
+ "counts": {
+  "WALLFLAT": 15,
+  "TILE": 0,
+  "PROP": 5,
+  "Quarantine": 15
+ },
+ "quarantine": [
+  {
+   "name": "MedievalWindows_Q01_Object_11",
+   "source": "Object_11",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.7 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q02_Object_19",
+   "source": "Object_19",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.7 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q03_Object_21",
+   "source": "Object_21",
+   "reason": "non-flat (ajar): PCA thickness 0.0490 m > 1.05 x bbox depth 0.0460 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
+  },
+  {
+   "name": "MedievalWindows_Q04_Object_25",
+   "source": "Object_25",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q05_Object_29",
+   "source": "Object_29",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q06_Object_33",
+   "source": "Object_33",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q07_Object_37",
+   "source": "Object_37",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.7 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q08_Object_43",
+   "source": "Object_43",
+   "reason": "multi-part leftover: 4 connected shells split into 2 loose clusters (gap > 3.4 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q09_Object_47",
+   "source": "Object_47",
+   "reason": "non-flat (ajar): PCA thickness 0.0495 m > 1.05 x bbox depth 0.0460 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
+  },
+  {
+   "name": "MedievalWindows_Q10_Object_5",
+   "source": "Object_5",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 5.7 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q11_Object_51",
+   "source": "Object_51",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q12_Object_53",
+   "source": "Object_53",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 3.2 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q13_Object_59",
+   "source": "Object_59",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q14_Object_65",
+   "source": "Object_65",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.0 mm) - not one part"
+  },
+  {
+   "name": "MedievalWindows_Q15_Object_7",
+   "source": "Object_7",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.5 mm) - not one part"
+  }
+ ],
+ "objects": [
+  {
+   "source_name": "Object_11",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.8959,
+    0.0374,
+    0.9163
+   ],
+   "depth_ratio": 0.0417,
+   "pca_thickness": 0.0374,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.7 mm) - not one part",
+   "output_name": "MedievalWindows_Q01_Object_11"
+  },
+  {
+   "source_name": "Object_13",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.1289,
+    0.1025,
+    1.1289
+   ],
+   "depth_ratio": 0.0908,
+   "pca_thickness": 0.1029,
+   "pca_ratio": 1.0041,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.102 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_01"
+  },
+  {
+   "source_name": "Object_15",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.6215,
+    0.326,
+    0.8117
+   ],
+   "depth_ratio": 0.4016,
+   "pca_thickness": 0.326,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.326 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "MedievalWindows_PROP_01"
+  },
+  {
+   "source_name": "Object_17",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.7712,
+    0.4553,
+    1.0
+   ],
+   "depth_ratio": 0.4553,
+   "pca_thickness": 0.4703,
+   "pca_ratio": 1.033,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.455 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "MedievalWindows_PROP_02"
+  },
+  {
+   "source_name": "Object_19",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.6754,
+    0.0295,
+    0.6754
+   ],
+   "depth_ratio": 0.0437,
+   "pca_thickness": 0.0295,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.7 mm) - not one part",
+   "output_name": "MedievalWindows_Q02_Object_19"
+  },
+  {
+   "source_name": "Object_21",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.9053,
+    0.046,
+    0.7913
+   ],
+   "depth_ratio": 0.0581,
+   "pca_thickness": 0.049,
+   "pca_ratio": 1.0655,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "Quarantine",
+   "reason": "non-flat (ajar): PCA thickness 0.0490 m > 1.05 x bbox depth 0.0460 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane",
+   "output_name": "MedievalWindows_Q03_Object_21"
+  },
+  {
+   "source_name": "Object_23",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.8269,
+    0.1144,
+    0.8269
+   ],
+   "depth_ratio": 0.1383,
+   "pca_thickness": 0.1144,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.114 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_02"
+  },
+  {
+   "source_name": "Object_25",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7936,
+    0.0096,
+    0.8117
+   ],
+   "depth_ratio": 0.0121,
+   "pca_thickness": 0.0096,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part",
+   "output_name": "MedievalWindows_Q04_Object_25"
+  },
+  {
+   "source_name": "Object_27",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.0,
+    0.4758,
+    1.5834
+   ],
+   "depth_ratio": 0.4758,
+   "pca_thickness": 0.5258,
+   "pca_ratio": 1.1052,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.476 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "MedievalWindows_PROP_03"
+  },
+  {
+   "source_name": "Object_29",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7936,
+    0.0116,
+    0.8117
+   ],
+   "depth_ratio": 0.0146,
+   "pca_thickness": 0.0116,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part",
+   "output_name": "MedievalWindows_Q05_Object_29"
+  },
+  {
+   "source_name": "Object_31",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.0,
+    0.4758,
+    1.4809
+   ],
+   "depth_ratio": 0.4758,
+   "pca_thickness": 0.6305,
+   "pca_ratio": 1.3252,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.476 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "MedievalWindows_PROP_04"
+  },
+  {
+   "source_name": "Object_33",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7936,
+    0.0163,
+    0.8117
+   ],
+   "depth_ratio": 0.0206,
+   "pca_thickness": 0.0163,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part",
+   "output_name": "MedievalWindows_Q06_Object_33"
+  },
+  {
+   "source_name": "Object_35",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.0,
+    0.0908,
+    1.0
+   ],
+   "depth_ratio": 0.0908,
+   "pca_thickness": 0.0909,
+   "pca_ratio": 1.0018,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.091 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_03"
+  },
+  {
+   "source_name": "Object_37",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.6812,
+    0.0143,
+    0.3406
+   ],
+   "depth_ratio": 0.0419,
+   "pca_thickness": 0.0143,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.7 mm) - not one part",
+   "output_name": "MedievalWindows_Q07_Object_37"
+  },
+  {
+   "source_name": "Object_39",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.8809,
+    0.046,
+    0.4692
+   ],
+   "depth_ratio": 0.0979,
+   "pca_thickness": 0.0478,
+   "pca_ratio": 1.0411,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.046 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_04"
+  },
+  {
+   "source_name": "Object_4",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.0188,
+    0.0734,
+    1.6011
+   ],
+   "depth_ratio": 0.0721,
+   "pca_thickness": 0.0734,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.073 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_05"
+  },
+  {
+   "source_name": "Object_41",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7751,
+    0.0478,
+    0.403
+   ],
+   "depth_ratio": 0.1186,
+   "pca_thickness": 0.0478,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.048 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_06"
+  },
+  {
+   "source_name": "Object_43",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.3453,
+    0.0253,
+    0.862
+   ],
+   "depth_ratio": 0.0733,
+   "pca_thickness": 0.0253,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 4 connected shells split into 2 loose clusters (gap > 3.4 mm) - not one part",
+   "output_name": "MedievalWindows_Q08_Object_43"
+  },
+  {
+   "source_name": "Object_45",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.5479,
+    0.0908,
+    1.0509
+   ],
+   "depth_ratio": 0.1656,
+   "pca_thickness": 0.0908,
+   "pca_ratio": 1.0001,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.091 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_07"
+  },
+  {
+   "source_name": "Object_47",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.2731,
+    0.046,
+    0.9455
+   ],
+   "depth_ratio": 0.0486,
+   "pca_thickness": 0.0495,
+   "pca_ratio": 1.0778,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "Quarantine",
+   "reason": "non-flat (ajar): PCA thickness 0.0495 m > 1.05 x bbox depth 0.0460 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane",
+   "output_name": "MedievalWindows_Q09_Object_47"
+  },
+  {
+   "source_name": "Object_49",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.0,
+    0.0908,
+    1.0
+   ],
+   "depth_ratio": 0.0908,
+   "pca_thickness": 0.0908,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.091 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_08"
+  },
+  {
+   "source_name": "Object_5",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.8161,
+    0.0313,
+    1.4127
+   ],
+   "depth_ratio": 0.0383,
+   "pca_thickness": 0.0314,
+   "pca_ratio": 1.0029,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 5.7 mm) - not one part",
+   "output_name": "MedievalWindows_Q10_Object_5"
+  },
+  {
+   "source_name": "Object_51",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7936,
+    0.0243,
+    0.8117
+   ],
+   "depth_ratio": 0.0306,
+   "pca_thickness": 0.0243,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part",
+   "output_name": "MedievalWindows_Q11_Object_51"
+  },
+  {
+   "source_name": "Object_53",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.3453,
+    0.0221,
+    0.8117
+   ],
+   "depth_ratio": 0.0639,
+   "pca_thickness": 0.0221,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 3.2 mm) - not one part",
+   "output_name": "MedievalWindows_Q12_Object_53"
+  },
+  {
+   "source_name": "Object_55",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.6175,
+    0.046,
+    0.9164
+   ],
+   "depth_ratio": 0.0744,
+   "pca_thickness": 0.0465,
+   "pca_ratio": 1.0129,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.046 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_09"
+  },
+  {
+   "source_name": "Object_57",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.5479,
+    0.0908,
+    1.0
+   ],
+   "depth_ratio": 0.1656,
+   "pca_thickness": 0.0908,
+   "pca_ratio": 1.0003,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.091 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_10"
+  },
+  {
+   "source_name": "Object_59",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7936,
+    0.0206,
+    0.425
+   ],
+   "depth_ratio": 0.0484,
+   "pca_thickness": 0.0206,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 4 connected shells split into 4 loose clusters (gap > 3.2 mm) - not one part",
+   "output_name": "MedievalWindows_Q13_Object_59"
+  },
+  {
+   "source_name": "Object_61",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.247,
+    0.046,
+    0.56
+   ],
+   "depth_ratio": 0.0821,
+   "pca_thickness": 0.0476,
+   "pca_ratio": 1.035,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.046 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_11"
+  },
+  {
+   "source_name": "Object_63",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.0,
+    0.0908,
+    0.6134
+   ],
+   "depth_ratio": 0.148,
+   "pca_thickness": 0.0908,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.091 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_12"
+  },
+  {
+   "source_name": "Object_65",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.3422,
+    0.0183,
+    0.425
+   ],
+   "depth_ratio": 0.0535,
+   "pca_thickness": 0.0183,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.0 mm) - not one part",
+   "output_name": "MedievalWindows_Q14_Object_65"
+  },
+  {
+   "source_name": "Object_67",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.5486,
+    0.0908,
+    0.6134
+   ],
+   "depth_ratio": 0.1654,
+   "pca_thickness": 0.0908,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.091 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_13"
+  },
+  {
+   "source_name": "Object_69",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.6968,
+    0.046,
+    0.6302
+   ],
+   "depth_ratio": 0.0729,
+   "pca_thickness": 0.0476,
+   "pca_ratio": 1.0357,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.046 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_14"
+  },
+  {
+   "source_name": "Object_7",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.5039,
+    0.0354,
+    0.6258
+   ],
+   "depth_ratio": 0.0702,
+   "pca_thickness": 0.0354,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.5 mm) - not one part",
+   "output_name": "MedievalWindows_Q15_Object_7"
+  },
+  {
+   "source_name": "Object_8",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.3713,
+    0.1838,
+    0.903
+   ],
+   "depth_ratio": 0.2035,
+   "pca_thickness": 0.1838,
+   "pca_ratio": 1.0002,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.184 m <= 25% of min(w,h))",
+   "output_name": "MedievalWindows_WALLFLAT_15"
+  },
+  {
+   "source_name": "Object_9",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.2758,
+    0.0287,
+    0.0853
+   ],
+   "depth_ratio": 0.3359,
+   "pca_thickness": 0.0309,
+   "pca_ratio": 1.077,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.029 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "MedievalWindows_PROP_05"
+  }
+ ],
+ "collections": {
+  "WALLFLAT": "MedievalWindows_WALLFLAT",
+  "TILE": "MedievalWindows_TILE",
+  "PROP": "MedievalWindows_PROP",
+  "Quarantine": "MedievalWindows_Quarantine"
+ }
+}

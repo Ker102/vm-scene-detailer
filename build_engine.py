@@ -20,6 +20,23 @@ v2.1 bug fixes:
   * Every image is PACKED into each delivered .blend before saving (no more
     magenta/missing textures on Windows - no load-bearing outside filepaths).
 
+v2.2 pack adapter + windows layer:
+  * pack_ingest.py (delivered alongside): generic ZERO-CONFIG adapter that
+    ingests ANY glTF/OBJ pack into normalized <Pack>_WALLFLAT/_TILE/_PROP
+    variant collections + <Pack>_Quarantine (degenerate sheets, multi-part
+    leftovers, non-flat/ajar panels) + a JSON ingest report. Same unmodified
+    script runs on WornWoodenDoorsPack and 4 window packs.
+  * Doors are rebuilt THROUGH the adapter: VM_Doors now contains ONLY the
+    wall-flat door slabs; the pack's "Worn Doorframe_*" pieces (splayed frame
+    profile: PCA thickness 1.078x bbox depth) are auto-quarantined as
+    non-flat (ajar) - they were the "floating" door stand-ins.
+  * Windows layer: a fifth starter modifier (Fit) over a windows collection
+    from the adapter (WeatheredWoodenWindow shutters + a BrokenWindow01 unit)
+    - SAME VM_SceneDetailer node group, different collection = the
+    "different pack, same engine" proof. Windows keep the identical
+    wall-contact contract as doors and are reseeded so zero window/door and
+    zero window/plank bbox intersections occur.
+
 Deterministic (fixed seeds). Run:
   cd /home/kristo/blender && ./blender-5.2.2-linux-x64/blender -b --python build_engine.py
 """
@@ -27,6 +44,9 @@ Deterministic (fixed seeds). Run:
 import bpy, bmesh, os, sys, shutil, math, json
 from collections import Counter
 from mathutils import Matrix, Vector
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pack_ingest
 
 ROOT = "/home/kristo/harneloop-work/engine"
 ASSET_SRC = "/mnt/c/Users/krist/Documents/ViperMeshAssets"
@@ -44,6 +64,11 @@ LIB_BLENDS = [
     "props/books/stacks/books_stack_neutral_a.blend",
 ]
 DOOR_GLTF = "props/doors/WornWoodenDoorsPack/scene.gltf"
+WIN_GLTF_WW = "props/windows/WeatheredWoodenWindow/scene.gltf"
+WIN_GLTF_BW01 = "props/windows/BrokenWindow01/scene.gltf"
+WIN_GLTF_BW07 = "props/windows/BrokenWindow07/scene.gltf"
+WIN_GLTF_MED = "props/windows/MedievalWindows/scene.gltf"
+PACK_PATHS = [DOOR_GLTF, WIN_GLTF_WW, WIN_GLTF_BW01, WIN_GLTF_BW07, WIN_GLTF_MED]
 
 log = lambda *a: print(*a, flush=True)
 
@@ -214,37 +239,40 @@ def import_assets(primary_col, library_col):
             f"{len(ob.data.vertices) if ob else 0} verts")
 
 
-def import_doors(door_col, handle_col):
-    """Import WornWoodenDoorsPack as per-object variants, re-oriented to the
-    engine convention (X width / Y depth / Z height, origin at base center).
-    Handles go to their own collection and never mix with doors."""
-    path = os.path.join(ASSET_SRC, DOOR_GLTF)
-    before = set(bpy.data.objects.keys())
-    bpy.ops.import_scene.gltf(filepath=path)
-    new = [bpy.data.objects[n] for n in set(bpy.data.objects.keys()) - before]
-    di = hi = 0
-    for ob in sorted(new, key=lambda o: o.name):
-        if ob.type != "MESH":
-            bpy.data.objects.remove(ob, do_unlink=True)
-            continue
-        is_handle = "Handle" in ob.name
-        if is_handle:
-            di_ = hi
-        orient_variant(ob)
-        me = ob.data
-        ex = max(v.co.x for v in me.vertices) - min(v.co.x for v in me.vertices)
-        ez = max(v.co.z for v in me.vertices) - min(v.co.z for v in me.vertices)
-        if is_handle:
-            hi += 1
-            ob.name = f"DoorHandle_{hi:02d}"; ob.data.name = ob.name
-            link_only(ob, handle_col)
-        else:
-            di += 1
-            ob.name = f"Door_{di:02d}"; ob.data.name = ob.name
-            link_only(ob, door_col)
-            log(f"  door variant {ob.name}: {ex:.2f}w x {ez:.2f}h")
-    log(f"  doors staged: {di} door variants, {hi} handle variants (kept separate)")
-    return di, hi
+def ingest_packs(col_parent, col_doors, col_handles, col_windows):
+    """Ingest the asset packs through pack_ingest.py (zero-config adapter) and
+    wire the normalized outputs into the engine's VM_ collections:
+      VM_Doors       <- <WornWoodenDoorsPack_WALLFLAT> (wall-flat slabs ONLY)
+      VM_DoorHandles <- <WornWoodenDoorsPack_PROP>
+      VM_Windows     <- <WeatheredWoodenWindow_WALLFLAT> + <BrokenWindow01_WALLFLAT>
+    Quarantined objects stay in <Pack>_Quarantine and never reach Fit."""
+    reports = {}
+    for rel in PACK_PATHS:
+        rep = pack_ingest.ingest_pack(os.path.join(ASSET_SRC, rel),
+                                      out_dir=ROOT, parent=col_parent)
+        reports[rep["pack"]] = rep
+
+    def pack_objs(pack, cls):
+        cname = "%s_%s" % (pack, cls)
+        col = bpy.data.collections.get(cname)
+        return sorted(col.objects, key=lambda o: o.name) if col else []
+
+    doors = pack_objs("WornWoodenDoorsPack", "WALLFLAT")
+    handles = pack_objs("WornWoodenDoorsPack", "PROP")
+    windows = pack_objs("WeatheredWoodenWindow", "WALLFLAT") + \
+        pack_objs("BrokenWindow01", "WALLFLAT")
+    for i, ob in enumerate(doors, 1):
+        ob.name = ob.data.name = "Door_%02d" % i
+        link_only(ob, col_doors)
+    for i, ob in enumerate(handles, 1):
+        ob.name = ob.data.name = "DoorHandle_%02d" % i
+        link_only(ob, col_handles)
+    for i, ob in enumerate(windows, 1):
+        ob.name = ob.data.name = "Window_%02d" % i
+        link_only(ob, col_windows)
+    log("  adapter wired VM_Doors=%d wall-flat slabs, VM_DoorHandles=%d props, "
+        "VM_Windows=%d window variants" % (len(doors), len(handles), len(windows)))
+    return reports, len(doors), len(handles), len(windows)
 
 
 def make_tile_variants(col, name, wx, hy, th, n, mat, bend):
@@ -1402,6 +1430,55 @@ def eval_stats(host):
                 named_positions=named_positions)
 
 
+def inst_boxes(host, prefix):
+    """World AABBs of evaluated instances of `host` whose object name starts
+    with `prefix` (depsgraph instance iteration)."""
+    dg = bpy.context.evaluated_depsgraph_get()
+    dg.update()
+    boxes = []
+    for inst in dg.object_instances:
+        if not inst.is_instance or inst.parent is None:
+            continue
+        par = inst.parent
+        if not (par == host or getattr(par, "original", None) == host):
+            continue
+        ob = inst.object
+        if not ob.name.startswith(prefix):
+            continue
+        m = inst.matrix_world
+        cs = [m @ Vector(c) for c in ob.bound_box]
+        lo = Vector((min(c.x for c in cs), min(c.y for c in cs), min(c.z for c in cs)))
+        hi = Vector((max(c.x for c in cs), max(c.y for c in cs), max(c.z for c in cs)))
+        boxes.append(dict(name=ob.name, lo=lo, hi=hi, org=m.translation.copy(),
+                          n=Vector(m.col[1]).normalized()))
+    return boxes
+
+
+def host_planes(host):
+    # BASE WALL planes from the host's original mesh verts - object.bound_box
+    # reflects evaluated geometry (roof/instances) and would skew the planes
+    cs = [host.matrix_world @ Vector(v.co) for v in host.data.vertices]
+    lo = Vector((min(c.x for c in cs), min(c.y for c in cs), min(c.z for c in cs)))
+    hi = Vector((max(c.x for c in cs), max(c.y for c in cs), max(c.z for c in cs)))
+    return lo, hi
+
+
+def wall_of(n):
+    if abs(n.x) > 0.9:
+        return 0, (1 if n.x > 0 else -1)
+    return 1, (1 if n.y > 0 else -1)
+
+
+def back_dist_of(box, lo, hi):
+    ax, sgn = wall_of(box["n"])
+    plane = hi[ax] if sgn > 0 else lo[ax]
+    return (box["org"][ax] - plane) * sgn
+
+
+def aabb_gap(a, b):
+    return max(max(a["lo"][i] - b["hi"][i], b["lo"][i] - a["hi"][i]) for i in range(3))
+
+
 def zone_counts_on_cube(positions, normals, size=2.0):
     """Classify instance origins by the face normal they were placed against
     (Fit/Cladding align the instance's local Y axis to the face normal)."""
@@ -1494,15 +1571,23 @@ def main():
     col_debris = bpy.data.collections.new("VM_Debris_Trash")
     col_doors = bpy.data.collections.new("VM_Doors")
     col_handles = bpy.data.collections.new("VM_DoorHandles")
+    col_windows = bpy.data.collections.new("VM_Windows")
     col_shingle = bpy.data.collections.new("VM_Tiles_Shingle")
     col_plank = bpy.data.collections.new("VM_Tiles_Plank")
-    for c in (col_primary, col_library, col_debris, col_doors, col_handles, col_shingle, col_plank):
+    for c in (col_primary, col_library, col_debris, col_doors, col_handles, col_windows,
+              col_shingle, col_plank):
         col_assets.children.link(c)
 
     log("== importing asset model sets")
     import_assets(col_primary, col_library)
-    log("== importing door pack (re-oriented to X-width/Y-depth/Z-height)")
-    n_doors, n_handles = import_doors(col_doors, col_handles)
+    log("== ingesting packs via pack_ingest.py (zero-config adapter)")
+    ingest_reports, n_doors, n_handles, n_windows = ingest_packs(
+        col_assets, col_doors, col_handles, col_windows)
+    results["pack_ingest"] = {p: dict(counts=r["counts"], meshes=r["meshes"],
+                                      non_mesh_dropped=r["non_mesh_dropped"],
+                                      scale_factors=r["scale_factors"], flags=r["flags"],
+                                      quarantine=r["quarantine"], source=r["source"])
+                              for p, r in ingest_reports.items()}
     log("== generating debris + tile variant sets")
     make_debris(col_debris)
 
@@ -1696,17 +1781,18 @@ def main():
     m_door = starter.modifiers.new("VM_SceneDetailer_Door", "NODES")
     m_door.node_group = ng
     # Strict wall-contact contract for the fitted doors: planks sit ON the wall
-    # (0.02 thick tiles, y=0 at the wall), so the door placement plane must clear
-    # the plank outer plane. Net normal offset = Backing Offset - Embed =
-    # 0.045 - 0.02 = 0.025 = planks_thickness (0.02) + 0.005 clear gap: the door
-    # back plane is tangent-to-proud of the plank outer plane (never behind it),
-    # with a guaranteed >= 0.0018 m bbox gap to the jittered planks.
+    # (0.02 thick tiles, y=0 at the wall). The door placement plane is tangent
+    # to the measured plank outer plane (0.02315-0.02317 m): net normal offset
+    # = Backing Offset - Embed = 0.0435 - 0.02 = 0.0235 -> the door back face
+    # lands 0.0003-0.0005 m in front of the frontmost planks (contact-level
+    # gap, no hairline daylight) while still inside the accept(a) tolerance
+    # band (planks_thickness + 0.005 +/- 0.005). Never behind the planks.
     # Seed 229 = the deterministic seed whose 3 fitted doors all clear the wall
     # corners (no door bbox overlaps a perpendicular wall's planks; verified by
     # the accept(a/b/c) measurements on the delivered VM_Starter.blend).
     door_params = dict(defaults, **{
         "Placement Mode": "Fit", "Face Zone": "Walls",
-        "Density": 0.35, "Seed": 229, "Embed": 0.02, "Backing Offset": 0.045,
+        "Density": 0.35, "Seed": 229, "Embed": 0.02, "Backing Offset": 0.0435,
         "Drop To Ground": True,
         "Scale Min": 1.0, "Scale Max": 1.0,
         "Primary Props": col_doors, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
@@ -1714,6 +1800,89 @@ def main():
         "Max Instances": 3,
     })
     set_params(m_door, ng, door_params)
+
+    # ---- windows layer (v2.2): SAME VM_SceneDetailer node group, windows
+    # collection from pack_ingest (WeatheredWoodenWindow shutters + a
+    # BrokenWindow01 unit). Identical wall-contact contract as the doors:
+    # Backing Offset 0.045 / Embed 0.02 -> back plane at planks_thickness + 0.005.
+    m_win = starter.modifiers.new("VM_SceneDetailer_Windows", "NODES")
+    m_win.node_group = ng
+    win_params = dict(defaults, **{
+        "Placement Mode": "Fit", "Face Zone": "Walls",
+        "Density": 0.35, "Embed": 0.02, "Backing Offset": 0.0435,
+        "Drop To Ground": False,
+        "Scale Min": 0.5, "Scale Max": 0.5,
+        "Primary Props": col_windows, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+        "Random Mask Threshold": 0.0, "Vertical Mask": False,
+        "Max Instances": 2,
+    })
+    # Deterministic reseed (shift/reseed, no geometry edits). Window sampling
+    # only sees the HOST mesh (instance layers are deleted before sampling), so
+    # the seed search runs on a cheap hidden rig (cube + VM_RoofCap = identical
+    # host geometry) against the real door/plank boxes, then verifies on the
+    # full starter stack. Hard constraints: windows stay on the wall (never
+    # hang off a corner, never on roof gables), base at window height, and
+    # zero window/door, window/window, window/plank bbox intersections.
+    log("== windows layer: deterministic seed search (cheap rig + full-stack verify)")
+    rig = make_cube("WinSearchRig", 2.0, col_scene)
+    rig.location = (0, -40, 0)
+    rig.hide_render = True
+    m_rig_roof = rig.modifiers.new("VM_RoofCap", "NODES")
+    m_rig_roof.node_group = ng_roof
+    set_params(m_rig_roof, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.25,
+                                     "Style": "Gable", "Roof Material": None})
+    m_rig_win = rig.modifiers.new("VM_SceneDetailer_Windows", "NODES")
+    m_rig_win.node_group = ng
+    set_params(m_rig_win, ng, win_params)
+    doors_b = inst_boxes(starter, "Door_")
+    planks_b = inst_boxes(starter, "Plank_")
+    lo_h, hi_h = host_planes(starter)
+
+    def win_evaluate(wins):
+        if not (2 <= len(wins) <= 3):
+            return False, 0, 99.0
+        for w in wins:
+            ax, sgn = wall_of(w["n"])
+            t = 1 - ax
+            if not (0.25 <= w["org"].z <= 1.05) or w["hi"].z > 2.0:
+                return False, 0, 99.0
+            if w["lo"][t] < lo_h[t] - 0.005 or w["hi"][t] > hi_h[t] + 0.005:
+                return False, 0, 99.0        # window hangs off a wall corner
+        pairs = [aabb_gap(w, b) for w in wins for b in doors_b]
+        pairs += [aabb_gap(wins[i], wins[j])
+                  for i in range(len(wins)) for j in range(i + 1, len(wins))]
+        pairs += [aabb_gap(w, p) for w in wins for p in planks_b]
+        if any(g < 0 for g in pairs):
+            return False, 0, min(pairs)
+        vis = sum(1 for w in wins if wall_of(w["n"]) in ((1, -1), (0, -1)))
+        return True, vis, min(pairs)
+
+    win_seed_used, win_fallback, win_tried = 0, None, 0
+    for seed in range(4000):
+        win_tried = seed + 1
+        set_params(m_rig_win, ng, dict(win_params, **{"Seed": seed}))
+        rig.update_tag()
+        bpy.context.view_layer.update()
+        ok, vis, mgap = win_evaluate(inst_boxes(rig, "Window_"))
+        if not ok:
+            continue
+        if win_fallback is None:
+            win_fallback = dict(seed=seed, visible=vis, min_gap=round(mgap, 5))
+        if vis >= 1:
+            win_seed_used = seed
+            break
+    else:
+        win_seed_used = win_fallback["seed"] if win_fallback else 0
+    set_params(m_win, ng, dict(win_params, **{"Seed": win_seed_used}))
+    starter.update_tag()
+    bpy.context.view_layer.update()
+    f_ok, f_vis, f_gap = win_evaluate(inst_boxes(starter, "Window_"))
+    results["windows_seed_search"] = dict(seed=win_seed_used, seeds_tried=win_tried,
+                                          fallback=win_fallback,
+                                          full_stack_ok=f_ok, full_stack_visible=f_vis,
+                                          full_stack_min_gap=round(f_gap, 5))
+    log(f"  windows seed {win_seed_used} chosen after {win_tried} candidates "
+        f"(fallback={win_fallback}, full-stack verify ok={f_ok}, min gap={f_gap:.5f})")
 
     m_ground = starter_ground.modifiers.new("VM_SceneDetailer", "NODES")
     m_ground.node_group = ng
@@ -1948,17 +2117,28 @@ def main():
     render_from("preview_stage3_cladding", (72.6, -3.4, 1.9), (70, 0, 1.0), 45)
     render_from("preview_stage4_materials", (93.6, -4.4, 2.8), (90, 0, 1.0), 35)
     render_from("preview_stage5_roofcap", (106.5, -10.5, 5.5), (103.5, 0, 1.6), 35)
-    render_from("preview_starter_house", (5.2, -48.0, 3.6), (0, -40, 1.4), 35)
-    # close-up of a fitted door standing proud of the wall planks (bug A proof)
+    render_from("preview_starter_house", (-3.0, -47.6, 2.3), (0, -40, 1.3), 38)
+    # close-up of a fitted door mounted on the wall planks (v2.2 proof): camera
+    # at door height, ~15 deg off the wall normal so the junction and contact
+    # read without exaggerated perspective on the door's side faces
     d_idx = [i for i, (nm, _) in enumerate(s_house["named_positions"]) if nm.startswith("Door_")]
     if d_idx:
         i0 = d_idx[0]
         p_world = starter.matrix_world @ Vector(s_house["named_positions"][i0][1])
         nrm0 = Vector(s_house["normals"][i0])
         tan0 = Vector((-nrm0.y, nrm0.x, 0.0)).normalized()
-        cam_pos = p_world + nrm0 * 1.5 + tan0 * 1.3 + Vector((0, 0, 0.95))
-        render_from("preview_door_closeup", tuple(cam_pos), tuple(p_world + Vector((0, 0, 0.75))), 35)
+        cam_pos = p_world + nrm0 * 1.5 + tan0 * 0.42 + Vector((0, 0, 1.05))
+        render_from("preview_door_closeup", tuple(cam_pos), tuple(p_world + Vector((0, 0, 0.92))), 45)
         log(f"  door close-up aimed at {s_house['named_positions'][i0]} (normal {tuple(nrm0)})")
+    w_idx = [i for i, (nm, _) in enumerate(s_house["named_positions"]) if nm.startswith("Window_")]
+    if w_idx:
+        i0 = w_idx[0]
+        p_world = starter.matrix_world @ Vector(s_house["named_positions"][i0][1])
+        nrm0 = Vector(s_house["normals"][i0])
+        tan0 = Vector((-nrm0.y, nrm0.x, 0.0)).normalized()
+        cam_pos = p_world + nrm0 * 1.4 + tan0 * 0.42 + Vector((0, 0, 1.05))
+        render_from("preview_window_closeup", tuple(cam_pos), tuple(p_world + Vector((0, 0, 0.55))), 45)
+        log(f"  window close-up aimed at {s_house['named_positions'][i0]} (normal {tuple(nrm0)})")
 
     # ================================================== save + deliverables
     set_params(mod_a, ng, defaults)
@@ -2003,48 +2183,6 @@ def main():
         log(f"  images_packed {os.path.basename(path)}: {len(imgs) - len(unpacked)}/{len(imgs)}"
             + (f"  UNPACKED={unpacked}" if unpacked else ""))
         return dict(total=len(imgs), packed=len(imgs) - len(unpacked), unpacked=unpacked)
-
-    def inst_boxes(host, prefix):
-        dg = bpy.context.evaluated_depsgraph_get()
-        dg.update()
-        boxes = []
-        for inst in dg.object_instances:
-            if not inst.is_instance or inst.parent is None:
-                continue
-            par = inst.parent
-            if not (par == host or getattr(par, "original", None) == host):
-                continue
-            ob = inst.object
-            if not ob.name.startswith(prefix):
-                continue
-            m = inst.matrix_world
-            cs = [m @ Vector(c) for c in ob.bound_box]
-            lo = Vector((min(c.x for c in cs), min(c.y for c in cs), min(c.z for c in cs)))
-            hi = Vector((max(c.x for c in cs), max(c.y for c in cs), max(c.z for c in cs)))
-            boxes.append(dict(name=ob.name, lo=lo, hi=hi, org=m.translation.copy(),
-                              n=Vector(m.col[1]).normalized()))
-        return boxes
-
-    def host_planes(host):
-        # BASE WALL planes from the host's original mesh verts - object.bound_box
-        # reflects evaluated geometry (roof/instances) and would skew the planes
-        cs = [host.matrix_world @ Vector(v.co) for v in host.data.vertices]
-        lo = Vector((min(c.x for c in cs), min(c.y for c in cs), min(c.z for c in cs)))
-        hi = Vector((max(c.x for c in cs), max(c.y for c in cs), max(c.z for c in cs)))
-        return lo, hi
-
-    def wall_of(n):
-        if abs(n.x) > 0.9:
-            return 0, (1 if n.x > 0 else -1)
-        return 1, (1 if n.y > 0 else -1)
-
-    def back_dist_of(box, lo, hi):
-        ax, sgn = wall_of(box["n"])
-        plane = hi[ax] if sgn > 0 else lo[ax]
-        return (box["org"][ax] - plane) * sgn
-
-    def aabb_gap(a, b):
-        return max(max(a["lo"][i] - b["hi"][i], b["lo"][i] - a["hi"][i]) for i in range(3))
 
     # ---- VM_Starter.blend: images + (A) door wall-contact contract
     rep = blend_image_report(STARTER_PATH)
@@ -2094,6 +2232,87 @@ def main():
           n_int == 0 and min_gap >= 0.0,
           f"{len(gaps)} door-plank world-bbox pairs, intersecting={n_int}, min pairwise gap={min_gap:.5f} m")
 
+    # ---- (w) v2.2 windows layer: same wall-contact contract as the doors
+    wins = inst_boxes(host, "Window_")
+    per_win = []
+    for w in wins:
+        ax, sgn = wall_of(w["n"])
+        plane = hi_h[ax] if sgn > 0 else lo_h[ax]
+        back_d = (w["org"][ax] - plane) * sgn
+        front_c = w["hi"][ax] if sgn > 0 else w["lo"][ax]
+        front_d = (front_c - plane) * sgn
+        wall_planks = [p for p in planks if wall_of(p["n"]) == (ax, sgn)]
+        outer_d = max((((p["hi"][ax] if sgn > 0 else p["lo"][ax]) - plane) * sgn)
+                      for p in wall_planks) if wall_planks else 0.0
+        per_win.append(dict(name=w["name"], wall="xy"[ax] + ("+" if sgn > 0 else "-"),
+                            base_z=round(w["org"].z, 4), top_z=round(w["hi"].z, 4),
+                            back_dist=round(back_d, 5), front_dist=round(front_d, 5),
+                            plank_outer=round(outer_d, 5), proud=round(front_d - outer_d, 5)))
+    for pw in per_win:
+        log(f"  window {pw['name']} (wall {pw['wall']}): base z={pw['base_z']:.3f}, "
+            f"top z={pw['top_z']:.3f}, back plane {pw['back_dist']:.5f} m off the base wall, "
+            f"plank outer {pw['plank_outer']:.5f} m, proud {pw['proud']:.5f} m")
+
+    check("windows: 2-3 fitted windows on the house", 2 <= len(wins) <= 3,
+          f"{len(wins)} windows: {[p['name'] for p in per_win]}")
+    wbacks = [p["back_dist"] for p in per_win]
+    check("windows: same wall-contact contract as doors (back plane = planks_thickness + 0.005 +/- 0.005)",
+          len(per_win) >= 2 and all(abs(bd - (PLANKS_THICKNESS + 0.005)) <= 0.005 for bd in wbacks)
+          and all(p["proud"] >= 0.005 for p in per_win),
+          f"back distances {wbacks} (target {PLANKS_THICKNESS}+0.005 +/- 0.005), "
+          f"proud {[p['proud'] for p in per_win]}")
+
+    w_pairs = [aabb_gap(w, d) for w in wins for d in doors]
+    w_pairs += [aabb_gap(wins[i], wins[j])
+                for i in range(len(wins)) for j in range(i + 1, len(wins))]
+    w_int = sum(1 for g in w_pairs if g < 0)
+    check("windows: zero window/door and window/window bbox intersection",
+          w_int == 0 and (not w_pairs or min(w_pairs) >= 0.0),
+          f"{len(w_pairs)} window-door/window-window world-bbox pairs, intersecting={w_int}, "
+          f"min pairwise gap={min(w_pairs) if w_pairs else 99.0:.5f} m")
+    wp_gaps = [aabb_gap(w, p) for w in wins for p in planks]
+    wp_min = min(wp_gaps) if wp_gaps else 99.0
+    wp_int = sum(1 for g in wp_gaps if g < 0)
+    check("windows: zero window/plank bbox intersection (like the door/plank check)",
+          wp_int == 0 and wp_min >= 0.0,
+          f"{len(wp_gaps)} window-plank world-bbox pairs, intersecting={wp_int}, "
+          f"min pairwise gap={wp_min:.5f} m")
+    check("windows: bases at window height, tops below the wall top",
+          all(0.25 <= p["base_z"] <= 1.05 and p["top_z"] <= 2.0 for p in per_win),
+          f"bases {[p['base_z'] for p in per_win]}, tops {[p['top_z'] for p in per_win]}")
+
+    # windows variant back-plane variance (accept(c) analog, same setting)
+    m_win = host.modifiers["VM_SceneDetailer_Windows"]
+    ngw = m_win.node_group
+    w_backing = float(getattr(m_win.properties.inputs, socket_id(ngw, "Backing Offset")).value)
+    w_embed = float(getattr(m_win.properties.inputs, socket_id(ngw, "Embed")).value)
+    win_var_back, win_var_ymin = {}, {}
+    for ob in sorted(bpy.data.collections["VM_Windows"].objects, key=lambda o: o.name):
+        ymin = min(v.co.y for v in ob.data.vertices)
+        win_var_ymin[ob.name] = round(ymin, 6)
+        win_var_back[ob.name] = round(w_backing - w_embed + ymin, 6)
+    wvals = list(win_var_back.values())
+    wspread = max(wvals) - min(wvals)
+    check("windows: 0 back-plane variance across all window variants at one setting",
+          len(wvals) >= 2 and wspread <= 0.005
+          and max(abs(y) for y in win_var_ymin.values()) <= 0.0005,
+          f"per-variant back distances {win_var_back}, spread={wspread:.6f} m, "
+          f"modifier Backing Offset={w_backing}, Embed={w_embed}")
+    same_ng = (m_win.node_group == host.modifiers["VM_SceneDetailer_Door"].node_group)
+    check("windows layer: same VM_SceneDetailer node group, different pack collection "
+          "(different pack, same engine)",
+          same_ng and bpy.data.collections["VM_Windows"].objects[0].name.startswith("Window_")
+          and not bpy.data.collections["VM_Windows"].objects[0].name.startswith("Door_"),
+          f"node group shared with the door modifier: {same_ng}; "
+          f"windows collection: {sorted(o.name for o in bpy.data.collections['VM_Windows'].objects)}")
+    results["acceptance_windows"] = dict(
+        per_window=per_win, pairs=len(w_pairs), intersecting=w_int,
+        min_pairwise_gap=round(min(w_pairs) if w_pairs else 99.0, 5),
+        plank_pairs=len(wp_gaps), plank_intersecting=wp_int, plank_min_gap=round(wp_min, 5),
+        modifier=dict(backing_offset=w_backing, embed=w_embed),
+        variant_back_dist=win_var_back, variant_y_min=win_var_ymin,
+        variant_spread=round(wspread, 6), node_group_shared=same_ng)
+
     # (c) all VM_Doors variants placed at the SAME setting (the delivered door
     # modifier's own values read back from the blend): back plane = base wall +
     # (Backing Offset - Embed) + variant local y_min (y_min must be 0 by the
@@ -2124,11 +2343,15 @@ def main():
         live.setdefault(b["name"], back_dist_of(b, lo_t, hi_t))
     log(f"  live instance back-plane distances: starter={ {d['name']: round(back_dist_of(d, lo_h, hi_h), 5) for d in doors} }")
     log(f"  TestFit live coverage {len(tf_boxes)} instances, variants present "
-        f"{len({b['name'] for b in tf_boxes})}/8")
-    ok_c = len(vals) == 8 and spread <= 0.005 and max(abs(y) for y in var_ymin.values()) <= 0.0005
-    check("accept(c): back-plane distance variance across all 8 door variants <= 0.005 m",
-          ok_c, f"per-variant back distances {var_back}, spread={spread:.6f} m, "
-                f"variance={var_var:.8f} m^2, y_min spread={max(var_ymin.values()) - min(var_ymin.values()):.6f} m")
+        f"{len({b['name'] for b in tf_boxes})}/{len(var_back)}")
+    n_door_vars = len(var_back)
+    ok_c = (n_door_vars >= 1 and len(vals) == n_door_vars and spread <= 0.005
+            and max(abs(y) for y in var_ymin.values()) <= 0.0005)
+    check("accept(c): back-plane distance variance across all wall-flat door variants <= 0.005 m "
+          "(v2.2: VM_Doors holds the adapter's wall-flat slabs only)",
+          ok_c, f"{n_door_vars} variants, per-variant back distances {var_back}, "
+                f"spread={spread:.6f} m, variance={var_var:.8f} m^2, "
+                f"y_min spread={max(var_ymin.values()) - min(var_ymin.values()):.6f} m")
     results["acceptance_doors"] = dict(
         per_door=per_door, pairs=len(gaps), intersecting=n_int, min_pairwise_gap=round(min_gap, 5),
         planks_thickness=PLANKS_THICKNESS, modifier=dict(backing_offset=backing, embed=embed),
@@ -2145,6 +2368,25 @@ def main():
               rep2["total"] > 0 and not rep2["unpacked"],
               f"{rep2['packed']}/{rep2['total']} image datablocks packed, unpacked={rep2['unpacked']}")
 
+    # ---- adapter wiring proof: Fit collections contain only classified slab
+    # outputs; quarantined objects never mix in (measured on the delivered blend)
+    doors_col = sorted(bpy.data.collections["VM_Doors"].objects, key=lambda o: o.name)
+    quar = []
+    for ob in bpy.data.objects:
+        if "_Q" in ob.name and any(ob.name.startswith(p) for p in
+                                   ("WornWoodenDoorsPack", "WeatheredWoodenWindow",
+                                    "BrokenWindow01", "BrokenWindow07", "MedievalWindows")):
+            quar.append(ob.name)
+    mixed = [ob.name for ob in doors_col if not ob.name.startswith("Door_")]
+    check("adapter: VM_Doors holds wall-flat slabs only (quarantined/props never mix in)",
+          len(doors_col) >= 1 and not mixed and not any(q.startswith("Door_") for q in quar),
+          f"VM_Doors={[o.name for o in doors_col]}, quarantine={len(quar)} objects "
+          f"kept in <Pack>_Quarantine, misfiled={mixed}")
+    pack_counts = {p: r["counts"] for p, r in results.get("pack_ingest", {}).items()}
+    check("adapter: 5 packs classified by pack_ingest.py with zero pack-specific parameters",
+          len(results.get("pack_ingest", {})) == 5,
+          f"packs={sorted(results.get('pack_ingest', {}))}; counts={pack_counts}")
+
     with open(os.path.join(ROOT, "verification_v2.json"), "w") as f:
         json.dump({"results": results,
                    "checks": [{"name": n, "pass": p, "detail": d} for n, p, d in checks]}, f, indent=2, default=str)
@@ -2155,8 +2397,11 @@ def main():
         log("!! FAILED: " + ", ".join(failed))
 
     # deliverables
-    for f in ("build_engine.py",):
+    for f in ("build_engine.py", "pack_ingest.py"):
         shutil.copy2(os.path.join(ROOT, f), os.path.join(DELIVER, f))
+    for rep_name in sorted(os.listdir(ROOT)):
+        if rep_name.endswith("_ingest.json"):
+            shutil.copy2(os.path.join(ROOT, rep_name), os.path.join(DELIVER, rep_name))
     shutil.copy2(STARTER_PATH, os.path.join(DELIVER, "VM_Starter.blend"))
     shutil.copy2(BLEND_PATH, os.path.join(DELIVER, "VM_SceneDetailer.blend"))
     shutil.copy2(ROOFCAP_PATH, os.path.join(DELIVER, "VM_RoofCap.blend"))

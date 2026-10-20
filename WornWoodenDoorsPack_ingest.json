@@ -1,0 +1,273 @@
+{
+ "pack": "WornWoodenDoorsPack",
+ "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/doors/WornWoodenDoorsPack/scene.gltf",
+ "ingester": "pack_ingest.py (zero-config)",
+ "objects_seen": 25,
+ "meshes": 11,
+ "non_mesh_dropped": 14,
+ "scale_factors": {
+  "Door Handle.005_Doors_0": 1.0,
+  "Door Handle.008_Doors_0": 1.0,
+  "Door Handle.009_Doors_0": 1.0,
+  "Worn Door_001_Doors_0": 1.0,
+  "Worn Door_002_Doors_0": 1.0,
+  "Worn Door_004_Doors_0": 1.0,
+  "Worn Door_005_Doors_0": 1.0,
+  "Worn Door_006_Doors_0": 1.0,
+  "Worn Doorframe_004_Doors_0": 1.0,
+  "Worn Doorframe_005_Doors_0": 1.0,
+  "Worn Doorframe_006_Doors_0": 1.0
+ },
+ "flags": [],
+ "counts": {
+  "WALLFLAT": 5,
+  "TILE": 0,
+  "PROP": 3,
+  "Quarantine": 3
+ },
+ "quarantine": [
+  {
+   "name": "WornWoodenDoorsPack_Q01_Worn_Doorframe_004_Doors_0",
+   "source": "Worn Doorframe_004_Doors_0",
+   "reason": "non-flat (ajar): PCA thickness 0.1591 m > 1.05 x bbox depth 0.1476 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
+  },
+  {
+   "name": "WornWoodenDoorsPack_Q02_Worn_Doorframe_005_Doors_0",
+   "source": "Worn Doorframe_005_Doors_0",
+   "reason": "non-flat (ajar): PCA thickness 0.1591 m > 1.05 x bbox depth 0.1476 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
+  },
+  {
+   "name": "WornWoodenDoorsPack_Q03_Worn_Doorframe_006_Doors_0",
+   "source": "Worn Doorframe_006_Doors_0",
+   "reason": "non-flat (ajar): PCA thickness 0.1591 m > 1.05 x bbox depth 0.1476 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
+  }
+ ],
+ "objects": [
+  {
+   "source_name": "Door Handle.005_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.1437,
+    0.0603,
+    0.1175
+   ],
+   "depth_ratio": 0.5134,
+   "pca_thickness": 0.0605,
+   "pca_ratio": 1.0034,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.060 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "WornWoodenDoorsPack_PROP_01"
+  },
+  {
+   "source_name": "Door Handle.008_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.1437,
+    0.0603,
+    0.1295
+   ],
+   "depth_ratio": 0.4657,
+   "pca_thickness": 0.0605,
+   "pca_ratio": 1.0033,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.060 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "WornWoodenDoorsPack_PROP_02"
+  },
+  {
+   "source_name": "Door Handle.009_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.1437,
+    0.0603,
+    0.1295
+   ],
+   "depth_ratio": 0.4657,
+   "pca_thickness": 0.0605,
+   "pca_ratio": 1.0033,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.060 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "WornWoodenDoorsPack_PROP_03"
+  },
+  {
+   "source_name": "Worn Door_001_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7854,
+    1.806,
+    0.1079
+   ],
+   "depth_ratio": 0.1373,
+   "pca_thickness": 0.109,
+   "pca_ratio": 1.0106,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "z",
+    "height_from": "y"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.108 m <= 25% of min(w,h))",
+   "output_name": "WornWoodenDoorsPack_WALLFLAT_01"
+  },
+  {
+   "source_name": "Worn Door_002_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7558,
+    1.806,
+    0.0857
+   ],
+   "depth_ratio": 0.1133,
+   "pca_thickness": 0.0857,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "z",
+    "height_from": "y"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.086 m <= 25% of min(w,h))",
+   "output_name": "WornWoodenDoorsPack_WALLFLAT_02"
+  },
+  {
+   "source_name": "Worn Door_004_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7558,
+    1.806,
+    0.0857
+   ],
+   "depth_ratio": 0.1133,
+   "pca_thickness": 0.0879,
+   "pca_ratio": 1.0266,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "z",
+    "height_from": "y"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.086 m <= 25% of min(w,h))",
+   "output_name": "WornWoodenDoorsPack_WALLFLAT_03"
+  },
+  {
+   "source_name": "Worn Door_005_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7558,
+    1.806,
+    0.0857
+   ],
+   "depth_ratio": 0.1133,
+   "pca_thickness": 0.0857,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "z",
+    "height_from": "y"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.086 m <= 25% of min(w,h))",
+   "output_name": "WornWoodenDoorsPack_WALLFLAT_04"
+  },
+  {
+   "source_name": "Worn Door_006_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.7558,
+    1.806,
+    0.0857
+   ],
+   "depth_ratio": 0.1133,
+   "pca_thickness": 0.0866,
+   "pca_ratio": 1.0111,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "z",
+    "height_from": "y"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.086 m <= 25% of min(w,h))",
+   "output_name": "WornWoodenDoorsPack_WALLFLAT_05"
+  },
+  {
+   "source_name": "Worn Doorframe_004_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.897,
+    1.9396,
+    0.1476
+   ],
+   "depth_ratio": 0.1645,
+   "pca_thickness": 0.1591,
+   "pca_ratio": 1.0782,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "z",
+    "height_from": "y"
+   },
+   "class": "Quarantine",
+   "reason": "non-flat (ajar): PCA thickness 0.1591 m > 1.05 x bbox depth 0.1476 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane",
+   "output_name": "WornWoodenDoorsPack_Q01_Worn_Doorframe_004_Doors_0"
+  },
+  {
+   "source_name": "Worn Doorframe_005_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.897,
+    1.9396,
+    0.1476
+   ],
+   "depth_ratio": 0.1645,
+   "pca_thickness": 0.1591,
+   "pca_ratio": 1.0782,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "z",
+    "height_from": "y"
+   },
+   "class": "Quarantine",
+   "reason": "non-flat (ajar): PCA thickness 0.1591 m > 1.05 x bbox depth 0.1476 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane",
+   "output_name": "WornWoodenDoorsPack_Q02_Worn_Doorframe_005_Doors_0"
+  },
+  {
+   "source_name": "Worn Doorframe_006_Doors_0",
+   "scale_factor": 1.0,
+   "dims_m": [
+    0.897,
+    1.9396,
+    0.1476
+   ],
+   "depth_ratio": 0.1645,
+   "pca_thickness": 0.1591,
+   "pca_ratio": 1.0782,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "z",
+    "height_from": "y"
+   },
+   "class": "Quarantine",
+   "reason": "non-flat (ajar): PCA thickness 0.1591 m > 1.05 x bbox depth 0.1476 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane",
+   "output_name": "WornWoodenDoorsPack_Q03_Worn_Doorframe_006_Doors_0"
+  }
+ ],
+ "collections": {
+  "WALLFLAT": "WornWoodenDoorsPack_WALLFLAT",
+  "TILE": "WornWoodenDoorsPack_TILE",
+  "PROP": "WornWoodenDoorsPack_PROP",
+  "Quarantine": "WornWoodenDoorsPack_Quarantine"
+ }
+}

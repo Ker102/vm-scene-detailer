@@ -1,0 +1,95 @@
+{
+ "pack": "BrokenWindow01",
+ "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/BrokenWindow01/scene.gltf",
+ "ingester": "pack_ingest.py (zero-config)",
+ "objects_seen": 8,
+ "meshes": 3,
+ "non_mesh_dropped": 5,
+ "scale_factors": {
+  "defaultMaterial": 1.0,
+  "defaultMaterial.001": 1.0,
+  "defaultMaterial.002": 1.0
+ },
+ "flags": [],
+ "counts": {
+  "WALLFLAT": 1,
+  "TILE": 0,
+  "PROP": 1,
+  "Quarantine": 1
+ },
+ "quarantine": [
+  {
+   "name": "BrokenWindow01_Q01_defaultMaterial",
+   "source": "defaultMaterial",
+   "reason": "degenerate/zero-thickness sheet (min extent 0.0000 m < 0.004 m)"
+  }
+ ],
+ "objects": [
+  {
+   "source_name": "defaultMaterial",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.4302,
+    0.0,
+    1.8235
+   ],
+   "depth_ratio": 0.0,
+   "pca_thickness": 0.0,
+   "pca_ratio": 0.0,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "Quarantine",
+   "reason": "degenerate/zero-thickness sheet (min extent 0.0000 m < 0.004 m)",
+   "output_name": "BrokenWindow01_Q01_defaultMaterial"
+  },
+  {
+   "source_name": "defaultMaterial.001",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.5941,
+    0.2661,
+    0.0738
+   ],
+   "depth_ratio": 0.2773,
+   "pca_thickness": 0.0738,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "y",
+    "depth_from": "z",
+    "height_from": "x"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.074 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "BrokenWindow01_PROP_01"
+  },
+  {
+   "source_name": "defaultMaterial.002",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.5266,
+    0.2145,
+    1.9262
+   ],
+   "depth_ratio": 0.1405,
+   "pca_thickness": 0.2156,
+   "pca_ratio": 1.0049,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "y",
+    "height_from": "z"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.215 m <= 25% of min(w,h))",
+   "output_name": "BrokenWindow01_WALLFLAT_01"
+  }
+ ],
+ "collections": {
+  "WALLFLAT": "BrokenWindow01_WALLFLAT",
+  "TILE": "BrokenWindow01_TILE",
+  "PROP": "BrokenWindow01_PROP",
+  "Quarantine": "BrokenWindow01_Quarantine"
+ }
+}

@@ -1,0 +1,95 @@
+{
+ "pack": "BrokenWindow07",
+ "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/BrokenWindow07/scene.gltf",
+ "ingester": "pack_ingest.py (zero-config)",
+ "objects_seen": 8,
+ "meshes": 3,
+ "non_mesh_dropped": 5,
+ "scale_factors": {
+  "defaultMaterial": 1.0,
+  "defaultMaterial.001": 1.0,
+  "defaultMaterial.002": 1.0
+ },
+ "flags": [],
+ "counts": {
+  "WALLFLAT": 1,
+  "TILE": 0,
+  "PROP": 1,
+  "Quarantine": 1
+ },
+ "quarantine": [
+  {
+   "name": "BrokenWindow07_Q01_defaultMaterial",
+   "source": "defaultMaterial",
+   "reason": "degenerate/zero-thickness sheet (min extent 0.0000 m < 0.004 m)"
+  }
+ ],
+ "objects": [
+  {
+   "source_name": "defaultMaterial",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.886,
+    0.0,
+    1.2194
+   ],
+   "depth_ratio": 0.0,
+   "pca_thickness": 0.0,
+   "pca_ratio": 0.0,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "Quarantine",
+   "reason": "degenerate/zero-thickness sheet (min extent 0.0000 m < 0.004 m)",
+   "output_name": "BrokenWindow07_Q01_defaultMaterial"
+  },
+  {
+   "source_name": "defaultMaterial.001",
+   "scale_factor": 1.0,
+   "dims_m": [
+    2.0,
+    0.1779,
+    0.0493
+   ],
+   "depth_ratio": 0.2773,
+   "pca_thickness": 0.0493,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "y",
+    "depth_from": "z",
+    "height_from": "x"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.049 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "BrokenWindow07_PROP_01"
+  },
+  {
+   "source_name": "defaultMaterial.002",
+   "scale_factor": 1.0,
+   "dims_m": [
+    1.9489,
+    0.1435,
+    1.2881
+   ],
+   "depth_ratio": 0.1114,
+   "pca_thickness": 0.1435,
+   "pca_ratio": 1.0,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.143 m <= 25% of min(w,h))",
+   "output_name": "BrokenWindow07_WALLFLAT_01"
+  }
+ ],
+ "collections": {
+  "WALLFLAT": "BrokenWindow07_WALLFLAT",
+  "TILE": "BrokenWindow07_TILE",
+  "PROP": "BrokenWindow07_PROP",
+  "Quarantine": "BrokenWindow07_Quarantine"
+ }
+}

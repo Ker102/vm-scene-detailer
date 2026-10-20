@@ -39,7 +39,8 @@ mirror; sources here are canonical).
 ## Versioning
 
 Every version bump = a git tag + a GitHub release on this repo. Current:
-**v2.2**. Deliverable copies are rebuilt from the tagged source.
+**v2.3** (v2.3 = pack adapter + mounted doors/windows; v2.2 = engine v2 base +
+VM Tools addon). Deliverable copies are rebuilt from the tagged source.
 
 ## Roadmap
 

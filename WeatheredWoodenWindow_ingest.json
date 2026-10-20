@@ -1,0 +1,96 @@
+{
+ "pack": "WeatheredWoodenWindow",
+ "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/WeatheredWoodenWindow/scene.gltf",
+ "ingester": "pack_ingest.py (zero-config)",
+ "objects_seen": 9,
+ "meshes": 3,
+ "non_mesh_dropped": 6,
+ "scale_factors": {
+  "WoodenWindowFrame_WoodenWindow_MTL_0": 0.01,
+  "WoodenWindowLeft_WoodenWindow_MTL_0": 0.01,
+  "WoodenWindowRight_WoodenWindow_MTL_0": 0.01
+ },
+ "flags": [
+  "WoodenWindowFrame_WoodenWindow_MTL_0: cm-scale pack (max dim 149.2 units) auto-scaled 0.01",
+  "WoodenWindowLeft_WoodenWindow_MTL_0: cm-scale pack (max dim 180.0 units) auto-scaled 0.01",
+  "WoodenWindowRight_WoodenWindow_MTL_0: cm-scale pack (max dim 180.0 units) auto-scaled 0.01"
+ ],
+ "counts": {
+  "WALLFLAT": 2,
+  "TILE": 0,
+  "PROP": 1,
+  "Quarantine": 0
+ },
+ "quarantine": [],
+ "objects": [
+  {
+   "source_name": "WoodenWindowFrame_WoodenWindow_MTL_0",
+   "scale_factor": 0.01,
+   "scale_note": "cm-scale pack (max dim 149.2 units) auto-scaled 0.01",
+   "dims_m": [
+    1.4918,
+    0.35,
+    1.2557
+   ],
+   "depth_ratio": 0.2787,
+   "pca_thickness": 0.3502,
+   "pca_ratio": 1.0006,
+   "orientation": {
+    "width_from": "z",
+    "depth_from": "y",
+    "height_from": "x"
+   },
+   "class": "PROP",
+   "reason": "not flat: depth 0.350 m > 25% of min(w,h) (chunky part: handle/box/frame profile)",
+   "output_name": "WeatheredWoodenWindow_PROP_01"
+  },
+  {
+   "source_name": "WoodenWindowLeft_WoodenWindow_MTL_0",
+   "scale_factor": 0.01,
+   "scale_note": "cm-scale pack (max dim 180.0 units) auto-scaled 0.01",
+   "dims_m": [
+    1.08,
+    1.8,
+    0.1207
+   ],
+   "depth_ratio": 0.1118,
+   "pca_thickness": 0.1247,
+   "pca_ratio": 1.0332,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "z",
+    "height_from": "y"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.121 m <= 25% of min(w,h))",
+   "output_name": "WeatheredWoodenWindow_WALLFLAT_01"
+  },
+  {
+   "source_name": "WoodenWindowRight_WoodenWindow_MTL_0",
+   "scale_factor": 0.01,
+   "scale_note": "cm-scale pack (max dim 180.0 units) auto-scaled 0.01",
+   "dims_m": [
+    1.08,
+    1.8,
+    0.1207
+   ],
+   "depth_ratio": 0.1118,
+   "pca_thickness": 0.1247,
+   "pca_ratio": 1.0332,
+   "orientation": {
+    "width_from": "x",
+    "depth_from": "z",
+    "height_from": "y"
+   },
+   "class": "WALLFLAT",
+   "reason": "wall-flat slab (depth 0.121 m <= 25% of min(w,h))",
+   "output_name": "WeatheredWoodenWindow_WALLFLAT_02"
+  }
+ ],
+ "collections": {
+  "WALLFLAT": "WeatheredWoodenWindow_WALLFLAT",
+  "TILE": "WeatheredWoodenWindow_TILE",
+  "PROP": "WeatheredWoodenWindow_PROP",
+  "Quarantine": "WeatheredWoodenWindow_Quarantine"
+ }
+}
