@@ -39,8 +39,9 @@ mirror; sources here are canonical).
 ## Versioning
 
 Every version bump = a git tag + a GitHub release on this repo. Current:
-**v2.3** (v2.3 = pack adapter + mounted doors/windows; v2.2 = engine v2 base +
-VM Tools addon). Deliverable copies are rebuilt from the tagged source.
+**v2.4** (shape robustness: per-face anchoring, face filters, per-region roofs,
+world-space sizing under object scaling; v2.3 = pack adapter + mounted
+doors/windows; v2.2 = engine v2 base + VM Tools addon).
 
 ## Roadmap
 

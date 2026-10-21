@@ -59,6 +59,45 @@ QUICK START: MAKE A LITTLE HOUSE FROM A CUBE
      never get clad with more tiles.
 3. Press F12. Done.
 
+WORLD-SPACE SIZING (v2.4.1) - 'make the house bigger' works
+-----------------------------------------------------------
+Every DISTANCE value in the panels below is WORLD METERS and does NOT stretch
+when you scale the dressed object in OBJECT MODE with the transform left
+unapplied (the normal 'select the house, press S, drag' workflow):
+  * cladding tiles keep their tile size - a scaled (x1.6) building simply gets
+    MORE courses/slots (counts follow the same course formula in world space),
+    tiles never turn into 1.6x 'blocks';
+  * doors/windows/debris keep their real size too (their dimensions come from
+    the variant models); only their FIT placement offsets follow the meters;
+  * Sill Height 0.9 = 0.9 WORLD meters above the face base whatever the object
+    scale (it used to read 0.9 x z-scale, so windows sat visually high on
+    scaled buildings).
+Mechanics: the node groups read the host's own transform (Blender 5.2
+Self Object -> Object Info) and divide each local quantity by the
+world-meters-per-meter factor of its direction. At object scale (1,1,1) all
+factors are exactly 1, so un-scaled scenes are bit-identical to v2.4.
+Sockets covered: Slot Width, Row Height, Jitter, Embed, Backing Offset,
+Sill Height, Min Face Width/Height, Ground Tolerance, Surface Offset,
+Vertical Range Min/Max, Proximity Radius, and for VM_RoofCap: Overhang,
+Min Roof Face Size and Pitch (a WORLD angle - the roof keeps its pitch on
+scaled buildings). Density is a COUNT knob (instances per m^2 of the mesh
+as modeled) and deliberately keeps its v2.4 semantics - it is NOT a
+world-meter socket. (Rescaling it with the object transform was built and
+tested: the Max Instances cap keeps the FIRST N candidates in face order,
+so world-m^2 density floods the early faces of a scaled building and starves
+later ones until capped door/window layers cannot find any clean layout.)
+Edit-mode scaling
+(moving vertices) keeps its v2.4 behavior exactly. Verification: the
+"CompoundWorldRef" rig (same compound scaled in edit mode) dresses identically
+to the object-scaled "CompoundScaled" - see results.world_space in
+verification_v2.json.
+Honest limits: on faces that are NOT axis-aligned to the object (e.g. roof
+slopes under a NON-UNIFORM scale) tile size is compensated per axis but a
+small residual shear can remain; Proximity Radius uses the volume-mean scale
+factor (exact for uniform scale only); rotated unapplied transforms are
+absorbed into the per-direction factors but the Vertical Range mask follows
+the object's local z.
+
 THE VM_SceneDetailer PANELS
 ---------------------------
 Assets
@@ -81,8 +120,23 @@ Placement
                      fitted part sits ON the cladding instead of behind it.
                      Default 0.0 = old behavior (placement plane = base wall).
   Fit Jitter         Fit: tiny random rotation in radians (0 = perfectly flush)
-  Drop To Ground     Fit: puts the instance origin at the host's base height so
-                     base-origin parts (doors) stand on the ground line
+  Stand On Face Base Fit (v2.4, renamed from 'Drop To Ground'): per-face
+                     anchoring - the instance base sits on ITS OWN placement
+                     face's lowest edge + Sill Height, never the host bounding
+                     box. On a stepped compound, a door on a face whose bottom
+                     is at z=1.2 stands at z=1.2 (and a door on a ground wall
+                     stands at z=0 - nothing is dragged underground).
+  Sill Height        Fit (v2.4): instance base = face base + Sill Height.
+                     Doors use 0.0, windows ~0.9. With Stand On Face Base off
+                     it is simply added to the sampled point height.
+  Min Face Width     Fit (v2.4): skip placement faces narrower than this
+                     (default 0.6 m). Step-wall fragments never get parts.
+  Min Face Height    Fit (v2.4): skip placement faces shorter than this
+                     (default 1.2 m).
+  Ground Floor Only  Fit (v2.4): only faces whose base sits within Ground
+                     Tolerance of the host's lowest point get parts - use it
+                     for doors that must never climb steps.
+  Ground Tolerance   Fit (v2.4): acceptance band for Ground Floor Only (0.1 m)
   Row Height         Cladding: course pitch along the stack direction (0.22 m)
   Row Overlap        Cladding: courses are drawn 1/(1-Overlap) taller so they
                      overlap like shingles (0.35 = 35% covered)
@@ -116,8 +170,13 @@ Zones
   Face Zone          All / Walls / Roof / Floor - which faces Fit and Cladding
                      sample. Scatter ignores this (v1 = all faces).
   Wall Slope         faces with |N.z| <= this are Walls (default 0.35)
-  Roof Slope         faces with N.z >= this are Roof, N.z <= -this are Floor
-                     (default 0.7). A 35 deg pitched roof has N.z ~ 0.82 = Roof.
+  Roof Slope Min     v2.4: Roof is a SLOPE BAND, not a half-space. Roof =
+  Roof Slope Max     Roof Slope Min <= N.z < Roof Slope Max (defaults
+                     0.55 / 0.92). A 35 deg pitched roof has N.z ~ 0.82 =
+                     Roof; FLAT tops (N.z ~ 1.0) are NOT roof, so flat step
+                     decks are never shingled. Floor = N.z <= -Roof Slope Min
+                     OR N.z >= Roof Slope Max (flat bottoms AND flat decks -
+                     clad a deck with Face Zone = Floor or leave it bare).
 
 Materials
   Wall/Roof/Floor Material
@@ -134,12 +193,91 @@ VM_RoofCap
 ----------
 Pitch      roof slope angle (35 deg default)
 Overhang   eave overhang in meters (0.25)
-Style      Gable = ridge runs the full length; Hip = ridge shortened by half the
-           short side (on a square footprint this becomes a pyramid)
+Style      Gable = ridge runs the full length of the region's LONG axis;
+           Hip = ridge shortened by half the short side (on a square footprint
+           this becomes a pyramid)
 Roof Material  applied to the generated roof faces (empty = untouched)
+Min Roof Face Size  (v2.4) up-facing quad tops whose short side is smaller are
+           SKIPPED CLEANLY - no geometry is emitted for them, and the skip is
+           counted in verification_v2.json (never garbage geometry)
+Largest Face Only   (v2.4) cap only the largest qualifying top face
+           (single-roof mode for split tops)
 
-Works on any host with a flat top face at the top of its bounding box
-(the 2m cube is the reference case).
+v2.4 PER-REGION BEHAVIOR: every qualifying up-facing QUAD top face (>= Min
+Roof Face Size) is treated as its own roof region and gets its own gable/hip
+along its LOCAL long axis - L-shaped and stepped compounds get one roof per
+flat top instead of one rectangle over the whole bounding box. Unresolvable
+regions (non-quad tops, undersized fragments) are skipped cleanly and
+reported in verification_v2.json.
+
+HONEST LIMITS (v2.4):
+* VALLEYS ARE OUT OF SCOPE. Where two regions' roofs meet (a step wall
+  between two tops), the gables/hips simply INTERSECT each other and the
+  taller wall. The geometry stays clean (no stray wedges), but there is no
+  valley flashing between intersecting roofs - add it by hand if needed.
+* Tops are assumed LEVEL (within the up-facing test). A tilted top gets a
+  level roof sitting on its center height.
+* Split coplanar tops (one flat area modeled as several adjacent quads) get
+  one roof PER QUAD with a seam; weld them or use Largest Face Only.
+* Generated gable end triangles are vertical faces = Wall zone, and Fit never
+  anchors doors/windows on them (the generated faces carry a 'vm_roofgen'
+  marker that Fit always excludes).
+
+Works on any host with flat top face(s): the 2m cube is the reference case,
+CompoundTest (L-shaped stepped compound) is the reference case for compounds.
+
+v2.4 SHAPE-ROBUSTNESS MATRIX (in VM_Starter.blend)
+--------------------------------------------------
+The engine is built for the real workflow: YOU model the building first
+(edit-mode cube, extrusions, scaling - any structure), THEN the geometry
+nodes dress it. The starter blend ships five dressed reference shapes:
+  CompoundTest    L-shaped stepped compound (tall block + lower wing, concave
+                  inner corner, two flat tops) - the reported user case
+  CompoundScaled  the same compound non-uniformly scaled (x1.6 wider/taller),
+                  object scale left UNAPPLIED like a user would
+  TowerWing       tower + lower wing, multi-height, concave corners, plus two
+                  roof regions the engine skips cleanly (a triangular top and
+                  a 0.3 m top below Min Roof Face Size)
+  Warehouse       wide low box (huge flat top -> one long gable)
+  ReflowTest      the compound DRESSED FIRST, then edited (non-uniform mesh
+                  scale + one more extrusion step) to prove live-edit reflow
+Each shape runs the full stack (wall cladding + VM_RoofCap + roof cladding +
+doors + windows) and is verified numerically per instance: door/window bases
+equal THEIR OWN face base + sill, zero underground/detached parts, zero stray
+roof faces, flat tops un-shingled, cladding counts match the independent
+course formula. Acceptance renders: preview_compound.png /
+preview_compound_closeup.png (the raised step-wall door) plus one shot per
+shape (preview_compoundscaled / preview_towerwing / preview_warehouse /
+preview_reflow_after.png).
+
+LIVE-EDIT SEMANTICS (v2.4): editing the base mesh after the modifiers are on
+re-flows the dressing automatically - parts re-anchor on the new faces,
+cladding re-tiles to the new dimensions, roofs regenerate (see the 'reflow:*'
+checks in verification_v2.json). One honest limit: Fit door/window POSITIONS
+are random per face and face sizes feed that layout, so a big shape edit
+reshuffles where the parts land (they stay correctly anchored to their faces,
+just not in the same spots) - re-pick a Seed after major edits, exactly as you
+would after changing Density. Cladding and roofs have no such limit.
+
+KNOWN BEHAVIORS (surfaced on purpose, not bugs)
+-----------------------------------------------
+* Doors/Windows may re-shuffle positions after major base-mesh edits - re-pick
+  the Seed to get a clean layout again (same as after changing Density).
+* A door on a raised wall stands at THAT wall's own base edge (per-face
+  anchoring) - it does not float down to the ground; YOU build the landing/
+  stairs up to it.
+
+ZONE CONTRACT CHANGE (v2.4, documented): 'Roof Slope' became the
+'Roof Slope Min/Max' slope band and the Roof zone no longer includes flat
+tops. Existing scenes keep working; re-check any hand-tuned Roof material
+assignments on flat decks (they are Floor zone now).
+
+EVALUATION NOTE (v2.4 engine internals): corner-sampled fields evaluate
+differently in a Distribute Points selection context than in a store context
+on Blender 5.2.2, so the node groups materialize all per-face frame data as
+face attributes first and read it back as simple named attributes for every
+selection/placement decision. If you extend the groups, follow the same
+pattern (stores first, named-attribute reads in selections).
 
 ASSET PREP RULES (variant collections)
 --------------------------------------
