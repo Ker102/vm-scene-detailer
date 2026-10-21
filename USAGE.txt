@@ -189,6 +189,73 @@ Masks / Cleanup
   (unchanged from v1) random mask, vertical gradient mask, proximity mask,
   Max Instances hard cap (exact).
 
+PLACEMENT MATH (v2.5 - the 'Slots' panel)
+-----------------------------------------
+HouseCraft-style opening placement for Fit mode: doors/windows are not random
+points, they are per-face COLUMN SLOTS with enforced spacing - the same math
+the reference houses use (no duplicate doors next to each other, no windows on
+top of each other, aligned sill rows, wall-length-derived counts).
+
+THE RULES (all distances are WORLD meters):
+1. WALLS ONLY, NEVER ROOF-ADJACENT. Openings land on wall-zone faces that are
+   not RoofCap-generated (vm_roofgen), whose BASE EDGE is at most 'Max Base
+   Height' above the host's lowest point, and - with 'Ground Floor Only' ON
+   (the v2.5 default for doors) - whose base is within 'Ground Tolerance' of
+   the host z-min. A wall segment whose base sits ON a roof surface (the tower
+   strip above a wing roof) can therefore NEVER receive an opening: the
+   reported "door standing on the wing roof" case is impossible by default.
+   Explicit upper doors: set Ground Floor Only OFF and raise Max Base Height.
+2. COLUMN SLOTS FROM THE WALL WIDTH. Count Mode 'Per Width' = one opening per
+   'Openings Per Width' meters of wall: columns = floor(face width / N), min 1
+   (doubling the wall width doubles the count). 'Explicit' = fixed
+   'Slot Count' columns. Columns evenly fill the face width; a face too narrow
+   for two columns gets a single centered opening (a lone opening has no
+   neighbour, so the gap law never starves narrow walls).
+3. GAP LAW (no touching, no overlapping columns). The column pitch is clamped
+   to Opening Width + Min Gap X + 2*Slot Jitter: as long as your variants are
+   no wider than 'Opening Width', horizontal neighbours can never touch or
+   overlap and their bbox gap is always >= Min Gap X.
+4. ONE ROW BY DEFAULT (no stacking). 'Slot Rows' x 'Row Spacing'; the row pitch
+   is clamped to at least Opening Height + Min Gap Z so nothing stacks on top
+   of anything, and a row is dropped entirely if the opening would not FIT on
+   its wall (row base + Opening Height <= face top) - no floating rows.
+5. COMMON SILL LINE ('Sill Line' = 'Common Z', the default): every opening's
+   base row sits on ONE shared world-z line = host zmin + Sill Height, across
+   ALL walls of the object - window rows align exactly like the reference
+   houses (measured: spread <= 0.01 m). Faces whose base edge is above the
+   sill line get no slots (openings never stand on roofs). 'Face Base' keeps
+   the v2.4 per-face sill (face base + Sill Height) for upper-floor work.
+6. NO DUPLICATE NEIGHBOURS ('No-Repeat' ON by default): the variant of a slot
+   is a deterministic cycle (col + 17*row + 7*face + Seed) - two adjacent
+   slots can NEVER pick the same variant for any collection of 2+ variants
+   (only a collection of exactly 17 variants could alias vertically).
+7. SLOT JITTER is small random noise ALONG THE WALL ONLY (horizontal) so the
+   shared sill line stays exactly aligned while the columns read organically.
+
+CROSS-LAYER DOOR/WINDOW SPLIT (the socket semantics of the demo stacks):
+a door layer takes 'Column Select' = 'First Only' (the first column of every
+face's grid) and a window layer takes 'Skip First' (the columns beside it).
+Keep 'Count Mode' + 'Openings Per Width' + 'Min Gap X' identical on layers
+that share walls so both compute the SAME column grid - then door and window
+layers can never collide by construction (verified: zero pairwise bbox
+intersections on TowerWing, CompoundTest and a 12 m wall).
+
+PACK SWAP (design packs by slots): the variant collections are plain sockets
+('Primary Props'). Point one layer's socket at another <Pack>_WALLFLAT
+collection and the SAME base model re-dresses in the new pack with identical
+slot layout (see preview_packswap_a / _b / _pair in VM_Starter.blend).
+
+BLACK-TRIANGLE FIX (v2.5): cladding tiles now STRADDLE the wall-contact plane
+instead of growing inward from it. A wall fragment wound INWARD (extrusion /
+fill leftovers) used to swallow its tiles inside the wall and z-fought their
+coplanar backs, leaving a bare triangle that renders BLACK in the viewport.
+Straddling covers every wall face whatever its winding (see
+preview_bug_doors_before_crop / _after_crop). Architectural slabs (doors,
+windows) still use the strict back-center wall-contact origin and DO orient to
+the face normal - if your base mesh has inward-wound faces, run
+Mesh > Normals > Recalculate Outside in edit mode before dressing (Blender
+cannot infer inside/outside from a broken winding).
+
 VM_RoofCap
 ----------
 Pitch      roof slope angle (35 deg default)

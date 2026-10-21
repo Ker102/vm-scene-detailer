@@ -39,9 +39,9 @@ mirror; sources here are canonical).
 ## Versioning
 
 Every version bump = a git tag + a GitHub release on this repo. Current:
-**v2.4** (shape robustness: per-face anchoring, face filters, per-region roofs,
-world-space sizing under object scaling; v2.3 = pack adapter + mounted
-doors/windows; v2.2 = engine v2 base + VM Tools addon).
+**v2.5** (HouseCraft-style opening placement math: slots/gaps/sill rows/no-
+duplicates; roof-door + black-triangle fixes; pack-swap demo. v2.4 = shape
+robustness + world-space sizing; v2.3 = pack adapter; v2.2 = engine v2 base).
 
 ## Roadmap
 
