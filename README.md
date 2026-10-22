@@ -39,9 +39,9 @@ mirror; sources here are canonical).
 ## Versioning
 
 Every version bump = a git tag + a GitHub release on this repo. Current:
-**v2.5** (HouseCraft-style opening placement math: slots/gaps/sill rows/no-
-duplicates; roof-door + black-triangle fixes; pack-swap demo. v2.4 = shape
-robustness + world-space sizing; v2.3 = pack adapter; v2.2 = engine v2 base).
+**v2.6** (openings fit any wall height, Flat roof style with subtle incline,
+manual painted placement + Exact Count. v2.5 = slot placement math; v2.4 =
+shape robustness; v2.3 = pack adapter; v2.2 = engine v2 base).
 
 ## Roadmap
 

@@ -239,6 +239,63 @@ Keep 'Count Mode' + 'Openings Per Width' + 'Min Gap X' identical on layers
 that share walls so both compute the SAME column grid - then door and window
 layers can never collide by construction (verified: zero pairwise bbox
 intersections on TowerWing, CompoundTest and a 12 m wall).
+WATCH OUT (v2.6, the UserShape2 lesson): 'Skip First' empties the whole
+window layer when the gap law clamps every face to ONE column (walls narrower
+than 2*Opening Width + Min Gap X). On small/cottage-scale massing use
+'Column Select' = 'All' or the Exact N count mode below instead of the split.
+
+OPENING FIT (v2.6) - openings that do not fit their wall
+--------------------------------------------------------
+Opening Fit   'Scale To Face' (default) = an opening taller/wider than its
+              face is SHRUNK to the available space (the instance is scaled
+              by the fit factor; the gap law still holds and the base stays
+              exactly on the sill line). 'Drop' (v2.5 behavior) = the row is
+              rejected outright and NOTHING is placed on that wall.
+Min Fit Scale 0.5 = rows that would shrink below this fraction of the
+              nominal opening are still dropped (a half-size door is not a
+              sensible opening).
+CONTRACT CHANGE (v2.6, documented): faces SHORTER than 'Opening Height' used
+to get no opening at all; they now get a scaled-down one. This is the fix for
+the "Fit is DEAD on my custom shape" report (UserShape2 in VM_Starter.blend):
+his massing's tallest wall is 2.0 m and the default/demo Opening Height is
+2.1-2.2 m, so the v2.5 row-fit gate rejected every wall and every layer went
+empty (windows too: 0.25-0.9 m sill on top of that). Measured: 0 doors /
+0 windows before, 8 doors / 4 windows after with the SAME sockets.
+
+EXACT COUNTS (v2.6, HouseCraft 'choose exactly the number' parity)
+-----------------------------------------------------------------
+Count Mode 'Exact N' + Exact Count N + Exact Pick {'Spread', 'First'}:
+the LAYER places EXACTLY N openings in total (all qualifying faces combined),
+unless fewer candidates qualify (then all of them are placed). 'Spread'
+(default) spaces the N picks evenly through the deterministic candidate list
+(face order, then column/row); 'First' takes the first N in mesh order.
+HONEST LIMIT: strict LARGEST-FACE-FIRST ordering is not expressible in
+geometry nodes (Blender 5.2 has no domain sort) - 'Spread' is the documented
+even-coverage variant. Gaps/sill/face filters still hold with precedence:
+Exact N can only choose among the candidates the slot math produced.
+
+MANUAL PLACEMENT (v2.6, HouseCraft ID-paint parity via VERTEX GROUPS)
+--------------------------------------------------------------------
+Manual Mask       ON = only slots whose position falls in the painted area
+                  of the named vertex group are kept.
+Manual Mask Group e.g. 'VM_Slots_Doors' / 'VM_Slots_Windows' (one group per
+                  layer so you can paint each layer independently).
+Manual Threshold  0.5 (painted-area interior).
+HOW TO PAINT (GUI): select the host mesh -> Object Data Properties (green
+triangle icon) -> Vertex Groups -> click '+', rename it to the exact group
+name you put in 'Manual Mask Group' -> switch to Weight Paint mode (Ctrl+Tab
+or the mode dropdown) -> paint the wall areas where the openings should go
+(red = weight 1.0) -> switch back to Object Mode. The layer places openings
+ONLY where the weight is >= 'Manual Threshold'. Painting is per VERTEX GROUP,
+exactly Blender-native workflow - no custom tools.
+PRECEDENCE: the painted area can only REMOVE candidates - it never adds one;
+gap/sill/face-filter/fit rules hold first (documented precedence). The weight
+is sampled 3 times per slot (at the slot position and +/- a quarter opening
+along the wall) so vertex-group interpolation bleed across shared corner
+vertices cannot leak openings onto unpainted walls.
+HONEST LIMIT: the mask resolution is vertex-group INTERPOLATION (weights flow
+across faces that share painted vertices). For sub-wall paint areas, subdivide
+the wall first so the painted boundary lands on real vertices.
 
 PACK SWAP (design packs by slots): the variant collections are plain sockets
 ('Primary Props'). Point one layer's socket at another <Pack>_WALLFLAT
@@ -262,13 +319,34 @@ Pitch      roof slope angle (35 deg default)
 Overhang   eave overhang in meters (0.25)
 Style      Gable = ridge runs the full length of the region's LONG axis;
            Hip = ridge shortened by half the short side (on a square footprint
-           this becomes a pyramid)
+           this becomes a pyramid);
+           Flat (v2.6) = NEAR-FLAT CAP over every flat top - subtle incline,
+           thin edge fascia, NEVER any invented gable triangles (this is the
+           right style for flat-topped/stepped designs like UserShape2)
+Incline    (v2.6, Flat style) subtle cap incline along the region's long
+           axis - a world ANGLE, default 2.5 deg (the roof reads flat but
+           drains). Measured on UserShape2: exactly 2.5 deg per cap.
+Fascia     (v2.6, Flat style) thin edge fascia skirt height at the cap's low
+           edge (0.12 m; automatically raised so the low edge keeps >= 3 cm)
 Roof Material  applied to the generated roof faces (empty = untouched)
-Min Roof Face Size  (v2.4) up-facing quad tops whose short side is smaller are
-           SKIPPED CLEANLY - no geometry is emitted for them, and the skip is
-           counted in verification_v2.json (never garbage geometry)
-Largest Face Only   (v2.4) cap only the largest qualifying top face
-           (single-roof mode for split tops)
+Min Roof Face Size  (v2.4) up-facing quad tops whose short side is smaller
+           than this do not get a GABLE - since v2.6 they get a FLAT CAP
+           instead of being left open (see the coverage contract below)
+Largest Face Only   (v2.4) only the largest qualifying top face gets a GABLE
+           (single-roof mode for split tops) - since v2.6 every other top is
+           FLAT-CAPPED, so single-roof mode no longer leaves holes
+
+v2.6 COMPLETE-COVERAGE CONTRACT CHANGE (the gaping-hole fix):
+every up-facing top face gets generated roof geometry - quads that qualify
+take a gable/hip (or the Flat cap in Flat style) and EVERYTHING else (non-quad
+tops from boolean/extrusion leftovers, undersized fragments, Largest-Face-Only
+losers) gets a FLAT CAP. v2.5 skipped those regions cleanly and left the top
+OPEN - the user's screenshot showed exactly that: gaping holes at the
+tower/wing junctions exposing the interior. 'skipped' in verification_v2.json
+now means 'no gable', never 'no roof'; the report's 'uncovered' list must stay
+empty (verified on UserShape2 and the whole shape matrix).
+Generated faces carry the 'vm_roofgen' face attribute: 1 = gable/hip faces,
+2 = flat-cap faces - Fit never anchors doors/windows on either.
 
 v2.4 PER-REGION BEHAVIOR: every qualifying up-facing QUAD top face (>= Min
 Roof Face Size) is treated as its own roof region and gets its own gable/hip

@@ -1870,9 +1870,14 @@
       "qualifying": 1,
       "generated": 4,
       "expected_generated": 4,
+      "caps": 0,
+      "cap_tops": 0,
+      "expected_caps": 0,
       "skipped": [],
       "zero_area": 0,
       "strays": [],
+      "uncovered": [],
+      "cap_regions": [],
       "regions": [
         {
           "idx": 1,
@@ -1892,9 +1897,14 @@
       "qualifying": 1,
       "generated": 4,
       "expected_generated": 4,
+      "caps": 0,
+      "cap_tops": 0,
+      "expected_caps": 0,
       "skipped": [],
       "zero_area": 0,
       "strays": [],
+      "uncovered": [],
+      "cap_regions": [],
       "regions": [
         {
           "idx": 1,
@@ -2003,9 +2013,14 @@
           "qualifying": 2,
           "generated": 8,
           "expected_generated": 8,
+          "caps": 0,
+          "cap_tops": 0,
+          "expected_caps": 0,
           "skipped": [],
           "zero_area": 0,
           "strays": [],
+          "uncovered": [],
+          "cap_regions": [],
           "regions": [
             {
               "idx": 10,
@@ -7291,9 +7306,14 @@
           "qualifying": 2,
           "generated": 8,
           "expected_generated": 8,
+          "caps": 0,
+          "cap_tops": 0,
+          "expected_caps": 0,
           "skipped": [],
           "zero_area": 0,
           "strays": [],
+          "uncovered": [],
+          "cap_regions": [],
           "regions": [
             {
               "idx": 10,
@@ -15068,25 +15088,25 @@
       },
       "TowerWing": {
         "desc": "tower + lower wing + two unresolved roof regions (triangle top, 0.3m quad top)",
-        "door_seed": 1,
-        "win_seed": 0,
+        "door_seed": 4,
+        "win_seed": 15,
         "seeds_tried": {
-          "door": 2,
-          "window": 1
+          "door": 5,
+          "window": 16
         },
         "fallbacks": {
           "door": {
-            "seed": 1,
+            "seed": 4,
             "score": 1.0
           },
           "window": {
-            "seed": 0,
+            "seed": 15,
             "score": 1.0
           }
         },
         "doors": [
           {
-            "name": "Door_01",
+            "name": "Door_04",
             "face": 2,
             "face_base": 0.0,
             "base_z": 0.0,
@@ -15097,8 +15117,8 @@
             "ok": true
           },
           {
-            "name": "Door_02",
-            "face": 4,
+            "name": "Door_04",
+            "face": 2,
             "face_base": 0.0,
             "base_z": 0.0,
             "delta": 0.0,
@@ -15109,7 +15129,7 @@
           },
           {
             "name": "Door_03",
-            "face": 4,
+            "face": 5,
             "face_base": 0.0,
             "base_z": 0.0,
             "delta": 0.0,
@@ -15119,7 +15139,7 @@
             "ok": true
           },
           {
-            "name": "Door_04",
+            "name": "Door_02",
             "face": 5,
             "face_base": 0.0,
             "base_z": 0.0,
@@ -15133,7 +15153,7 @@
         "windows": [
           {
             "name": "Window_02",
-            "face": 2,
+            "face": 4,
             "face_base": 0.0,
             "base_z": 0.9,
             "delta": -0.0,
@@ -15153,6 +15173,9 @@
           "qualifying": 2,
           "generated": 8,
           "expected_generated": 8,
+          "caps": 9,
+          "cap_tops": 2,
+          "expected_caps": 2,
           "skipped": [
             {
               "idx": 13,
@@ -15165,6 +15188,21 @@
           ],
           "zero_area": 0,
           "strays": [],
+          "uncovered": [],
+          "cap_regions": [
+            {
+              "idx": 13,
+              "min_z": 1.8,
+              "w": 0.55,
+              "h": 0.55
+            },
+            {
+              "idx": 18,
+              "min_z": 1.7,
+              "w": 0.3,
+              "h": 0.3
+            }
+          ],
           "regions": [
             {
               "idx": 10,
@@ -19550,7 +19588,7 @@
             0.15
           ]
         ],
-        "min_gap": 0.15071
+        "min_gap": 0.18804
       },
       "Warehouse": {
         "desc": "wide low warehouse box: one huge flat top -> one long gable",
@@ -19650,9 +19688,14 @@
           "qualifying": 1,
           "generated": 4,
           "expected_generated": 4,
+          "caps": 0,
+          "cap_tops": 0,
+          "expected_caps": 0,
           "skipped": [],
           "zero_area": 0,
           "strays": [],
+          "uncovered": [],
+          "cap_regions": [],
           "regions": [
             {
               "idx": 1,
@@ -29486,6 +29529,9 @@
       "qualifying": 1,
       "generated": 4,
       "expected_generated": 4,
+      "caps": 5,
+      "cap_tops": 1,
+      "expected_caps": 1,
       "skipped": [
         {
           "idx": 10,
@@ -29494,6 +29540,15 @@
       ],
       "zero_area": 0,
       "strays": [],
+      "uncovered": [],
+      "cap_regions": [
+        {
+          "idx": 10,
+          "min_z": 1.2,
+          "w": 3.0,
+          "h": 1.2
+        }
+      ],
       "regions": [
         {
           "idx": 11,
@@ -29507,6 +29562,9 @@
       "qualifying": 2,
       "generated": 8,
       "expected_generated": 8,
+      "caps": 9,
+      "cap_tops": 2,
+      "expected_caps": 2,
       "skipped": [
         {
           "idx": 13,
@@ -29519,6 +29577,21 @@
       ],
       "zero_area": 0,
       "strays": [],
+      "uncovered": [],
+      "cap_regions": [
+        {
+          "idx": 13,
+          "min_z": 1.8,
+          "w": 0.55,
+          "h": 0.55
+        },
+        {
+          "idx": 18,
+          "min_z": 1.7,
+          "w": 0.3,
+          "h": 0.3
+        }
+      ],
       "regions": [
         {
           "idx": 10,
@@ -29635,9 +29708,14 @@
           "qualifying": 2,
           "generated": 8,
           "expected_generated": 8,
+          "caps": 0,
+          "cap_tops": 0,
+          "expected_caps": 0,
           "skipped": [],
           "zero_area": 0,
           "strays": [],
+          "uncovered": [],
+          "cap_regions": [],
           "regions": [
             {
               "idx": 10,
@@ -29735,9 +29813,14 @@
           "qualifying": 2,
           "generated": 8,
           "expected_generated": 8,
+          "caps": 0,
+          "cap_tops": 0,
+          "expected_caps": 0,
           "skipped": [],
           "zero_area": 0,
           "strays": [],
+          "uncovered": [],
+          "cap_regions": [],
           "regions": [
             {
               "idx": 10,
@@ -29914,7 +29997,7 @@
         "min_h_gap": 99.0,
         "min_v_gap": 99.0,
         "n_pairs": 10,
-        "min_pair_gap": 0.43341,
+        "min_pair_gap": 0.50899,
         "n_h_adj": 0,
         "n_v_adj": 0,
         "same_variant_h": [],
@@ -30053,7 +30136,7 @@
         }
       },
       "after": {
-        "n_doors": 3,
+        "n_doors": 6,
         "roof_adjacent": [],
         "flipped": [
           13
@@ -30209,6 +30292,544 @@
       },
       "slots_identical": true,
       "same_node_group": true
+    },
+    "user2_repro": {
+      "n_doors": 0,
+      "n_windows": 0,
+      "door_gates": [
+        {
+          "idx": 2,
+          "w": 1.333,
+          "h": 2.0,
+          "cols": 1,
+          "fails": [
+            "row-fit OpeningHeight 2.2 > wall 2.00 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 3,
+          "w": 1.333,
+          "h": 2.0,
+          "cols": 1,
+          "fails": [
+            "row-fit OpeningHeight 2.2 > wall 2.00 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 4,
+          "w": 1.333,
+          "h": 2.0,
+          "cols": 1,
+          "fails": [
+            "row-fit OpeningHeight 2.2 > wall 2.00 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 5,
+          "w": 1.333,
+          "h": 2.0,
+          "cols": 1,
+          "fails": [
+            "row-fit OpeningHeight 2.2 > wall 2.00 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 8,
+          "w": 1.333,
+          "h": 1.333,
+          "cols": 1,
+          "fails": [
+            "MinFaceHeight 1.33<1.6",
+            "row-fit OpeningHeight 2.2 > wall 1.33 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 9,
+          "w": 0.667,
+          "h": 1.333,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "MinFaceHeight 1.33<1.6",
+            "row-fit OpeningHeight 2.2 > wall 1.33 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 10,
+          "w": 1.333,
+          "h": 1.333,
+          "cols": 1,
+          "fails": [
+            "MinFaceHeight 1.33<1.6",
+            "row-fit OpeningHeight 2.2 > wall 1.33 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 11,
+          "w": 0.667,
+          "h": 1.333,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "MinFaceHeight 1.33<1.6",
+            "row-fit OpeningHeight 2.2 > wall 1.33 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 14,
+          "w": 1.333,
+          "h": 1.8,
+          "cols": 1,
+          "fails": [
+            "row-fit OpeningHeight 2.2 > wall 1.80 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 15,
+          "w": 0.667,
+          "h": 1.8,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "row-fit OpeningHeight 2.2 > wall 1.80 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 16,
+          "w": 1.333,
+          "h": 1.8,
+          "cols": 1,
+          "fails": [
+            "row-fit OpeningHeight 2.2 > wall 1.80 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 17,
+          "w": 0.667,
+          "h": 1.8,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "row-fit OpeningHeight 2.2 > wall 1.80 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 20,
+          "w": 0.667,
+          "h": 1.0,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "MinFaceHeight 1.00<1.6",
+            "row-fit OpeningHeight 2.2 > wall 1.00 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 21,
+          "w": 0.667,
+          "h": 1.0,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "MinFaceHeight 1.00<1.6",
+            "row-fit OpeningHeight 2.2 > wall 1.00 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 22,
+          "w": 0.667,
+          "h": 1.0,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "MinFaceHeight 1.00<1.6",
+            "row-fit OpeningHeight 2.2 > wall 1.00 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 23,
+          "w": 0.667,
+          "h": 1.0,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "MinFaceHeight 1.00<1.6",
+            "row-fit OpeningHeight 2.2 > wall 1.00 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 26,
+          "w": 0.667,
+          "h": 0.667,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "MinFaceHeight 0.67<1.6",
+            "row-fit OpeningHeight 2.2 > wall 0.67 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 27,
+          "w": 0.667,
+          "h": 0.667,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "MinFaceHeight 0.67<1.6",
+            "row-fit OpeningHeight 2.2 > wall 0.67 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 28,
+          "w": 0.667,
+          "h": 0.667,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "MinFaceHeight 0.67<1.6",
+            "row-fit OpeningHeight 2.2 > wall 0.67 - sill 0.0"
+          ]
+        },
+        {
+          "idx": 29,
+          "w": 0.667,
+          "h": 0.667,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.0",
+            "MinFaceHeight 0.67<1.6",
+            "row-fit OpeningHeight 2.2 > wall 0.67 - sill 0.0"
+          ]
+        }
+      ],
+      "win_gates": [
+        {
+          "idx": 2,
+          "w": 1.333,
+          "h": 2.0,
+          "cols": 1,
+          "fails": [
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 3,
+          "w": 1.333,
+          "h": 2.0,
+          "cols": 1,
+          "fails": [
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 4,
+          "w": 1.333,
+          "h": 2.0,
+          "cols": 1,
+          "fails": [
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 5,
+          "w": 1.333,
+          "h": 2.0,
+          "cols": 1,
+          "fails": [
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 8,
+          "w": 1.333,
+          "h": 1.333,
+          "cols": 1,
+          "fails": [
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 9,
+          "w": 0.667,
+          "h": 1.333,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 10,
+          "w": 1.333,
+          "h": 1.333,
+          "cols": 1,
+          "fails": [
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 11,
+          "w": 0.667,
+          "h": 1.333,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 14,
+          "w": 1.333,
+          "h": 1.8,
+          "cols": 1,
+          "fails": [
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 15,
+          "w": 0.667,
+          "h": 1.8,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 16,
+          "w": 1.333,
+          "h": 1.8,
+          "cols": 1,
+          "fails": [
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 17,
+          "w": 0.667,
+          "h": 1.8,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 20,
+          "w": 0.667,
+          "h": 1.0,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "MinFaceHeight 1.00<1.1",
+            "row-fit OpeningHeight 0.9 > wall 1.00 - sill 0.25",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 21,
+          "w": 0.667,
+          "h": 1.0,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "MinFaceHeight 1.00<1.1",
+            "row-fit OpeningHeight 0.9 > wall 1.00 - sill 0.25",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 22,
+          "w": 0.667,
+          "h": 1.0,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "MinFaceHeight 1.00<1.1",
+            "row-fit OpeningHeight 0.9 > wall 1.00 - sill 0.25",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 23,
+          "w": 0.667,
+          "h": 1.0,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "MinFaceHeight 1.00<1.1",
+            "row-fit OpeningHeight 0.9 > wall 1.00 - sill 0.25",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 26,
+          "w": 0.667,
+          "h": 0.667,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "MinFaceHeight 0.67<1.1",
+            "row-fit OpeningHeight 0.9 > wall 0.67 - sill 0.25",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 27,
+          "w": 0.667,
+          "h": 0.667,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "MinFaceHeight 0.67<1.1",
+            "row-fit OpeningHeight 0.9 > wall 0.67 - sill 0.25",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 28,
+          "w": 0.667,
+          "h": 0.667,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "MinFaceHeight 0.67<1.1",
+            "row-fit OpeningHeight 0.9 > wall 0.67 - sill 0.25",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        },
+        {
+          "idx": 29,
+          "w": 0.667,
+          "h": 0.667,
+          "cols": 1,
+          "fails": [
+            "MinFaceWidth 0.67<1.2",
+            "MinFaceHeight 0.67<1.1",
+            "row-fit OpeningHeight 0.9 > wall 0.67 - sill 0.25",
+            "Skip First on a 1-column grid (gap law clamps it)"
+          ]
+        }
+      ],
+      "params": {
+        "door": {
+          "Slot Layout": "Slots",
+          "Count Mode": "Explicit",
+          "Slot Count": 2,
+          "Opening Width": 1.5,
+          "Opening Height": 2.2,
+          "Column Select": "First Only",
+          "Min Face Width": 1.0,
+          "Min Face Height": 1.6,
+          "Opening Fit": "Drop"
+        },
+        "win": {
+          "Slot Layout": "Slots",
+          "Count Mode": "Explicit",
+          "Slot Count": 2,
+          "Opening Width": 0.8,
+          "Opening Height": 0.9,
+          "Sill Height": 0.25,
+          "Column Select": "Skip First",
+          "Min Face Width": 1.2,
+          "Min Face Height": 1.1,
+          "Opening Fit": "Drop"
+        }
+      }
+    },
+    "user2_default_fit": {
+      "Slots": {
+        "n_doors": 8,
+        "n_windows": 4
+      },
+      "Random": {
+        "n_doors": 4,
+        "n_windows": 4
+      }
+    },
+    "user2_manual": {
+      "painted_face": 5,
+      "painted_w": 1.3333320617675781,
+      "painted_h": 2.0,
+      "doors_inside": [
+        {
+          "name": "Door_01",
+          "du": 0.003,
+          "dv": 1.0,
+          "face": 5
+        }
+      ],
+      "doors_outside": [],
+      "n_windows_unpainted": 0
+    },
+    "user2_exact": {
+      "n_doors": 2,
+      "n_windows": 1,
+      "door_slots": [
+        [
+          0.02,
+          1.331,
+          0.0
+        ],
+        [
+          2.011,
+          1.98,
+          0.0
+        ]
+      ]
+    },
+    "user2_flat_roof": {
+      "inclines": [
+        2.5,
+        2.5,
+        2.5,
+        2.5,
+        2.5
+      ],
+      "gable_faces": 0,
+      "cap_tops": 5,
+      "expected_caps": 5,
+      "uncovered": [],
+      "strays": [],
+      "cap_regions": [
+        {
+          "idx": 1,
+          "min_z": 2.0,
+          "w": 1.333,
+          "h": 1.333
+        },
+        {
+          "idx": 7,
+          "min_z": 1.3333,
+          "w": 1.333,
+          "h": 0.667
+        },
+        {
+          "idx": 13,
+          "min_z": 1.8,
+          "w": 1.333,
+          "h": 0.667
+        },
+        {
+          "idx": 19,
+          "min_z": 1.0,
+          "w": 0.667,
+          "h": 0.667
+        },
+        {
+          "idx": 25,
+          "min_z": 0.6667,
+          "w": 0.667,
+          "h": 0.667
+        }
+      ]
+    },
+    "user2_gable_roof": {
+      "gable_faces": 20,
+      "qualifying": 5,
+      "caps": 0,
+      "uncovered": []
     },
     "images_packed": {
       "VM_Starter.blend": {
@@ -30577,7 +31198,7 @@
       "detail": "15 pairs, min gap=0.30216, bad=[]"
     },
     {
-      "name": "shape[CompoundTest]: RoofCap emits exactly 4 faces per resolvable region (no garbage)",
+      "name": "shape[CompoundTest]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
       "pass": true,
       "detail": "generated=8 expected=8, zero-area faces=0, regions=[{'idx': 10, 'min_z': 1.2, 'w': 3.0, 'h': 1.2}, {'idx': 11, 'min_z': 3.2, 'w': 2.0, 'h': 2.0}]"
     },
@@ -30587,9 +31208,14 @@
       "detail": "strays=[]"
     },
     {
+      "name": "shape[CompoundTest]: complete roof coverage - every up-facing top covered (flat caps on all gable-skipped tops, zero holes)",
+      "pass": true,
+      "detail": "cap tops=0 expected=0 (cap regions=[]), uncovered=[]"
+    },
+    {
       "name": "shape[CompoundTest]: unresolved roof regions skipped cleanly and reported",
       "pass": true,
-      "detail": "qualifying=2 (expect 2), skipped=[] (expect 0)"
+      "detail": "qualifying=2 (expect 2), skipped=[] (expect 0), all skipped regions flat-capped (v2.6)"
     },
     {
       "name": "shape[CompoundTest]: flat tops un-shingled (slope-band Roof zone)",
@@ -30637,7 +31263,7 @@
       "detail": "15 pairs, min gap=0.34898, bad=[]"
     },
     {
-      "name": "shape[CompoundScaled]: RoofCap emits exactly 4 faces per resolvable region (no garbage)",
+      "name": "shape[CompoundScaled]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
       "pass": true,
       "detail": "generated=8 expected=8, zero-area faces=0, regions=[{'idx': 10, 'min_z': 1.92, 'w': 4.8, 'h': 1.2}, {'idx': 11, 'min_z': 5.12, 'w': 3.2, 'h': 2.0}]"
     },
@@ -30647,9 +31273,14 @@
       "detail": "strays=[]"
     },
     {
+      "name": "shape[CompoundScaled]: complete roof coverage - every up-facing top covered (flat caps on all gable-skipped tops, zero holes)",
+      "pass": true,
+      "detail": "cap tops=0 expected=0 (cap regions=[]), uncovered=[]"
+    },
+    {
       "name": "shape[CompoundScaled]: unresolved roof regions skipped cleanly and reported",
       "pass": true,
-      "detail": "qualifying=2 (expect 2), skipped=[] (expect 0)"
+      "detail": "qualifying=2 (expect 2), skipped=[] (expect 0), all skipped regions flat-capped (v2.6)"
     },
     {
       "name": "shape[CompoundScaled]: flat tops un-shingled (slope-band Roof zone)",
@@ -30674,12 +31305,12 @@
     {
       "name": "shape[TowerWing]: doors only on faces >= 1.0x1.6 (Min Face filters)",
       "pass": true,
-      "detail": "host faces used: [(2, 1.6, 3.2), (4, 1.6, 3.2), (4, 1.6, 3.2), (5, 1.6, 3.2)]"
+      "detail": "host faces used: [(2, 1.6, 3.2), (2, 1.6, 3.2), (5, 1.6, 3.2), (5, 1.6, 3.2)]"
     },
     {
       "name": "shape[TowerWing]: windows only on substantial walls >= 1.5x1.5",
       "pass": true,
-      "detail": "host faces used: [(2, 1.6, 3.2)]"
+      "detail": "host faces used: [(4, 1.6, 3.2)]"
     },
     {
       "name": "shape[TowerWing]: zero underground/detached parts (all 878 instances at/above their face base)",
@@ -30694,10 +31325,10 @@
     {
       "name": "shape[TowerWing]: zero door/window bbox intersections",
       "pass": true,
-      "detail": "10 pairs, min gap=0.15071, bad=[]"
+      "detail": "10 pairs, min gap=0.18804, bad=[]"
     },
     {
-      "name": "shape[TowerWing]: RoofCap emits exactly 4 faces per resolvable region (no garbage)",
+      "name": "shape[TowerWing]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
       "pass": true,
       "detail": "generated=8 expected=8, zero-area faces=0, regions=[{'idx': 10, 'min_z': 1.4, 'w': 3.0, 'h': 1.2}, {'idx': 11, 'min_z': 3.2, 'w': 1.6, 'h': 1.6}]"
     },
@@ -30707,9 +31338,14 @@
       "detail": "strays=[]"
     },
     {
+      "name": "shape[TowerWing]: complete roof coverage - every up-facing top covered (flat caps on all gable-skipped tops, zero holes)",
+      "pass": true,
+      "detail": "cap tops=2 expected=2 (cap regions=[{'idx': 13, 'min_z': 1.8, 'w': 0.55, 'h': 0.55}, {'idx': 18, 'min_z': 1.7, 'w': 0.3, 'h': 0.3}]), uncovered=[]"
+    },
+    {
       "name": "shape[TowerWing]: unresolved roof regions skipped cleanly and reported",
       "pass": true,
-      "detail": "qualifying=2 (expect 2), skipped=[{'idx': 13, 'reason': 'non-quad top'}, {'idx': 18, 'reason': 'below Min Roof Face Size'}] (expect 2)"
+      "detail": "qualifying=2 (expect 2), skipped=[{'idx': 13, 'reason': 'non-quad top'}, {'idx': 18, 'reason': 'below Min Roof Face Size'}] (expect 2), all skipped regions flat-capped (v2.6)"
     },
     {
       "name": "shape[TowerWing]: flat tops un-shingled (slope-band Roof zone)",
@@ -30757,7 +31393,7 @@
       "detail": "15 pairs, min gap=0.27411, bad=[]"
     },
     {
-      "name": "shape[Warehouse]: RoofCap emits exactly 4 faces per resolvable region (no garbage)",
+      "name": "shape[Warehouse]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
       "pass": true,
       "detail": "generated=4 expected=4, zero-area faces=0, regions=[{'idx': 1, 'min_z': 2.2, 'w': 6.0, 'h': 3.5}]"
     },
@@ -30767,9 +31403,14 @@
       "detail": "strays=[]"
     },
     {
+      "name": "shape[Warehouse]: complete roof coverage - every up-facing top covered (flat caps on all gable-skipped tops, zero holes)",
+      "pass": true,
+      "detail": "cap tops=0 expected=0 (cap regions=[]), uncovered=[]"
+    },
+    {
       "name": "shape[Warehouse]: unresolved roof regions skipped cleanly and reported",
       "pass": true,
-      "detail": "qualifying=1 (expect 1), skipped=[] (expect 0)"
+      "detail": "qualifying=1 (expect 1), skipped=[] (expect 0), all skipped regions flat-capped (v2.6)"
     },
     {
       "name": "shape[Warehouse]: flat tops un-shingled (slope-band Roof zone)",
@@ -30847,7 +31488,7 @@
       "detail": "15 pairs, min gap=0.30216, bad=[]"
     },
     {
-      "name": "shape[ReflowTest-before-edit]: RoofCap emits exactly 4 faces per resolvable region (no garbage)",
+      "name": "shape[ReflowTest-before-edit]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
       "pass": true,
       "detail": "generated=8 expected=8, zero-area faces=0, regions=[{'idx': 10, 'min_z': 1.2, 'w': 3.0, 'h': 1.2}, {'idx': 11, 'min_z': 3.2, 'w': 2.0, 'h': 2.0}]"
     },
@@ -30857,9 +31498,14 @@
       "detail": "strays=[]"
     },
     {
+      "name": "shape[ReflowTest-before-edit]: complete roof coverage - every up-facing top covered (flat caps on all gable-skipped tops, zero holes)",
+      "pass": true,
+      "detail": "cap tops=0 expected=0 (cap regions=[]), uncovered=[]"
+    },
+    {
       "name": "shape[ReflowTest-before-edit]: unresolved roof regions skipped cleanly and reported",
       "pass": true,
-      "detail": "qualifying=2 (expect 2), skipped=[] (expect 0)"
+      "detail": "qualifying=2 (expect 2), skipped=[] (expect 0), all skipped regions flat-capped (v2.6)"
     },
     {
       "name": "shape[ReflowTest-before-edit]: flat tops un-shingled (slope-band Roof zone)",
@@ -30907,7 +31553,7 @@
       "detail": "15 pairs, min gap=0.04307, bad=[]"
     },
     {
-      "name": "shape[ReflowTest-after-edit]: RoofCap emits exactly 4 faces per resolvable region (no garbage)",
+      "name": "shape[ReflowTest-after-edit]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
       "pass": true,
       "detail": "generated=8 expected=8, zero-area faces=0, regions=[{'idx': 10, 'min_z': 1.68, 'w': 4.5, 'h': 1.2}, {'idx': 12, 'min_z': 5.08, 'w': 3.0, 'h': 2.0}]"
     },
@@ -30917,9 +31563,14 @@
       "detail": "strays=[]"
     },
     {
+      "name": "shape[ReflowTest-after-edit]: complete roof coverage - every up-facing top covered (flat caps on all gable-skipped tops, zero holes)",
+      "pass": true,
+      "detail": "cap tops=0 expected=0 (cap regions=[]), uncovered=[]"
+    },
+    {
       "name": "shape[ReflowTest-after-edit]: unresolved roof regions skipped cleanly and reported",
       "pass": true,
-      "detail": "qualifying=2 (expect 2), skipped=[] (expect 0)"
+      "detail": "qualifying=2 (expect 2), skipped=[] (expect 0), all skipped regions flat-capped (v2.6)"
     },
     {
       "name": "shape[ReflowTest-after-edit]: flat tops un-shingled (slope-band Roof zone)",
@@ -30994,7 +31645,7 @@
     {
       "name": "slots[SlotsTowerWing]: zero pairwise opening bbox intersections",
       "pass": true,
-      "detail": "10 pairs, min gap=0.43341"
+      "detail": "10 pairs, min gap=0.50899"
     },
     {
       "name": "slots[SlotsTowerWing]: horizontal neighbour gaps >= Min Gap X 0.4 (column pitch = Opening Width + Min Gap X + 2*Slot Jitter enforced)",
@@ -31154,7 +31805,7 @@
     {
       "name": "bugfix(roof-door): with the v2.5 rules (Ground Floor Only ON + Max Base Height 0.5) the SAME shape gets zero roof-adjacent doors - the case is impossible",
       "pass": true,
-      "detail": "3 doors with the new rules; roof-adjacent doors=[]"
+      "detail": "6 doors with the new rules; roof-adjacent doors=[]"
     },
     {
       "name": "bugfix(black-triangle): root cause = cladding on a flipped-normal triangle fragment (extrusion fill): v2.5-pre tiles grew [0, th] from the wall plane -> on an inward-wound fragment they buried INSIDE the wall and z-fought its coplanar backs -> bare black triangle. v2.5 tiles STRADDLE the plane and cover every wall face whatever its winding",
@@ -31170,6 +31821,51 @@
       "name": "pack-swap: both looks run on the SAME VM_SceneDetailer node group (socket-level swap, zero pack-specific code)",
       "pass": true,
       "detail": "shared node group=True; identical base mesh (8 verts each)"
+    },
+    {
+      "name": "user2(FIT-DEAD repro): the user's v2.5 stack on his exact massing places ZERO doors (row-fit gate: every wall is shorter than the 2.2 m Opening Height)",
+      "pass": true,
+      "detail": "0 doors; wall faces=20; rejections=[(2, ['row-fit OpeningHeight 2.2 > wall 2.00 - sill 0.0']), (3, ['row-fit OpeningHeight 2.2 > wall 2.00 - sill 0.0']), (4, ['row-fit OpeningHeight 2.2 > wall 2.00 - sill 0.0']), (5, ['row-fit OpeningHeight 2.2 > wall 2.00 - sill 0.0']), (8, ['MinFaceHeight 1.33<1.6', 'row-fit OpeningHeight 2.2 > wall 1.33 - sill 0.0']), (9, ['MinFaceWidth 0.67<1.0', 'MinFaceHeight 1.33<1.6', 'row-fit OpeningHeight 2.2 > wall 1.33 - sill 0.0']), (10, ['MinFaceHeight 1.33<1.6', 'row-fit OpeningHeight 2.2 > wall 1.33 - sill 0.0']), (11, ['MinFaceWidth 0.67<1.0', 'MinFaceHeight 1.33<1.6', 'row-fit OpeningHeight 2.2 > wall 1.33 - sill 0.0'])]"
+    },
+    {
+      "name": "user2(FIT-DEAD repro): ZERO windows (row-fit on short walls + the cross-layer 'Skip First'/'Explicit-2' split emptied by the gap-law 1-column clamp)",
+      "pass": true,
+      "detail": "0 windows; rejections=[(2, ['Skip First on a 1-column grid (gap law clamps it)']), (3, ['Skip First on a 1-column grid (gap law clamps it)']), (4, ['Skip First on a 1-column grid (gap law clamps it)']), (5, ['Skip First on a 1-column grid (gap law clamps it)']), (8, ['Skip First on a 1-column grid (gap law clamps it)']), (9, ['MinFaceWidth 0.67<1.2', 'Skip First on a 1-column grid (gap law clamps it)']), (10, ['Skip First on a 1-column grid (gap law clamps it)']), (11, ['MinFaceWidth 0.67<1.2', 'Skip First on a 1-column grid (gap law clamps it)'])]"
+    },
+    {
+      "name": "user2(fix): 'Scale To Face' puts doors back on the ground-floor walls of the SAME shape with the SAME v2.5 stack (openings auto-shrink to the 2.0 m walls)",
+      "pass": true,
+      "detail": "6 doors (was 0); boxes=[(0.0, 1.124), (0.0, 1.124), (0.0, 1.124), (0.0, 1.124), (0.0, 1.124), (0.0, 1.124)]"
+    },
+    {
+      "name": "user2(accept): under DEFAULT Fit settings the rebuilt massing shows doors AND windows on the ground-floor walls (both Slot layouts)",
+      "pass": true,
+      "detail": "default-settings counts: {'Slots': {'n_doors': 8, 'n_windows': 4}, 'Random': {'n_doors': 4, 'n_windows': 4}}"
+    },
+    {
+      "name": "user2(manual): openings land ONLY inside the painted vertex-group area (bbox containment on the painted wall), zero outside",
+      "pass": true,
+      "detail": "painted wall face 5 (w=1.33 h=2.00): 1 doors inside=[{'name': 'Door_01', 'du': 0.003, 'dv': 1.0, 'face': 5}], outside=[]; windows with unpainted group name: 0 (expected 0)"
+    },
+    {
+      "name": "user2(exact count): 'Exactly-2-Doors' places EXACTLY 2 doors (and Exactly-1 window = 1) - HouseCraft choose-exactly-the-number parity",
+      "pass": true,
+      "detail": "doors=2 (Exact Count 2), windows=1 (Exact Count 1)"
+    },
+    {
+      "name": "user2(flat roof): 'Flat' style caps every top with the subtle Incline measured at 2.5 deg (2-3 deg band), zero gable triangles invented",
+      "pass": true,
+      "detail": "measured inclines=[2.5, 2.5, 2.5, 2.5, 2.5] deg (socket 2.5 deg, tolerance +/-0.75), gable faces=0 (expected 0)"
+    },
+    {
+      "name": "user2(flat roof): roof coverage COMPLETE - every flat top capped, zero interior exposed through the top (the gaping-hole bug is gone)",
+      "pass": true,
+      "detail": "cap tops=5 expected=5 (host tops=5), uncovered=[], strays=[], zero-area=0"
+    },
+    {
+      "name": "user2(gable comparison): same massing with Gable style generates the pitched gable roofs (comparison render) while keeping coverage complete via caps",
+      "pass": true,
+      "detail": "gable faces=20 expected=20, caps=0, uncovered=[]"
     },
     {
       "name": "images_packed VM_Starter.blend: 88/88",

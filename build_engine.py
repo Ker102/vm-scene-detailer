@@ -120,6 +120,48 @@ v2.5 HouseCraft opening placement math ('Slots') + user bug fixes:
     sockets on the existing layers are repointed (WornWoodenDoors + louvered
     shutters vs MedievalWindows), same camera, side-by-side renders.
 
+v2.6 the user's custom-shape bug report (2026-10-22) + HouseCraft parity:
+  * FIT-DEAD ROOT CAUSE on his blocky stepped massing (demo 'UserShape2',
+    rebuilt at the exact proportions/scale of his screenshots: ~2.67 x 2.0 m,
+    tallest wall 2.0 m): the ROW-FIT gate (row base + 'Opening Height' <= face
+    top) rejected EVERY wall - his walls are shorter than the 2.1-2.2 m
+    default/demo Opening Height (windows additionally lose their 0.25-0.9 m
+    sill), and the v2.5 cross-layer windows split was emptied as well: the gap
+    law clamps his <= 1.33 m walls to ONE column, so 'Column Select' 'Skip
+    First' (the window layer of the First-Only/Skip-First split) keeps nothing.
+    Evidence: 0 doors + 0 windows on all 20 wall faces with the exact v2.5
+    stack (sockets read from his session's autosave), reproduced and measured.
+  * FIX - 'Opening Fit' menu {Scale To Face (NEW DEFAULT), Drop (v2.5)} +
+    'Min Fit Scale' (0.5): an opening that does not fit its face is SHRUNK to
+    the available face height/width (instance auto-fit factor vm_fitk; the gap
+    law still holds and the base stays on the sill line); rows that would drop
+    past 'Min Fit Scale' are still rejected (not sensible). CONTRACT CHANGE:
+    openings now appear on faces shorter than 'Opening Height' (scaled down)
+    where v2.5 silently dropped them - documented, measured on UserShape2.
+  * VM_RoofCap 'Flat' style + 'Incline' (default 2.5 deg) + 'Fascia' (0.12 m):
+    a near-flat cap over every flat top - subtle incline along the region's
+    long axis, thin vertical fascia skirt, NEVER invented gable triangles
+    (the user's flat-topped design). COMPLETE COVERAGE (CONTRACT CHANGE):
+    every up-facing top that cannot take a gable cleanly (non-quad tops,
+    undersized fragments, Largest-Face-Only losers) is now FLAT-CAPPED instead
+    of skipped-and-left-open - zero interior exposed through the top.
+    vm_roofgen: 1 = gable faces, 2 = flat-cap faces.
+  * HOUSECRAFT EXACT COUNTS: 'Count Mode' gains 'Exact N' + 'Exact Count' +
+    'Exact Pick' {Spread (default), First} - EXACTLY N openings for the whole
+    layer (deterministic candidate order: face order, then column/row; Spread
+    spaces them evenly). Honest limit: strict largest-face-FIRST ordering is
+    not expressible in geometry nodes (Blender 5.2 has no domain sort) -
+    'Spread' is the even-coverage variant, 'First' is mesh order.
+  * HOUSECRAFT MANUAL PLACEMENT: 'Manual Mask' + 'Manual Mask Group'
+    (e.g. 'VM_Slots_Doors') + 'Manual Threshold' - openings are placed ONLY
+    where the user weight-painted the named vertex group (Blender-native,
+    mirrors HouseCraft ID-painting). The painted area can only REMOVE
+    candidates (gap/sill/fit rules hold with precedence). The weight is
+    sampled 3x (slot position +/- a quarter opening along the wall) so
+    vertex-group interpolation bleed across shared corner verts cannot leak
+    openings onto unpainted walls. Limit: mask resolution is vertex-group
+    interpolation - sub-wall paint areas need wall subdivision.
+
 Deterministic (fixed seeds). Run:
   cd /home/kristo/blender && ./blender-5.2.2-linux-x64/blender -b --python build_engine.py
 """
@@ -718,7 +760,7 @@ def build_node_group():
 
     p_slot = b.panel("Slots", "HouseCraft-style opening placement math for Fit mode: per-face column slots derived from wall width, enforced gaps, one row, shared sill line, no duplicate neighbours")
     b.menu_sock("Slot Layout", p_slot, "Random", "Random = v2.5-pre density sampling; Slots = deterministic per-face column slots (HouseCraft opening math)")
-    b.menu_sock("Count Mode", p_slot, "Per Width", "Slots: Per Width = one opening per Openings Per Width meters of wall (wall-length-derived counts); Explicit = fixed Slot Count per face")
+    b.menu_sock("Count Mode", p_slot, "Per Width", "Slots: Per Width = one opening per Openings Per Width meters of wall (wall-length-derived counts); Explicit = fixed Slot Count per face; Exact N (v2.6) = EXACTLY 'Exact Count' openings for the whole layer (all faces combined, HouseCraft exact-number parity)")
     b.sock("Openings Per Width", "NodeSocketFloat", p_slot, 2.5, 0.1, 100.0, "DISTANCE", "Slots/Per Width: wall meters per opening (count = floor(face width / this), min 1)")
     b.sock("Slot Count", "NodeSocketInt", p_slot, 2, 0, 64, desc="Slots/Explicit: columns per face")
     b.sock("Opening Width", "NodeSocketFloat", p_slot, 1.4, 0.0, 100.0, "DISTANCE", "Slots: nominal opening width (world m); columns are spaced so bbox gap >= Min Gap X between neighbours as long as variants are no wider than this")
@@ -731,6 +773,37 @@ def build_node_group():
     b.menu_sock("Sill Line", p_slot, "Common Z", "Slots: Common Z = one shared world-z sill line (host zmin + Sill Height) across ALL walls - aligned window rows like the reference houses (faces above the line get no slots); Face Base = per-face sill (v2.4)")
     b.sock("Slot Jitter", "NodeSocketFloat", p_slot, 0.02, 0.0, 10.0, "DISTANCE", "Slots: small per-slot random horizontal noise along the wall (world m) for an organic look - vertical jitter is deliberately zero so the shared sill line stays exactly aligned")
     b.sock("No-Repeat", "NodeSocketBool", p_slot, True, desc="Slots: adjacent columns never pick the same variant twice in a row (deterministic cycle per face)")
+    # ---- v2.6: opening auto-fit + exact counts + manual (vertex-group) masks ----
+    b.menu_sock("Opening Fit", p_slot, "Scale To Face",
+                "Slots: what happens when the nominal opening does not fit its face: "
+                "Scale To Face (v2.6 default) = shrink the instance uniformly to the "
+                "available face height/width (gap law still holds; base stays on the sill); "
+                "Drop (v2.5) = reject the row outright (nothing placed)")
+    b.sock("Min Fit Scale", "NodeSocketFloat", p_slot, 0.5, 0.0, 1.0, "FACTOR",
+           "Slots/Scale To Face: openings that would shrink below this fraction of the "
+           "nominal size are dropped (a half-size door is not a sensible opening)")
+    b.menu_sock("Exact Pick", p_slot, "Spread",
+                "Slots/Exact N: how the exactly-N openings are drawn from the candidate "
+                "list (deterministic order = face order, then column/row): Spread = evenly "
+                "spaced across the whole layer (default); First = the first N candidates in "
+                "mesh order. NOTE: strict largest-face-first ordering is NOT expressible in "
+                "geometry nodes (no domain sort in Blender 5.2) - Spread gives the even "
+                "coverage variant and is documented as the exact-count default")
+    b.sock("Exact Count", "NodeSocketInt", p_slot, 2, 0, 4096,
+           desc="Slots/Exact N: EXACTLY this many openings for the whole LAYER (all "
+                "qualifying faces combined) - HouseCraft 'choose exactly the number' parity; "
+                "fewer candidates than N = all candidates are placed")
+    b.sock("Manual Mask", "NodeSocketBool", p_slot, False,
+           desc="Slots: MANUAL placement gate - only slots whose position falls in the "
+                "painted area of the named vertex group are kept (Blender-native weight "
+                "painting, HouseCraft ID-paint parity). Painted area can only REMOVE "
+                "candidates, never add: gap/sill/fit rules still hold (documented precedence)")
+    b.sock("Manual Mask Group", "NodeSocketString", p_slot, "VM_Slots",
+           desc="Slots/Manual Mask: vertex group name to sample (e.g. 'VM_Slots_Doors' / "
+                "'VM_Slots_Windows' so each layer can be painted independently)")
+    b.sock("Manual Threshold", "NodeSocketFloat", p_slot, 0.5, 0.0, 1.0, "FACTOR",
+           "Slots/Manual Mask: minimum interpolated weight at the slot position for the "
+           "opening to be placed (0.5 = the painted-area interior)")
 
     p_dist = b.panel("Distribution", "Scatter/Fit point distribution")
     b.sock("Density", "NodeSocketFloat", p_dist, 0.12, 0.0, 100.0, "FACTOR", "Instances per square meter (Scatter/Fit)")
@@ -1121,10 +1194,19 @@ def build_node_group():
                                         gi.outputs["Sill Line"], {}, loc=(-200, -1450))
     b.ng.nodes[-1].inputs["Common Z"].default_value = True
     common_z = sill_bools["Common Z"]
-    cm_sw, cm_bools = b.menu_switch(["Per Width", "Explicit"], "BOOLEAN",
+    cm_sw, cm_bools = b.menu_switch(["Per Width", "Explicit", "Exact N"], "BOOLEAN",
                                     gi.outputs["Count Mode"], {}, loc=(-200, -1650))
     b.ng.nodes[-1].inputs["Per Width"].default_value = True
     per_width_mode = cm_bools["Per Width"]
+    exact_mode = cm_bools["Exact N"]
+    ep_sw, ep_bools = b.menu_switch(["Spread", "First"], "BOOLEAN",
+                                    gi.outputs["Exact Pick"], {}, loc=(-200, -1750))
+    b.ng.nodes[-1].inputs["Spread"].default_value = True
+    exact_spread = ep_bools["Spread"]
+    of_sw, of_bools = b.menu_switch(["Drop", "Scale To Face"], "BOOLEAN",
+                                    gi.outputs["Opening Fit"], {}, loc=(-200, -1850))
+    b.ng.nodes[-1].inputs["Scale To Face"].default_value = True
+    fit_scale_mode = of_bools["Scale To Face"]
 
     # Max Base Height (BOTH layouts): a face whose base edge sits higher than
     # host zmin + Max Base Height NEVER receives openings - the roof-adjacent
@@ -1397,6 +1479,58 @@ def build_node_group():
     b.L(row_top1.outputs["Value"], row_fit.inputs["A"])
     b.L(face_top1.outputs["Value"], row_fit.inputs["B"])
 
+    # ---- v2.6 Opening Fit 'Scale To Face' (CONTRACT CHANGE, default ON) ----
+    # v2.5 'Drop' rejected the whole row when the nominal opening did not fit -
+    # on the user's ~2 m-tall custom massing that killed EVERY wall (2.1-2.2 m
+    # default/demo Opening Height). 'Scale To Face' keeps the row and shrinks
+    # the INSTANCE to the available face height/width (fit factor below); rows
+    # that would shrink past 'Min Fit Scale' are still dropped (not sensible).
+    avail_h = b.N("ShaderNodeMath", (4450, -2050), operation="SUBTRACT")
+    b.L(face_top1.outputs["Value"], avail_h.inputs[0])
+    b.L(z_row.outputs["Value"], avail_h.inputs[1])
+    kh1 = b.N("ShaderNodeMath", (4600, -2050), operation="DIVIDE")
+    b.L(avail_h.outputs["Value"], kh1.inputs[0])
+    b.L(oh_l.outputs["Value"], kh1.inputs[1])
+    kh2 = b.N("ShaderNodeMath", (4750, -2050), operation="MINIMUM")
+    b.L(kh1.outputs["Value"], kh2.inputs[0])
+    kh2.inputs[1].default_value = 1.0
+    kh = b.N("ShaderNodeMath", (4900, -2050), operation="MAXIMUM")
+    b.L(kh2.outputs["Value"], kh.inputs[0])
+    kh.inputs[1].default_value = 0.0
+    # width: scaled neighbours must keep >= Min Gap X, so k <= (pitch - gap)/OpeningWidth
+    sp_world = b.N("ShaderNodeMath", (4450, -2200), operation="MULTIPLY")
+    b.L(sp_max.outputs["Value"], sp_world.inputs[0])
+    b.L(seu_v, sp_world.inputs[1])
+    kw1 = b.N("ShaderNodeMath", (4600, -2200), operation="SUBTRACT")
+    b.L(sp_world.outputs["Value"], kw1.inputs[0])
+    b.L(gi.outputs["Min Gap X"], kw1.inputs[1])
+    kw2 = b.N("ShaderNodeMath", (4750, -2200), operation="DIVIDE")
+    b.L(kw1.outputs["Value"], kw2.inputs[0])
+    b.L(gi.outputs["Opening Width"], kw2.inputs[1])
+    kw3 = b.N("ShaderNodeMath", (4900, -2200), operation="MINIMUM")
+    b.L(kw2.outputs["Value"], kw3.inputs[0])
+    kw3.inputs[1].default_value = 1.0
+    kw = b.N("ShaderNodeMath", (5050, -2200), operation="MAXIMUM")
+    b.L(kw3.outputs["Value"], kw.inputs[0])
+    kw.inputs[1].default_value = 0.0
+    fitk_raw = b.N("ShaderNodeMath", (5200, -2100), operation="MINIMUM")
+    b.L(kh.outputs["Value"], fitk_raw.inputs[0])
+    b.L(kw.outputs["Value"], fitk_raw.inputs[1])
+    fit_ok = b.N("FunctionNodeCompare", (5350, -2100), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(fitk_raw.outputs["Value"], fit_ok.inputs["A"])
+    b.L(gi.outputs["Min Fit Scale"], fit_ok.inputs["B"])
+    row_in = b.N("FunctionNodeCompare", (5350, -2250), data_type="FLOAT", operation="LESS_EQUAL")
+    b.L(z_row.outputs["Value"], row_in.inputs["A"])
+    b.L(face_top1.outputs["Value"], row_in.inputs["B"])
+    scale_row_ok = b.N("FunctionNodeBooleanMath", (5500, -2150), operation="AND")
+    b.L(row_in.outputs["Result"], scale_row_ok.inputs[0])
+    b.L(fit_ok.outputs["Result"], scale_row_ok.inputs[1])
+    keep_row = b.N("GeometryNodeSwitch", (5650, -2050))
+    keep_row.input_type = "BOOLEAN"
+    b.L(fit_scale_mode, keep_row.inputs["Switch"])
+    b.L(row_fit.outputs["Result"], keep_row.inputs["False"])
+    b.L(scale_row_ok.outputs["Boolean"], keep_row.inputs["True"])
+
     # keep: column in range, row in range + fits on the face, Column Select filter
     keep_c1 = b.N("FunctionNodeCompare", (2900, -1950), data_type="FLOAT", operation="LESS_THAN")
     b.L(sgi_v, keep_c1.inputs["A"])
@@ -1420,12 +1554,164 @@ def build_node_group():
     b.L(keep_r1.outputs["Result"], keep_k1.inputs[1])
     keep_k1b = b.N("FunctionNodeBooleanMath", (3650, -1950), operation="AND")
     b.L(keep_k1.outputs["Boolean"], keep_k1b.inputs[0])
-    b.L(row_fit.outputs["Result"], keep_k1b.inputs[1])
+    b.L(keep_row.outputs["Output"], keep_k1b.inputs[1])
     keep_k2 = b.N("FunctionNodeBooleanMath", (3800, -2000), operation="AND")
     b.L(keep_k1b.outputs["Boolean"], keep_k2.inputs[0])
     b.L(cs_sw, keep_k2.inputs[1])
+
+    # ---- v2.6 MANUAL mask (vertex-group painted placement) ----
+    # Sample the painted weight at the slot's final wall position (the same
+    # field the Set Position below uses, minus the tiny jitter). Painted area
+    # can only REMOVE candidates - gap/sill/fit rules hold with precedence.
+    mp_a = b.N("ShaderNodeMath", (4000, -2500), operation="ADD")
+    b.L(sgi_v, mp_a.inputs[0])
+    mp_a.inputs[1].default_value = 0.5
+    mp_pos = b.N("ShaderNodeMath", (4150, -2500), operation="MULTIPLY_ADD")
+    b.L(mp_a.outputs["Value"], mp_pos.inputs[0])
+    b.L(sp_max.outputs["Value"], mp_pos.inputs[1])
+    b.L(salo_v, mp_pos.inputs[2])
+    mp_cz = b.N("ShaderNodeSeparateXYZ", (4000, -2650))
+    b.L(sc_v, mp_cz.inputs["Vector"])
+    mp_dz = b.N("ShaderNodeMath", (4150, -2650), operation="SUBTRACT")
+    b.L(z_row.outputs["Value"], mp_dz.inputs[0])
+    b.L(mp_cz.outputs["Z"], mp_dz.inputs[1])
+    mp_u = b.N("ShaderNodeVectorMath", (4300, -2500), operation="SCALE")
+    b.L(su_v, mp_u.inputs[0])
+    b.L(mp_pos.outputs["Value"], mp_u.inputs["Scale"])
+    mp_v = b.N("ShaderNodeVectorMath", (4300, -2650), operation="SCALE")
+    b.L(sv_v, mp_v.inputs[0])
+    b.L(mp_dz.outputs["Value"], mp_v.inputs["Scale"])
+    mp_p1 = b.N("ShaderNodeVectorMath", (4450, -2550), operation="ADD")
+    b.L(sc_v, mp_p1.inputs[0])
+    b.L(mp_u.outputs["Vector"], mp_p1.inputs[1])
+    mp_p2 = b.N("ShaderNodeVectorMath", (4600, -2550), operation="ADD")
+    b.L(mp_p1.outputs["Vector"], mp_p2.inputs[0])
+    b.L(mp_v.outputs["Vector"], mp_p2.inputs[1])
+    mp_emb_l = b.N("ShaderNodeMath", (4600, -2800), operation="DIVIDE")
+    b.L(emb_net.outputs["Value"], mp_emb_l.inputs[0])
+    b.L(sen_v, mp_emb_l.inputs[1])
+    mp_emb = b.N("ShaderNodeVectorMath", (4750, -2550), operation="SCALE")
+    b.L(sn_v, mp_emb.inputs[0])
+    b.L(mp_emb_l.outputs["Value"], mp_emb.inputs["Scale"])
+    mp_p3 = b.N("ShaderNodeVectorMath", (4900, -2550), operation="ADD")
+    b.L(mp_p2.outputs["Vector"], mp_p3.inputs[0])
+    b.L(mp_emb.outputs["Vector"], mp_p3.inputs[1])
+    mask_attr = b.N("GeometryNodeInputNamedAttribute", (4450, -2800))
+    mask_attr.data_type = "FLOAT"
+    b.L(gi.outputs["Manual Mask Group"], mask_attr.inputs["Name"])
+    # v2.6: the painted weight is sampled at the slot position AND at +/- a
+    # quarter-opening along the wall (3-point min): vertex-group interpolation
+    # bleeds across shared corner verts into UNPAINTED neighbours - trimming a
+    # quarter-opening margin keeps openings INSIDE the painted area (the exact
+    # bleed case was measured on UserShape2: one door slipped onto the adjacent
+    # wall at interpolated weight 0.505). Documented limit: mask resolution is
+    # vertex-group interpolation - sub-wall paint areas need wall subdivision.
+    mdel = b.N("ShaderNodeMath", (4300, -2800), operation="DIVIDE")
+    b.L(gi.outputs["Opening Width"], mdel.inputs[0])
+    b.L(seu_v, mdel.inputs[1])
+    mdel2 = b.N("ShaderNodeMath", (4300, -2950), operation="MULTIPLY")
+    b.L(mdel.outputs["Value"], mdel2.inputs[0])
+    mdel2.inputs[1].default_value = 0.25
+    mdu1 = b.N("ShaderNodeVectorMath", (4450, -2950), operation="SCALE")
+    b.L(su_v, mdu1.inputs[0])
+    b.L(mdel2.outputs["Value"], mdu1.inputs["Scale"])
+    mpp_a = b.N("ShaderNodeVectorMath", (4600, -2750), operation="ADD")
+    b.L(mp_p3.outputs["Vector"], mpp_a.inputs[0])
+    b.L(mdu1.outputs["Vector"], mpp_a.inputs[1])
+    mpp_b = b.N("ShaderNodeVectorMath", (4600, -2950), operation="SUBTRACT")
+    b.L(mp_p3.outputs["Vector"], mpp_b.inputs[0])
+    b.L(mdu1.outputs["Vector"], mpp_b.inputs[1])
+    mask_samp = b.N("GeometryNodeSampleNearestSurface", (4750, -2800))
+    b.L(mesh_only, mask_samp.inputs["Mesh"])
+    b.L(mask_attr.outputs["Attribute"], mask_samp.inputs["Value"])
+    b.L(mp_p3.outputs["Vector"], mask_samp.inputs["Sample Position"])
+    mask_samp_a = b.N("GeometryNodeSampleNearestSurface", (4750, -3050))
+    b.L(mesh_only, mask_samp_a.inputs["Mesh"])
+    b.L(mask_attr.outputs["Attribute"], mask_samp_a.inputs["Value"])
+    b.L(mpp_a.outputs["Vector"], mask_samp_a.inputs["Sample Position"])
+    mask_samp_b = b.N("GeometryNodeSampleNearestSurface", (4750, -3300))
+    b.L(mesh_only, mask_samp_b.inputs["Mesh"])
+    b.L(mask_attr.outputs["Attribute"], mask_samp_b.inputs["Value"])
+    b.L(mpp_b.outputs["Vector"], mask_samp_b.inputs["Sample Position"])
+    mask_ok = b.N("FunctionNodeCompare", (5050, -2800), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(mask_samp.outputs["Value"], mask_ok.inputs["A"])
+    b.L(gi.outputs["Manual Threshold"], mask_ok.inputs["B"])
+    mask_ok_a = b.N("FunctionNodeCompare", (5050, -3050), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(mask_samp_a.outputs["Value"], mask_ok_a.inputs["A"])
+    b.L(gi.outputs["Manual Threshold"], mask_ok_a.inputs["B"])
+    mask_ok_b = b.N("FunctionNodeCompare", (5050, -3300), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(mask_samp_b.outputs["Value"], mask_ok_b.inputs["A"])
+    b.L(gi.outputs["Manual Threshold"], mask_ok_b.inputs["B"])
+    mask_ok_ab = b.N("FunctionNodeBooleanMath", (5250, -2950), operation="AND")
+    b.L(mask_ok.outputs["Result"], mask_ok_ab.inputs[0])
+    b.L(mask_ok_a.outputs["Result"], mask_ok_ab.inputs[1])
+    mask_ok3 = b.N("FunctionNodeBooleanMath", (5400, -3050), operation="AND")
+    b.L(mask_ok_ab.outputs["Boolean"], mask_ok3.inputs[0])
+    b.L(mask_ok_b.outputs["Result"], mask_ok3.inputs[1])
+    mask_not = b.N("FunctionNodeBooleanMath", (5050, -2950), operation="NOT")
+    b.L(gi.outputs["Manual Mask"], mask_not.inputs[0])
+    manual_gate = b.N("FunctionNodeBooleanMath", (5250, -2850), operation="OR")
+    b.L(mask_not.outputs["Boolean"], manual_gate.inputs[0])
+    b.L(mask_ok3.outputs["Boolean"], manual_gate.inputs[1])
+    keep_k3 = b.N("FunctionNodeBooleanMath", (5450, -2500), operation="AND")
+    b.L(keep_k2.outputs["Boolean"], keep_k3.inputs[0])
+    b.L(manual_gate.outputs["Boolean"], keep_k3.inputs[1])
+
+    # ---- v2.6 Count Mode 'Exact N': EXACTLY 'Exact Count' openings per LAYER ----
+    # Candidate order is deterministic (face order, then grid column/row order);
+    # rank = running count of kept candidates (Accumulate Field, POINT domain).
+    keep_ff = b.N("ShaderNodeMath", (5650, -2500), operation="ADD")
+    b.L(keep_k3.outputs["Boolean"], keep_ff.inputs[0])
+    keep_ff.inputs[1].default_value = 0.0
+    acc_s = b.N("GeometryNodeAccumulateField", (5850, -2500), domain="POINT")
+    b.L(keep_ff.outputs["Value"], acc_s.inputs["Value"])
+    n_f = b.N("ShaderNodeMath", (5850, -2700), operation="ADD")
+    b.L(gi.outputs["Exact Count"], n_f.inputs[0])
+    n_f.inputs[1].default_value = 0.0
+    ex_first = b.N("FunctionNodeCompare", (6050, -2450), data_type="FLOAT", operation="LESS_THAN")
+    b.L(acc_s.outputs["Leading"], ex_first.inputs["A"])
+    b.L(n_f.outputs["Value"], ex_first.inputs["B"])
+    tot_g = b.N("ShaderNodeMath", (6050, -2650), operation="MAXIMUM")
+    b.L(acc_s.outputs["Total"], tot_g.inputs[0])
+    tot_g.inputs[1].default_value = 1.0
+    sp_a = b.N("ShaderNodeMath", (6200, -2650), operation="MULTIPLY")
+    b.L(acc_s.outputs["Leading"], sp_a.inputs[0])
+    b.L(n_f.outputs["Value"], sp_a.inputs[1])
+    sp_b = b.N("ShaderNodeMath", (6350, -2650), operation="DIVIDE")
+    b.L(sp_a.outputs["Value"], sp_b.inputs[0])
+    b.L(tot_g.outputs["Value"], sp_b.inputs[1])
+    sp_f1 = b.N("ShaderNodeMath", (6500, -2650), operation="FLOOR")
+    b.L(sp_b.outputs["Value"], sp_f1.inputs[0])
+    sp_r = b.N("ShaderNodeMath", (6200, -2800), operation="SUBTRACT")
+    b.L(acc_s.outputs["Leading"], sp_r.inputs[0])
+    sp_r.inputs[1].default_value = 1.0
+    sp_c = b.N("ShaderNodeMath", (6350, -2800), operation="MULTIPLY")
+    b.L(sp_r.outputs["Value"], sp_c.inputs[0])
+    b.L(n_f.outputs["Value"], sp_c.inputs[1])
+    sp_d = b.N("ShaderNodeMath", (6500, -2800), operation="DIVIDE")
+    b.L(sp_c.outputs["Value"], sp_d.inputs[0])
+    b.L(tot_g.outputs["Value"], sp_d.inputs[1])
+    sp_f2 = b.N("ShaderNodeMath", (6650, -2800), operation="FLOOR")
+    b.L(sp_d.outputs["Value"], sp_f2.inputs[0])
+    ex_spread = b.N("FunctionNodeCompare", (6800, -2700), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(sp_f1.outputs["Value"], ex_spread.inputs["A"])
+    b.L(sp_f2.outputs["Value"], ex_spread.inputs["B"])
+    ex_pick = b.N("GeometryNodeSwitch", (7000, -2550))
+    ex_pick.input_type = "BOOLEAN"
+    b.L(exact_spread, ex_pick.inputs["Switch"])
+    b.L(ex_first.outputs["Result"], ex_pick.inputs["False"])
+    b.L(ex_spread.outputs["Result"], ex_pick.inputs["True"])
+    ex_not = b.N("FunctionNodeBooleanMath", (7000, -2750), operation="NOT")
+    b.L(exact_mode, ex_not.inputs[0])
+    exact_gate = b.N("FunctionNodeBooleanMath", (7200, -2650), operation="OR")
+    b.L(ex_not.outputs["Boolean"], exact_gate.inputs[0])
+    b.L(ex_pick.outputs["Output"], exact_gate.inputs[1])
+    keep_final = b.N("FunctionNodeBooleanMath", (7400, -2500), operation="AND")
+    b.L(keep_k3.outputs["Boolean"], keep_final.inputs[0])
+    b.L(exact_gate.outputs["Boolean"], keep_final.inputs[1])
+
     not_keep_s = b.N("FunctionNodeBooleanMath", (3950, -2000), operation="NOT")
-    b.L(keep_k2.outputs["Boolean"], not_keep_s.inputs[0])
+    b.L(keep_final.outputs["Boolean"], not_keep_s.inputs[0])
     del_s = b.N("GeometryNodeDeleteGeometry", (3950, -750), domain="POINT")
     b.L(real_s.outputs["Geometry"], del_s.inputs["Geometry"])
     b.L(not_keep_s.outputs["Boolean"], del_s.inputs["Selection"])
@@ -1504,7 +1790,18 @@ def build_node_group():
     b.L(setpos_s.outputs["Geometry"], pick_store.inputs["Geometry"])
     pick_store.inputs["Name"].default_value = "vm_pick"
     b.L(pick3_s.outputs["Value"], pick_store.inputs["Value"])
-    slot_geo = pick_store.outputs["Geometry"]
+    # v2.6: per-slot auto-fit factor (Scale To Face) -> applied to the instance
+    # scale below; 1.0 in Drop mode / other branches (bit-identical v2.5 scale)
+    fitk_sw = b.N("GeometryNodeSwitch", (5750, -950))
+    fitk_sw.input_type = "FLOAT"
+    b.L(fit_scale_mode, fitk_sw.inputs["Switch"])
+    fitk_sw.inputs["False"].default_value = 1.0
+    b.L(fitk_raw.outputs["Value"], fitk_sw.inputs["True"])
+    fitk_store = b.N("GeometryNodeStoreNamedAttribute", (5950, -750), data_type="FLOAT", domain="POINT")
+    b.L(pick_store.outputs["Geometry"], fitk_store.inputs["Geometry"])
+    fitk_store.inputs["Name"].default_value = "vm_fitk"
+    b.L(fitk_sw.outputs["Output"], fitk_store.inputs["Value"])
+    slot_geo = fitk_store.outputs["Geometry"]
 
     # Fit points: Slots layout -> slot_geo, Random layout -> density sampling
     fit_geo_sw = b.N("GeometryNodeSwitch", (1800, -150))
@@ -1851,6 +2148,19 @@ def build_node_group():
     # EACH instance axis (axes taken from the actual per-point placement
     # rotation, so this is exact for any face orientation; the object scale is
     # read from Self Object and gated to 1 for un-scaled hosts).
+    # v2.6: the Slots auto-fit factor (vm_fitk, see Opening Fit) multiplies the
+    # scale here - points without the attribute (Scatter/Random/Cladding) get 1.
+    fitk_attr = b.N("GeometryNodeInputNamedAttribute", (2950, 80))
+    fitk_attr.data_type = "FLOAT"
+    fitk_attr.inputs["Name"].default_value = "vm_fitk"
+    fitk_use = b.N("GeometryNodeSwitch", (3000, -20))
+    fitk_use.input_type = "FLOAT"
+    b.L(fitk_attr.outputs["Exists"], fitk_use.inputs["Switch"])
+    fitk_use.inputs["False"].default_value = 1.0
+    b.L(fitk_attr.outputs["Attribute"], fitk_use.inputs["True"])
+    scale_k = b.N("ShaderNodeVectorMath", (3020, 150), operation="SCALE")
+    b.L(scale_out, scale_k.inputs[0])
+    b.L(fitk_use.outputs["Output"], scale_k.inputs["Scale"])
     def axis_eff(axis_const, loc):
         rvn = b.N("FunctionNodeRotateVector", loc)
         rvn.inputs["Vector"].default_value = axis_const
@@ -1865,7 +2175,7 @@ def build_node_group():
     b.L(eff_iy, eff_i.inputs["Y"])
     b.L(eff_iz, eff_i.inputs["Z"])
     scale_fixed = b.N("ShaderNodeVectorMath", (3100, 200), operation="DIVIDE")
-    b.L(scale_out, scale_fixed.inputs[0])
+    b.L(scale_k.outputs["Vector"], scale_fixed.inputs[0])
     b.L(eff_i.outputs["Vector"], scale_fixed.inputs[1])
 
     # ---------------- debris split ----------------
@@ -1975,7 +2285,13 @@ def build_roofcap_group():
     p = b.panel("Roof", "Per-region pitched roof generated over each qualifying flat top face")
     b.sock("Pitch", "NodeSocketFloat", p, math.radians(35.0), 0.0, math.radians(89.0), "ANGLE")
     b.sock("Overhang", "NodeSocketFloat", p, 0.25, 0.0, 10.0, "DISTANCE")
-    b.menu_sock("Style", p, "Gable", "Gable = full-length ridge along the region's long axis; Hip = ridge shortened by half the short side")
+    b.menu_sock("Style", p, "Gable", "Gable = full-length ridge along the region's long axis; Hip = ridge shortened by half the short side; Flat (v2.6) = near-flat cap with a very subtle incline + thin edge fascia, NEVER any invented gable triangles (for flat-topped designs)")
+    b.sock("Incline", "NodeSocketFloat", p, math.radians(2.5), 0.0, math.radians(45.0), "ANGLE",
+           "Flat style: subtle incline of the flat cap along the region's long axis "
+           "(world angle, default 2.5 deg - the roof reads flat but drains)")
+    b.sock("Fascia", "NodeSocketFloat", p, 0.12, 0.0, 10.0, "DISTANCE",
+           "Flat style: thin edge fascia skirt height at the cap's low edge (world m; "
+           "kept >= 3 cm on the low side of the incline)")
     b.sock("Roof Material", "NodeSocketMaterial", p, None, desc="Material for the generated roof faces")
     b.sock("Min Roof Face Size", "NodeSocketFloat", p, 0.4, 0.0, 100.0, "DISTANCE", "Per-region: up-facing quads whose short side is smaller are SKIPPED CLEANLY (reported in verification), never garbaged")
     b.sock("Largest Face Only", "NodeSocketBool", p, False, desc="Per-region: cap only the largest qualifying top face (single-roof mode)")
@@ -2254,10 +2570,36 @@ def build_roofcap_group():
     b.L(keep_big.outputs["Boolean"], fsel_sw.inputs["True"])
     final_sel = fsel_sw.outputs["Output"]
 
+    # ---- v2.6 Style 'Flat' + COMPLETE COVERAGE fallback ----------------------
+    # In 'Flat' style NO gable is ever invented: every up-facing top gets a
+    # near-flat cap (subtle incline + thin fascia). In Gable/Hip style every top
+    # that cannot take a gable cleanly (non-quad, undersized, Largest-Face-Only
+    # losers, Flat mode) gets a FLAT CAP instead of being skipped - a skipped
+    # region used to leave a HOLE exposing the interior (the user's bug).
+    # NOTE: exactly ONE Menu Switch may consume a menu interface socket (two
+    # switches empty the socket's enum in Blender 5.2) - the flat flag comes
+    # from the switch's per-item bool output; the value inputs are linked below.
+    style_sw = b.N("GeometryNodeMenuSwitch", (1700, -2550))
+    style_sw.data_type = "FLOAT"
+    for _it in ("Gable", "Hip", "Flat"):
+        style_sw.enum_items.new(_it)
+    b.L(gi.outputs["Style"], style_sw.inputs["Menu"])
+    flat_mode = style_sw.outputs["Flat"]
+    not_flat = b.N("FunctionNodeBooleanMath", (1850, -2550), operation="NOT")
+    b.L(flat_mode, not_flat.inputs[0])
+    gable_sel = b.N("FunctionNodeBooleanMath", (2000, -2450), operation="AND")
+    b.L(final_sel, gable_sel.inputs[0])
+    b.L(not_flat.outputs["Boolean"], gable_sel.inputs[1])
+    gable_not = b.N("FunctionNodeBooleanMath", (2000, -2650), operation="NOT")
+    b.L(gable_sel.outputs["Boolean"], gable_not.inputs[0])
+    cap_sel = b.N("FunctionNodeBooleanMath", (2150, -2650), operation="AND")
+    b.L(up.outputs["Result"], cap_sel.inputs[0])
+    b.L(gable_not.outputs["Boolean"], cap_sel.inputs[1])
+
     m2p = b.N("GeometryNodeMeshToPoints", (1750, -1500))
     m2p.mode = "FACES"
     b.L(store_chain, m2p.inputs["Mesh"])
-    b.L(final_sel, m2p.inputs["Selection"])
+    b.L(gable_sel.outputs["Boolean"], m2p.inputs["Selection"])
 
     iop = b.N("GeometryNodeInstanceOnPoints", (1150, -1500))
     b.L(m2p.outputs["Points"], iop.inputs["Points"])
@@ -2303,8 +2645,11 @@ def build_roofcap_group():
     Hh = m("DIVIDE", m("MULTIPLY", m("MULTIPLY", B, eff_rv, loc=(2250, -2350)),
                        tan_p, loc=(2350, -2350)), sz_g, loc=(2450, -2350))
     ridge_hip = m("MAXIMUM", m("SUBTRACT", A, B, loc=(2100, -2700)), 0.0, loc=(2250, -2700))
-    ridge_g, _ = b.menu_switch(["Gable", "Hip"], "FLOAT", gi.outputs["Style"],
-                               {"Gable": A, "Hip": ridge_hip}, loc=(2400, -2600))
+    # (the single Style menu switch was created earlier - link its value inputs)
+    b.L(A, style_sw.inputs["Gable"])
+    b.L(ridge_hip, style_sw.inputs["Hip"])
+    b.L(A, style_sw.inputs["Flat"])
+    ridge_g = style_sw.outputs["Output"]
     # x scale per template point: eave -> A, ridge -> ridge length
     dxs = m("SUBTRACT", ridge_g, A, loc=(2550, -2650))
     xs = m("MULTIPLY_ADD", tsep2.outputs["Z"], dxs, A, loc=(2700, -2550))         # xs = tz*(ridge-A) + A
@@ -2349,9 +2694,123 @@ def build_roofcap_group():
     st_rg.inputs["Name"].default_value = "vm_roofgen"
     st_rg.inputs["Value"].default_value = 1.0
 
-    join = b.N("GeometryNodeJoinGeometry", (4150, -1300))
+    # ---------------- v2.6 FLAT CAP branch ----------------
+    # Every up-facing top WITHOUT a gable (and ALL tops in Flat style) gets a
+    # near-flat cap: the face outline extruded up into a thin slab, tilted by
+    # 'Incline' along the region's long axis, with a thin vertical fascia skirt
+    # (both rings expanded about the region center by the overhang). Handles
+    # quads AND n-gons/triangles (the user's extrusion leftovers) - coverage is
+    # COMPLETE: no top is ever left open. vm_roofgen = 2 marks cap faces.
+    cap_sep = b.N("GeometryNodeSeparateGeometry", (2300, -3200))
+    cap_sep.domain = "FACE"
+    b.L(store_chain, cap_sep.inputs["Geometry"])
+    b.L(cap_sel.outputs["Boolean"], cap_sep.inputs["Selection"])
+    cap_ex = b.N("GeometryNodeExtrudeMesh", (2500, -3200))
+    cap_ex.mode = "FACES"
+    b.L(cap_sep.outputs["Selection"], cap_ex.inputs["Mesh"])
+    cap_ex.inputs["Selection"].default_value = True
+    cap_off = b.N("ShaderNodeCombineXYZ", (2500, -3350))
+    cap_off.inputs["Z"].default_value = 1.0
+    b.L(cap_off.outputs["Vector"], cap_ex.inputs["Offset"])
+    cap_ex.inputs["Individual"].default_value = True
+    cap_t = b.N("GeometryNodeInputNamedAttribute", (2300, -3500))
+    cap_t.data_type = "FLOAT_VECTOR"
+    cap_t.inputs["Name"].default_value = "vm_t"     # unused; kept for symmetry
+    cap_rc = named("vm_rc", "FLOAT_VECTOR")
+    cap_ru = named("vm_ru", "FLOAT_VECTOR")
+    cap_rv = named("vm_rv", "FLOAT_VECTOR")
+    cap_rw = named("vm_rw")
+    cap_rh = named("vm_rh")
+    cap_rz = named("vm_rz")
+    cap_eff_ru = ws["eff_of"](cap_ru, (2300, -3700))
+    cap_eff_rv = ws["eff_of"](cap_rv, (2300, -3850))
+    # overhang expansion per axis (clamped so tiny fragments cannot explode)
+    su_1 = m("DIVIDE", m("MULTIPLY", gi.outputs["Overhang"], 2.0, loc=(2500, -3600)),
+             m("MAXIMUM", cap_rw, 0.001, loc=(2500, -3700)), loc=(2650, -3600))
+    su_c = m("MINIMUM", m("ADD", 1.0, su_1, loc=(2800, -3600)), 2.0, loc=(2950, -3600))
+    sv_1 = m("DIVIDE", m("MULTIPLY", gi.outputs["Overhang"], 2.0, loc=(2500, -3900)),
+             m("MAXIMUM", cap_rh, 0.001, loc=(2500, -4000)), loc=(2650, -3900))
+    sv_c = m("MINIMUM", m("ADD", 1.0, sv_1, loc=(2800, -3900)), 2.0, loc=(2950, -3900))
+    cap_pos = b.N("GeometryNodeInputPosition", (2300, -4150))
+    cap_d = b.N("ShaderNodeVectorMath", (2500, -4150), operation="SUBTRACT")
+    b.L(cap_pos.outputs["Position"], cap_d.inputs[0])
+    b.L(cap_rc, cap_d.inputs[1])
+    cap_du = b.N("ShaderNodeVectorMath", (2650, -4150), operation="DOT_PRODUCT")
+    b.L(cap_d.outputs["Vector"], cap_du.inputs[0])
+    b.L(cap_ru, cap_du.inputs[1])
+    cap_dv = b.N("ShaderNodeVectorMath", (2650, -4300), operation="DOT_PRODUCT")
+    b.L(cap_d.outputs["Vector"], cap_dv.inputs[0])
+    b.L(cap_rv, cap_dv.inputs[1])
+    cap_au = m("MULTIPLY", m("SUBTRACT", su_c, 1.0, loc=(2800, -4150)),
+               cap_du.outputs["Value"], loc=(2950, -4150))
+    cap_av = m("MULTIPLY", m("SUBTRACT", sv_c, 1.0, loc=(2800, -4300)),
+               cap_dv.outputs["Value"], loc=(2950, -4300))
+    cap_uu = b.N("ShaderNodeVectorMath", (3100, -4150), operation="SCALE")
+    b.L(cap_ru, cap_uu.inputs[0])
+    b.L(cap_au, cap_uu.inputs["Scale"])
+    cap_vv = b.N("ShaderNodeVectorMath", (3100, -4300), operation="SCALE")
+    b.L(cap_rv, cap_vv.inputs[0])
+    b.L(cap_av, cap_vv.inputs["Scale"])
+    cap_pxy1 = b.N("ShaderNodeVectorMath", (3250, -4200), operation="ADD")
+    b.L(cap_pos.outputs["Position"], cap_pxy1.inputs[0])
+    b.L(cap_uu.outputs["Vector"], cap_pxy1.inputs[1])
+    cap_pxy2 = b.N("ShaderNodeVectorMath", (3400, -4200), operation="ADD")
+    b.L(cap_pxy1.outputs["Vector"], cap_pxy2.inputs[0])
+    b.L(cap_vv.outputs["Vector"], cap_pxy2.inputs[1])
+    # subtle incline along the long axis (world angle) + fascia height.
+    # The tilt is computed on the EXPANDED coordinate so the FINAL cap plane
+    # (after the overhang expansion above) has exactly the requested incline.
+    sin_i = m("SINE", gi.outputs["Incline"], loc=(2500, -4500))
+    cos_i = m("MAXIMUM", m("COSINE", gi.outputs["Incline"], loc=(2500, -4620)), 0.01,
+              loc=(2650, -4620))
+    tan_i = m("DIVIDE", sin_i, cos_i, loc=(2800, -4550))
+    du_exp = m("MULTIPLY", cap_du.outputs["Value"], su_c, loc=(2800, -4450))
+    cap_dz = m("DIVIDE", m("MULTIPLY", m("MULTIPLY", tan_i, du_exp,
+                                         loc=(2950, -4500)), cap_eff_ru, loc=(3100, -4500)),
+               sz_g, loc=(3250, -4500))
+    tilt_amp = m("DIVIDE", m("MULTIPLY", m("MULTIPLY", tan_i,
+                                           m("MULTIPLY", m("MULTIPLY", cap_rw, su_c, loc=(2850, -4700)),
+                                            0.5, loc=(2950, -4700)),
+                                           loc=(3100, -4700)), cap_eff_ru, loc=(3250, -4700)),
+                 sz_g, loc=(3400, -4700))
+    fascia_l = m("DIVIDE", gi.outputs["Fascia"], sz_g, loc=(2950, -4850))
+    fascia_eff = m("MAXIMUM", fascia_l,
+                   m("ADD", tilt_amp, m("DIVIDE", 0.03, sz_g, loc=(3100, -4950)),
+                     loc=(3250, -4850)), loc=(3400, -4850))
+    cap_raise_top = m("ADD", fascia_eff, cap_dz, loc=(3550, -4600))
+    cap_raise = b.N("GeometryNodeSwitch", (3700, -4500))
+    cap_raise.input_type = "FLOAT"
+    b.L(cap_ex.outputs["Top"], cap_raise.inputs["Switch"])
+    cap_raise.inputs["False"].default_value = 0.0
+    b.L(cap_raise_top, cap_raise.inputs["True"])
+    cap_psep = b.N("ShaderNodeSeparateXYZ", (3550, -4200))
+    b.L(cap_pxy2.outputs["Vector"], cap_psep.inputs["Vector"])
+    cap_zbase = b.N("ShaderNodeMath", (3850, -4400), operation="ADD")
+    b.L(cap_rz, cap_zbase.inputs[0])
+    b.L(cap_raise.outputs["Output"], cap_zbase.inputs[1])
+    cap_zsw = b.N("GeometryNodeSwitch", (4000, -4300))
+    cap_zsw.input_type = "FLOAT"
+    b.L(cap_ex.outputs["Top"], cap_zsw.inputs["Switch"])
+    b.L(cap_psep.outputs["Z"], cap_zsw.inputs["False"])
+    b.L(cap_zbase.outputs["Value"], cap_zsw.inputs["True"])
+    cap_final = b.N("ShaderNodeCombineXYZ", (4150, -4250))
+    b.L(cap_psep.outputs["X"], cap_final.inputs["X"])
+    b.L(cap_psep.outputs["Y"], cap_final.inputs["Y"])
+    b.L(cap_zsw.outputs["Output"], cap_final.inputs["Z"])
+    cap_sp = b.N("GeometryNodeSetPosition", (4300, -3200))
+    b.L(cap_ex.outputs["Mesh"], cap_sp.inputs["Geometry"])
+    b.L(cap_final.outputs["Vector"], cap_sp.inputs["Position"])
+    cap_dressed = material_gate(b, cap_sp.outputs["Geometry"], gi.outputs["Roof Material"],
+                                sel_all.outputs["Boolean"], (4450, -3200))
+    st_cap = b.N("GeometryNodeStoreNamedAttribute", (4600, -3200), data_type="FLOAT", domain="FACE")
+    b.L(cap_dressed, st_cap.inputs["Geometry"])
+    st_cap.inputs["Name"].default_value = "vm_roofgen"
+    st_cap.inputs["Value"].default_value = 2.0
+
+    join = b.N("GeometryNodeJoinGeometry", (4800, -1300))
     b.L(gi.outputs["Geometry"], join.inputs["Geometry"])
     b.L(st_rg.outputs["Geometry"], join.inputs["Geometry"])
+    b.L(st_cap.outputs["Geometry"], join.inputs["Geometry"])
     b.L(join.outputs["Geometry"], go.inputs["Geometry"])
     b.finish_menu_defaults()
     return b.ng
@@ -2690,6 +3149,61 @@ def make_wide_wall(name, col, length):
     return new_mesh_obj(name, verts, faces, col)
 
 
+# ---------------------------------------------------------------- v2.6 UserShape2
+# The USER's custom shape (2026-10-22 screenshots): blocky stepped massing -
+# tall back-left tower + lower-left wing + small front annex + upper-right
+# block + its step, ALL TOPS FLAT at stepped heights. Rebuilt at the exact
+# proportions AND scale measured from his screenshots (floor grid squares +
+# shingle-tile size): overall ~2.67 x 2.0 m footprint, tallest wall exactly
+# 2.0 m - SMALLER than the 2.1-2.2 m default/demo 'Opening Height', which is
+# what killed every Fit opening (see STAGE 7 root-cause evidence). Topology is
+# the authentic extrusion result: merged boxes, quad walls, shared corner verts
+# (T-junctions where steps meet), partially-occluded junction faces kept.
+U2_BLOCKS = [
+    # (x0, x1, y0, y1, z0, z1)  - meters, 1 screenshot unit = 2/3 m
+    (0.0, 4 / 3, 2 / 3, 2.0, 0.0, 2.0),        # tower BL   (tallest)
+    (0.0, 4 / 3, 0.0, 2 / 3, 0.0, 4 / 3),      # wing FL
+    (4 / 3, 8 / 3, 4 / 3, 2.0, 0.0, 1.8),      # block BR   (upper right)
+    (2.0, 8 / 3, 2 / 3, 4 / 3, 0.0, 1.0),      # step MRS
+    (2.0, 8 / 3, 0.0, 2 / 3, 0.0, 2 / 3),      # annex FR   (front right)
+]
+
+def make_user_shape2(name, col):
+    verts, faces = [], []
+    for (x0, x1, y0, y1, z0, z1) in U2_BLOCKS:
+        off = len(verts)
+        verts += [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+                  (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
+        faces += [tuple(i + off for i in fc)
+                  for fc in ((0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4),
+                             (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7))]
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(verts, [], faces)
+    me.update()
+    ob = bpy.data.objects.new(name, me)
+    col.objects.link(ob)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    return ob
+
+def paint_slot_group(ob, group_name, face_selector):
+    """Manual-placement demo: weight-paint a VERTEX GROUP on the faces selected
+    by face_selector(face) -> bool (Blender-native weight painting; the user
+    paints this in Weight Paint mode on his own mesh)."""
+    vg = ob.vertex_groups.new(name=group_name)
+    me = ob.data
+    idxs = set()
+    for p in me.polygons:
+        if face_selector(p):
+            idxs.update(p.vertices)
+    vg.add(list(idxs), 1.0, "REPLACE")
+    return sorted(idxs)
+
+
 def face_table(host):
     """World-space data for every face of the BASE mesh (what the user modeled)."""
     # matrix_world is stale until the depsgraph updates - a fresh object placed at
@@ -2748,15 +3262,21 @@ def match_face(faces, n, org, box=None):
 
 
 def roof_report(host, min_size=0.4, largest_only=False, overhang=0.25,
-                pitch=math.radians(35.0), eps=0.002):
+                pitch=math.radians(35.0), eps=0.002, style="Gable", incline=math.radians(2.5),
+                fascia=0.12):
     """Per-region roof truth from the base mesh + evaluated RoofCap output:
-    qualifying regions, skipped regions (with reasons), generated faces, strays
-    (generated/host roof-ish faces outside every region envelope), zero-area faces."""
+    qualifying regions, gable-skipped regions (with reasons), generated gable
+    faces, flat-cap faces (v2.6 coverage fallback), strays (generated faces
+    outside every region envelope), zero-area faces and UNCOVERED top faces.
+
+    v2.6 contract: vm_roofgen = 1 marks gable/hup faces, = 2 marks FLAT CAP
+    faces. Skipped-for-gable regions are FLAT-CAPPED (never left open), so a
+    'skipped' entry means 'no gable', not 'no roof' - coverage completeness is
+    reported by 'uncovered' (must stay empty)."""
     faces = face_table(host)
+    up_faces = [f for f in faces if f["n"].z >= 0.98]
     qual, skipped = [], []
-    for f in faces:
-        if f["n"].z < 0.98:
-            continue
+    for f in up_faces:
         if not f["quad"]:
             skipped.append(dict(idx=f["idx"], reason="non-quad top"))
             continue
@@ -2768,6 +3288,8 @@ def roof_report(host, min_size=0.4, largest_only=False, overhang=0.25,
         qual.sort(key=lambda f: f["w"] * f["h"], reverse=True)
         skipped += [dict(idx=f["idx"], reason="Largest Face Only") for f in qual[1:]]
         qual = qual[:1]
+    gable_regions = qual if style != "Flat" else []
+    cap_regions = [f for f in up_faces if f not in gable_regions]
 
     dg = bpy.context.evaluated_depsgraph_get()
     dg.update()
@@ -2775,42 +3297,71 @@ def roof_report(host, min_size=0.4, largest_only=False, overhang=0.25,
     mw = host.matrix_world
     nmat = mw.to_3x3().inverted().transposed()
     has_rg = "vm_roofgen" in me.attributes
-    rg_faces, zero_area, strays = 0, [], []
+    rg_faces, cap_faces, cap_tops, zero_area, strays = 0, 0, 0, [], []
+    gen_pts = []
     for p in me.polygons:
         if p.area < 1e-9:
             zero_area.append(p.index)
-        gen = has_rg and me.attributes["vm_roofgen"].data[p.index].value > 0.5
-        if gen:
+        rval = me.attributes["vm_roofgen"].data[p.index].value if has_rg else 0.0
+        gen = rval > 0.5
+        if rval > 0.5 and rval < 1.5:
             rg_faces += 1
+        elif rval >= 1.5:
+            cap_faces += 1
         n = (nmat @ Vector(p.normal)).normalized()
+        if rval >= 1.5 and n.z >= 0.98:
+            cap_tops += 1
         if n.z <= 0.55 or not gen:
             continue            # stray test covers GENERATED faces only (host
                                 # tops are the user's own mesh, never our garbage)
         vs = [mw @ Vector(me.vertices[i].co) for i in p.vertices]
         c = sum(vs, Vector((0, 0, 0))) / len(vs)
+        gen_pts.append((c, n, rval))
         ok = False
-        for f in qual:
-            b = (f["h"] / 2.0 + overhang) * math.tan(pitch)
-            ex = f["w"] / 2.0 + overhang + 0.05
-            ey = f["h"] / 2.0 + overhang + 0.05
+        check_regions = gable_regions if rval < 1.5 else up_faces
+        for f in check_regions:
+            b = (f["h"] / 2.0 + overhang) * math.tan(pitch) + fascia + 1.0
+            ex = f["w"] / 2.0 + overhang + 0.35
+            ey = f["h"] / 2.0 + overhang + 0.35
             du = abs((c - f["c"]).dot(f["u"]))
             dv = abs((c - f["c"]).dot(f["v"]))
-            if du <= ex and dv <= ey and (f["min_z"] - 0.05) <= c.z <= (f["min_z"] + eps + b + 0.05):
+            if du <= ex and dv <= ey and (f["min_z"] - 0.05) <= c.z <= (f["min_z"] + eps + b):
                 ok = True
                 break
         if not ok:
-            strays.append(dict(face=p.index, center=tuple(round(x, 3) for x in c)))
-    return dict(qualifying=len(qual), generated=rg_faces,
-                expected_generated=4 * len(qual),
+            strays.append(dict(face=p.index, kind="cap" if rval >= 1.5 else "gable",
+                               center=tuple(round(x, 3) for x in c)))
+
+    # coverage: every up-facing host face must have generated geometry over it
+    uncovered = []
+    for f in up_faces:
+        if f in gable_regions:
+            continue            # gable sits on it by construction (verified by
+                                # generated==expected below)
+        ok = False
+        for c, n, rval in gen_pts:
+            du = abs((c - f["c"]).dot(f["u"]))
+            dv = abs((c - f["c"]).dot(f["v"]))
+            if du <= f["w"] / 2.0 + overhang + 0.35 and dv <= f["h"] / 2.0 + overhang + 0.35 \
+               and c.z >= f["min_z"] - 0.05:
+                ok = True
+                break
+        if not ok:
+            uncovered.append(dict(idx=f["idx"], center=tuple(round(x, 3) for x in f["c"])))
+    return dict(qualifying=len(gable_regions), generated=rg_faces,
+                expected_generated=4 * len(gable_regions),
+                caps=cap_faces, cap_tops=cap_tops, expected_caps=len(cap_regions),
                 skipped=[dict(idx=s["idx"], reason=s["reason"]) for s in skipped],
-                zero_area=len(zero_area), strays=strays,
+                zero_area=len(zero_area), strays=strays, uncovered=uncovered,
+                cap_regions=[dict(idx=f["idx"], min_z=round(f["min_z"], 4),
+                                  w=round(f["w"], 3), h=round(f["h"], 3)) for f in cap_regions],
                 regions=[dict(idx=f["idx"], min_z=round(f["min_z"], 4),
-                              w=round(f["w"], 3), h=round(f["h"], 3)) for f in qual])
+                              w=round(f["w"], 3), h=round(f["h"], 3)) for f in gable_regions])
 
 
 def shape_accept(tag, host, door_sill=0.0, win_sill=0.9, tol=0.05,
                  door_face_w=1.0, door_face_h=1.6, win_face_w=1.5, win_face_h=1.5,
-                 n_regions_expected=None):
+                 n_regions_expected=None, roof_style="Gable"):
     """Numeric acceptance for one dressed shape: per-face anchoring, face
     filters, sill heights, no underground/detached parts, roof regions vs
     clean skips, zero stray roof faces, flat tops un-shingled, cladding counts
@@ -2890,18 +3441,27 @@ def shape_accept(tag, host, door_sill=0.0, win_sill=0.9, tol=0.05,
                 f"bad={bad[:6]}"))
 
     # roof: per-region generation, clean skips, no stray triangles
-    rr = roof_report(host)
-    out.append((f"shape[{tag}]: RoofCap emits exactly 4 faces per resolvable region (no garbage)",
+    rr = roof_report(host, style=roof_style)
+    out.append((f"shape[{tag}]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
                 rr["generated"] == rr["expected_generated"] and rr["zero_area"] == 0,
                 f"generated={rr['generated']} expected={rr['expected_generated']}, "
                 f"zero-area faces={rr['zero_area']}, regions={rr['regions']}"))
     out.append((f"shape[{tag}]: zero stray roof faces (every roof face inside its region envelope)",
                 not rr["strays"], f"strays={rr['strays'][:4]}"))
+    # v2.6: COMPLETE COVERAGE - every top that cannot take a gable is FLAT-CAPPED
+    # (previously skipped-and-left-open = the gaping-hole bug). 'skipped' now
+    # means 'no gable', never 'no roof'; 'uncovered' must stay empty.
+    out.append((f"shape[{tag}]: complete roof coverage - every up-facing top covered "
+                f"(flat caps on all gable-skipped tops, zero holes)",
+                not rr["uncovered"] and rr["cap_tops"] == rr["expected_caps"],
+                f"cap tops={rr['cap_tops']} expected={rr['expected_caps']} "
+                f"(cap regions={rr['cap_regions']}), uncovered={rr['uncovered']}"))
     if n_regions_expected is not None:
         out.append((f"shape[{tag}]: unresolved roof regions skipped cleanly and reported",
                     rr["qualifying"] == n_regions_expected[0] and len(rr["skipped"]) == n_regions_expected[1],
                     f"qualifying={rr['qualifying']} (expect {n_regions_expected[0]}), "
-                    f"skipped={rr['skipped']} (expect {n_regions_expected[1]})"))
+                    f"skipped={rr['skipped']} (expect {n_regions_expected[1]}), "
+                    f"all skipped regions flat-capped (v2.6)"))
 
     # slope-band zones: flat tops un-shingled (v2.4.1: classify on the TRUE world
     # plane normal 'np' - col1 is sheared by a non-uniform object scale)
@@ -3065,6 +3625,10 @@ def main():
         "Ground Floor Only": False, "Ground Tolerance": 0.1, "Max Base Height": 0.5,
         "Slot Layout": "Random", "Count Mode": "Per Width", "Openings Per Width": 2.5,
         "Slot Count": 2, "Opening Width": 1.4, "Opening Height": 2.1,
+        # v2.6: opening auto-fit + exact counts + manual (vertex-group) masks
+        "Opening Fit": "Scale To Face", "Min Fit Scale": 0.5,
+        "Exact Pick": "Spread", "Exact Count": 2,
+        "Manual Mask": False, "Manual Mask Group": "VM_Slots", "Manual Threshold": 0.5,
         "Min Gap X": 0.4, "Min Gap Z": 0.3, "Slot Rows": 1, "Row Spacing": 2.4,
         "Column Select": "All", "Sill Line": "Common Z", "Slot Jitter": 0.02, "No-Repeat": True,
         "Row Height": 0.22, "Row Overlap": 0.35, "Stagger": 0.5, "Jitter": 0.01, "Slot Width": 0.25,
@@ -4477,6 +5041,321 @@ def main():
           f"({len(host_a.data.vertices)} verts each)")
     results["pack_swap"] = dict(look_a=snap_a, look_b=snap_b, slots_identical=same_slots,
                                 same_node_group=bool(same_ng))
+
+    # ================================================== STAGE 7: USER SHAPE 2 (v2.6)
+    # The user's 2026-10-22 bug report on his OWN custom massing:
+    #   (1) Fit DEAD: zero doors/windows on the shape -> root cause + fix
+    #   (2) roof style: flat tops must get FLAT caps (no invented gables), zero
+    #       holes at junctions
+    #   (3) HouseCraft parity: manual painted placement + exact counts
+    log("\n== STAGE 7: UserShape2 (user's custom massing) - v2.6 fixes ==")
+    u2 = make_user_shape2("UserShape2", col_scene)
+    u2.location = (162.0, -60.0, 0.0)
+    u2_faces = face_table(u2)
+    u2_walls = [f for f in u2_faces if abs(f["n"].z) <= 0.35]
+    log(f"  UserShape2 rebuilt from his screenshots: {len(u2_faces)} faces, "
+        f"{len(u2_walls)} wall faces, max wall height "
+        f"{max(f['h'] for f in u2_walls):.3f} m, wall widths "
+        f"{sorted({round(f['w'], 2) for f in u2_walls})}")
+    render_from("preview_user2_massing", (165.6, -64.6, 3.4), (163.2, -59.9, 1.0), 38)
+
+    u2_roof = u2.modifiers.new("VM_RoofCap", "NODES"); u2_roof.node_group = ng_roof
+    u2_door = u2.modifiers.new("VM_SceneDetailer_Door", "NODES"); u2_door.node_group = ng
+    u2_win = u2.modifiers.new("VM_SceneDetailer_Windows", "NODES"); u2_win.node_group = ng
+
+    def u2_count(pref):
+        return len(inst_boxes(u2, pref))
+
+    def u2_update(*mods):
+        for m_ in mods:
+            u2.update_tag()
+        bpy.context.view_layer.update()
+
+    # ---- the v2.5 stack the user dressed with (sockets read from his session's
+    # autosave VM_Starter_33160_autosave.blend == the delivered v2.5 Slots demo
+    # stack: Explicit-2, doors 'First Only', windows 'Skip First', door Opening
+    # Height 2.2 m, window 0.9 m + 0.25 sill)
+    u2_d_v25 = dict(defaults, **{
+        "Placement Mode": "Fit", "Face Zone": "Walls",
+        "Stand On Face Base": True, "Sill Height": 0.0, "Sill Line": "Common Z",
+        "Min Face Width": 1.0, "Min Face Height": 1.6,
+        "Ground Floor Only": True, "Ground Tolerance": 0.1, "Max Base Height": 0.5,
+        "Slot Layout": "Slots", "Count Mode": "Explicit", "Slot Count": 2,
+        "Opening Width": 1.5, "Opening Height": 2.2,
+        "Min Gap X": 0.4, "Min Gap Z": 0.3, "Slot Rows": 1, "Row Spacing": 2.4,
+        "Column Select": "First Only",
+        "Density": 0.12, "Embed": 0.02, "Backing Offset": 0.0435,
+        "Scale Min": 1.0, "Scale Max": 1.0,
+        "Primary Props": col_doors, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+        "Max Instances": 40, "Seed": 5, "Opening Fit": "Drop"})
+    u2_w_v25 = dict(u2_d_v25, **{
+        "Sill Height": 0.25, "Min Face Width": 1.2, "Min Face Height": 1.1,
+        "Ground Floor Only": False, "Opening Width": 0.8, "Opening Height": 0.9,
+        "Column Select": "Skip First", "Scale Min": 0.5, "Scale Max": 0.5,
+        "Primary Props": col_windows})
+
+    def u2_gate_evidence(P, colsel):
+        """Per-face gate evidence: exactly which filter rejected each wall."""
+        oh, sill = P["Opening Height"], P["Sill Height"]
+        rows = []
+        for f in u2_walls:
+            fails = []
+            if f["w"] < P["Min Face Width"]:
+                fails.append(f"MinFaceWidth {f['w']:.2f}<{P['Min Face Width']}")
+            if f["h"] < P["Min Face Height"]:
+                fails.append(f"MinFaceHeight {f['h']:.2f}<{P['Min Face Height']}")
+            # Common Z sill line = host zmin (0) + Sill Height
+            row_base = sill
+            if not (row_base + oh <= f["h"] + 1e-6):
+                fails.append(f"row-fit OpeningHeight {oh} > wall {f['h']:.2f} - sill {sill}")
+            gap_pitch = P["Opening Width"] + P["Min Gap X"] + 2 * P["Slot Jitter"]
+            cols = max(1, int(f["w"] / gap_pitch))
+            if P["Count Mode"] == "Explicit":
+                cols = min(P["Slot Count"], cols)
+            if colsel == "First Only" and cols < 1:
+                fails.append("First Only on a 0-column grid")
+            if colsel == "Skip First" and cols < 2:
+                fails.append(f"Skip First on a {cols}-column grid (gap law clamps it)")
+            rows.append(dict(idx=f["idx"], w=round(f["w"], 3), h=round(f["h"], 3),
+                             cols=cols, fails=fails))
+        return rows
+
+    # ---- (A) BEFORE: the user's v2.5 stack reproduces the bug exactly --------
+    set_params(u2_door, ng, u2_d_v25)
+    set_params(u2_win, ng, u2_w_v25)
+    u2_update(u2_door, u2_win)
+    n_d_before, n_w_before = u2_count("Door_"), u2_count("Window_")
+    ev_d = u2_gate_evidence(u2_d_v25, "First Only")
+    ev_w = u2_gate_evidence(u2_w_v25, "Skip First")
+    log(f"  REPRO (v2.5 stack, Opening Fit=Drop): doors={n_d_before} windows={n_w_before}")
+    for r in ev_d + ev_w:
+        log(f"    face {r['idx']}: {r['w']}x{r['h']} cols={r['cols']} fails={r['fails']}")
+    check("user2(FIT-DEAD repro): the user's v2.5 stack on his exact massing places ZERO doors "
+          "(row-fit gate: every wall is shorter than the 2.2 m Opening Height)",
+          n_d_before == 0 and all(r["fails"] for r in ev_d),
+          f"{n_d_before} doors; wall faces={len(ev_d)}; rejections="
+          f"{[(r['idx'], r['fails']) for r in ev_d][:8]}")
+    check("user2(FIT-DEAD repro): ZERO windows (row-fit on short walls + the cross-layer "
+          "'Skip First'/'Explicit-2' split emptied by the gap-law 1-column clamp)",
+          n_w_before == 0 and all(r["fails"] for r in ev_w),
+          f"{n_w_before} windows; rejections={[(r['idx'], r['fails']) for r in ev_w][:8]}")
+    results["user2_repro"] = dict(n_doors=n_d_before, n_windows=n_w_before,
+                                  door_gates=ev_d, win_gates=ev_w,
+                                  params=dict(door=dict((k, u2_d_v25[k]) for k in
+                                                        ("Slot Layout", "Count Mode", "Slot Count",
+                                                         "Opening Width", "Opening Height",
+                                                         "Column Select", "Min Face Width",
+                                                         "Min Face Height", "Opening Fit")),
+                                              win=dict((k, u2_w_v25[k]) for k in
+                                                       ("Slot Layout", "Count Mode", "Slot Count",
+                                                        "Opening Width", "Opening Height",
+                                                        "Sill Height", "Column Select",
+                                                        "Min Face Width", "Min Face Height",
+                                                        "Opening Fit"))))
+
+    # ---- (B) AFTER: v2.6 'Scale To Face' (contract change, now the default) --
+    set_params(u2_door, ng, dict(u2_d_v25, **{"Opening Fit": "Scale To Face"}))
+    set_params(u2_win, ng, dict(u2_w_v25, **{"Opening Fit": "Scale To Face"}))
+    u2_update(u2_door, u2_win)
+    n_d_fit, n_w_fit = u2_count("Door_"), u2_count("Window_")
+    log(f"  AFTER (same stack, Opening Fit=Scale To Face): doors={n_d_fit} windows={n_w_fit}")
+    check("user2(fix): 'Scale To Face' puts doors back on the ground-floor walls of the SAME "
+          "shape with the SAME v2.5 stack (openings auto-shrink to the 2.0 m walls)",
+          n_d_fit > 0, f"{n_d_fit} doors (was 0); boxes="
+                       f"{[(round(b['lo'].z, 3), round((b['hi'] - b['lo']).z, 3)) for b in inst_boxes(u2, 'Door_')]}")
+
+    # ---- (C) acceptance: DEFAULT Fit settings show doors AND windows ---------
+    u2_default_states = {}
+    for layout in ("Slots", "Random"):
+        set_params(u2_door, ng, dict(defaults, **{
+            "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": layout,
+            "Stand On Face Base": True, "Seed": 0,
+            "Primary Props": col_doors, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+            "Max Instances": 40}))
+        set_params(u2_win, ng, dict(defaults, **{
+            "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": layout,
+            "Stand On Face Base": True, "Sill Height": 0.9, "Seed": 1,
+            "Primary Props": col_windows, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+            "Scale Min": 0.5, "Scale Max": 0.5, "Max Instances": 40}))
+        u2_update(u2_door, u2_win)
+        nd, nw = u2_count("Door_"), u2_count("Window_")
+        u2_default_states[layout] = dict(n_doors=nd, n_windows=nw)
+        log(f"  DEFAULT Fit settings (Slot Layout={layout}): doors={nd} windows={nw}")
+    check("user2(accept): under DEFAULT Fit settings the rebuilt massing shows doors AND "
+          "windows on the ground-floor walls (both Slot layouts)",
+          all(v["n_doors"] > 0 and v["n_windows"] > 0 for v in u2_default_states.values()),
+          f"default-settings counts: {u2_default_states}")
+    results["user2_default_fit"] = u2_default_states
+
+    # ---- (D) MANUAL placement via painted VERTEX GROUP ----------------------
+    # Paint ONE wall (the tower's west wall) with the vertex group
+    # 'VM_Slots_Doors' exactly as the user would in Weight Paint mode.
+    u2_west = [f for f in u2_walls if f["n"].x < -0.9 and abs(f["max_z"] - 2.0) < 0.01]
+    assert len(u2_west) == 1, u2_west
+    painted_face = u2_west[0]
+
+    def sel_painted(p):
+        n = p.normal
+        zs = [u2.data.vertices[i].co.z for i in p.vertices]
+        return n.x < -0.9 and abs(max(zs) - 2.0) < 0.01
+
+    paint_slot_group(u2, "VM_Slots_Doors", sel_painted)
+    set_params(u2_door, ng, dict(defaults, **{
+        "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": "Slots",
+        "Stand On Face Base": True, "Seed": 0,
+        "Manual Mask": True, "Manual Mask Group": "VM_Slots_Doors",
+        "Manual Threshold": 0.5,
+        "Primary Props": col_doors, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+        "Max Instances": 40}))
+    set_params(u2_win, ng, dict(defaults, **{
+        "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": "Slots",
+        "Stand On Face Base": True, "Sill Height": 0.9, "Seed": 1,
+        "Manual Mask": True, "Manual Mask Group": "VM_Slots_Nowhere",  # unpainted -> none
+        "Primary Props": col_windows, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+        "Scale Min": 0.5, "Scale Max": 0.5, "Max Instances": 40}))
+    u2.update_tag(); bpy.context.view_layer.update()
+    m_doors = inst_boxes(u2, "Door_")
+    m_wins = inst_boxes(u2, "Window_")
+    inside, outside = [], []
+    for b in m_doors:
+        f, d = match_face(u2_faces, b["n"], b["org"], b)
+        du = abs((Vector(b["org"]) - painted_face["c"]).dot(painted_face["u"]))
+        dv = abs((Vector(b["org"]) - painted_face["c"]).dot(painted_face["v"]))
+        ok = (f is not None and f["idx"] == painted_face["idx"]
+              and du <= painted_face["w"] / 2 + 0.3 and dv <= painted_face["h"] / 2 + 0.3)
+        (inside if ok else outside).append(dict(name=b["name"], du=round(du, 3), dv=round(dv, 3),
+                                                face=f["idx"] if f else None))
+    check("user2(manual): openings land ONLY inside the painted vertex-group area "
+          "(bbox containment on the painted wall), zero outside",
+          len(m_doors) >= 1 and not outside and not m_wins,
+          f"painted wall face {painted_face['idx']} "
+          f"(w={painted_face['w']:.2f} h={painted_face['h']:.2f}): "
+          f"{len(m_doors)} doors inside={inside}, outside={outside}; "
+          f"windows with unpainted group name: {len(m_wins)} (expected 0)")
+    results["user2_manual"] = dict(painted_face=painted_face["idx"],
+                                   painted_w=painted_face["w"], painted_h=painted_face["h"],
+                                   doors_inside=inside, doors_outside=outside,
+                                   n_windows_unpainted=len(m_wins))
+    # view the PAINTED wall head-on (it faces -X world / west)
+    render_from("preview_user2_manual", (157.5, -61.8, 2.4), (161.9, -58.9, 0.95), 45)
+
+    # ---- (E) EXACT COUNT: 'Exactly N' per layer -----------------------------
+    set_params(u2_door, ng, dict(defaults, **{
+        "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": "Slots",
+        "Count Mode": "Exact N", "Exact Count": 2, "Exact Pick": "Spread",
+        "Stand On Face Base": True, "Seed": 0, "Manual Mask": False,
+        "Primary Props": col_doors, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+        "Max Instances": 40}))
+    set_params(u2_win, ng, dict(defaults, **{
+        "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": "Slots",
+        "Count Mode": "Exact N", "Exact Count": 1, "Exact Pick": "Spread",
+        "Stand On Face Base": True, "Sill Height": 0.55, "Seed": 1, "Manual Mask": False,
+        "Primary Props": col_windows, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+        "Scale Min": 0.5, "Scale Max": 0.5, "Max Instances": 40}))
+    u2.update_tag(); bpy.context.view_layer.update()
+    n_d_exact, n_w_exact = u2_count("Door_"), u2_count("Window_")
+    check("user2(exact count): 'Exactly-2-Doors' places EXACTLY 2 doors (and Exactly-1 "
+          "window = 1) - HouseCraft choose-exactly-the-number parity",
+          n_d_exact == 2 and n_w_exact == 1,
+          f"doors={n_d_exact} (Exact Count 2), windows={n_w_exact} (Exact Count 1)")
+    results["user2_exact"] = dict(n_doors=n_d_exact, n_windows=n_w_exact,
+                                  door_slots=sorted(tuple(round(v, 3) for v in (u2.matrix_world.inverted() @ b["org"]))
+                                                    for b in inst_boxes(u2, "Door_")))
+    # north-west 3/4 view: the two exact doors land on the west tower wall and
+    # the north upper-block wall - both visible from here
+    render_from("preview_user2_exact2", (157.8, -55.8, 3.1), (162.1, -58.9, 0.9), 38)
+
+    # ---- (F) RoofCap 'Flat': subtle incline, NO gable triangles, no holes ----
+    set_params(u2_door, ng, dict(defaults, **{
+        "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": "Slots",
+        "Stand On Face Base": True, "Seed": 0, "Manual Mask": False,
+        "Primary Props": col_doors, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+        "Max Instances": 40}))
+    set_params(u2_win, ng, dict(defaults, **{
+        "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": "Slots",
+        "Stand On Face Base": True, "Sill Height": 0.55, "Seed": 1, "Manual Mask": False,
+        "Primary Props": col_windows, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+        "Scale Min": 0.5, "Scale Max": 0.5, "Max Instances": 40}))
+    set_params(u2_roof, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.15,
+                                  "Style": "Flat", "Incline": math.radians(2.5),
+                                  "Fascia": 0.12, "Roof Material": mat_roof,
+                                  "Min Roof Face Size": 0.4, "Largest Face Only": False})
+    u2.update_tag(); bpy.context.view_layer.update()
+
+    def cap_inclines(host):
+        dg = bpy.context.evaluated_depsgraph_get(); dg.update()
+        me = host.evaluated_get(dg).data
+        mw = host.matrix_world
+        nmat = mw.to_3x3().inverted().transposed()
+        if "vm_roofgen" not in me.attributes:
+            return [], []
+        attr = me.attributes["vm_roofgen"]
+        tops, gables = [], 0
+        for p in me.polygons:
+            v = attr.data[p.index].value
+            if v >= 1.5:
+                n = (nmat @ Vector(p.normal)).normalized()
+                if n.z >= 0.9:
+                    tops.append(round(math.degrees(math.acos(max(-1.0, min(1.0, n.z)))), 3))
+            elif v >= 0.5:
+                gables += 1
+        return tops, gables
+
+    rr_flat = roof_report(u2, overhang=0.15, style="Flat")
+    tops, n_gable_faces = cap_inclines(u2)
+    incl_err = max(abs(t - 2.5) for t in tops) if tops else 99.0
+    log(f"  Flat roof: cap top inclines={tops} deg, gable faces={n_gable_faces}, "
+        f"cap tops={rr_flat['cap_tops']} expected={rr_flat['expected_caps']}, "
+        f"uncovered={rr_flat['uncovered']}")
+    check("user2(flat roof): 'Flat' style caps every top with the subtle Incline measured "
+          "at 2.5 deg (2-3 deg band), zero gable triangles invented",
+          tops and incl_err <= 0.75 and n_gable_faces == 0,
+          f"measured inclines={tops} deg (socket 2.5 deg, tolerance +/-0.75), "
+          f"gable faces={n_gable_faces} (expected 0)")
+    check("user2(flat roof): roof coverage COMPLETE - every flat top capped, zero interior "
+          "exposed through the top (the gaping-hole bug is gone)",
+          not rr_flat["uncovered"] and rr_flat["cap_tops"] == rr_flat["expected_caps"]
+          and rr_flat["cap_tops"] == len([f for f in u2_faces if f["n"].z >= 0.98])
+          and not rr_flat["strays"] and rr_flat["zero_area"] == 0,
+          f"cap tops={rr_flat['cap_tops']} expected={rr_flat['expected_caps']} "
+          f"(host tops={len([f for f in u2_faces if f['n'].z >= 0.98])}), "
+          f"uncovered={rr_flat['uncovered']}, strays={rr_flat['strays']}, "
+          f"zero-area={rr_flat['zero_area']}")
+    results["user2_flat_roof"] = dict(inclines=tops, gable_faces=n_gable_faces,
+                                      cap_tops=rr_flat["cap_tops"],
+                                      expected_caps=rr_flat["expected_caps"],
+                                      uncovered=rr_flat["uncovered"],
+                                      strays=rr_flat["strays"],
+                                      cap_regions=rr_flat["cap_regions"])
+    render_from("preview_user2_flat_roof", (165.8, -63.2, 4.2), (163.2, -59.9, 1.5), 38)
+    render_from("preview_user2_flat_top", (163.2, -60.0, 9.5), (163.2, -60.0, 0.0), 35)
+    render_from("preview_user2_openings", (165.0, -64.4, 2.6), (162.7, -59.9, 1.0), 40)
+
+    # ---- (G) same shape, Gable style for comparison (the user's screenshot) --
+    set_params(u2_roof, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.15,
+                                  "Style": "Gable", "Roof Material": mat_roof,
+                                  "Min Roof Face Size": 0.4, "Largest Face Only": False})
+    u2.update_tag(); bpy.context.view_layer.update()
+    rr_gable = roof_report(u2, overhang=0.15, style="Gable")
+    tops_g, n_gable_faces_g = cap_inclines(u2)
+    check("user2(gable comparison): same massing with Gable style generates the pitched "
+          "gable roofs (comparison render) while keeping coverage complete via caps",
+          n_gable_faces_g == rr_gable["expected_generated"] and not rr_gable["uncovered"],
+          f"gable faces={n_gable_faces_g} expected={rr_gable['expected_generated']}, "
+          f"caps={rr_gable['cap_tops']}, uncovered={rr_gable['uncovered']}")
+    results["user2_gable_roof"] = dict(gable_faces=n_gable_faces_g,
+                                       qualifying=rr_gable["qualifying"],
+                                       caps=rr_gable["cap_tops"],
+                                       uncovered=rr_gable["uncovered"])
+    render_from("preview_user2_gable_roof", (165.8, -63.2, 4.2), (163.2, -59.9, 1.5), 38)
+
+    # leave UserShape2 delivered in the FIXED default state (Flat roof + default
+    # Fit openings) so the shipped blend opens showing the bug-free result
+    set_params(u2_roof, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.15,
+                                  "Style": "Flat", "Incline": math.radians(2.5),
+                                  "Fascia": 0.12, "Roof Material": mat_roof,
+                                  "Min Roof Face Size": 0.4, "Largest Face Only": False})
+    u2.update_tag(); bpy.context.view_layer.update()
 
     # ================================================== renders
     log("\n== renders (Cycles CPU 32spp 960x540) ==")
