@@ -162,6 +162,38 @@ v2.6 the user's custom-shape bug report (2026-10-22) + HouseCraft parity:
     openings onto unpainted walls. Limit: mask resolution is vertex-group
     interpolation - sub-wall paint areas need wall subdivision.
 
+v2.7 unambiguous behavior + zero-setup UX (2026-10-22, the user's confusion report):
+  * GABLES ONLY ON REQUEST: VM_RoofCap 'Style' DEFAULT is now 'Flat' (was
+    'Gable') - a freshly-added VM_RoofCap NEVER invents gable triangles on a
+    flat top; 'Gable'/'Hip' are opt-in. The default incline stays 2.5 deg.
+  * DESIGN-LANGUAGE DEFAULTS on a FRESHLY-ADDED VM_SceneDetailer: Placement
+    Mode 'Fit', Slot Layout 'Slots' (openings on walls out of the box) with
+    'Opening Fit: Scale To Face'; 'Primary Props' defaults to the VM_Doors
+    collection so an untouched Add Modifier places doors. This is the
+    acceptance 'untouched default path' (fresh scene + fresh cube + Add
+    Modifier + ZERO socket tweaks -> openings + flat cap + 2.5 deg incline).
+  * STARTER re-saved as the canonical CURRENT-DEFAULTS demo: StarterCube is
+    flat-capped (Style 'Flat') with visible openings + 'Scale To Face'; a
+    new 'GableShowcase' object shows the pitched look opt-in, side by side;
+    a new 'StarterCompound' (a literal DUPLICATE of StarterCube edited into
+    a tower + lower wing + annex compound - the user's exact action) proves
+    the copied stack keeps openings on ground walls and ZERO gable triangles.
+  * VERSION VISIBILITY: both node groups gain a top 'About' panel with an
+    'Engine Version' string socket ('v2.7') + a one-line usage hint, and the
+    version is embedded in the node-group DESCRIPTION (node-group selector
+    tooltip). The About sockets are appended LAST and moved to the top, so
+    every v2.5/v2.6 socket IDENTIFIER is unchanged (re-pointing an old
+    modifier at the new group keeps its saved values). USAGE.txt gains
+    'Which version am I running?' and 'Upgrading old stacks'.
+  * VM_Tools_Addon.py (delivered + exercised headless): 'VM: Dress Object'
+    (one click = the full default v2.7 stack; assigning variant collections
+    is the only remaining step), 'VM: Copy/Paste Engine Setup' (full VM_*
+    modifier stack incl. collection pointers, identifier-rename-safe) and
+    'VM: Save/Load Preset <name>' (JSON presets that travel across .blend
+    files; ID references re-matched BY NAME with missing names reported).
+  * VM_Assets.blend: both node groups marked as BLENDER ASSETS for the Asset
+    Browser (drag the engine onto any object in any file).
+
 Deterministic (fixed seeds). Run:
   cd /home/kristo/blender && ./blender-5.2.2-linux-x64/blender -b --python build_engine.py
 """
@@ -179,6 +211,7 @@ DELIVER = "/mnt/c/Users/krist/Downloads/blender-engine"
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
+ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
 GLTF_SLUGS = ["Shelf_01", "wooden_table_02", "painted_wooden_nightstand", "painted_wooden_shelves"]
@@ -736,12 +769,17 @@ def build_node_group():
     iface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
 
     p_assets = b.panel("Assets", "Model sets fed into the engine (model-set agnostic)")
-    b.sock("Primary Props", "NodeSocketCollection", p_assets, desc="Collection of primary prop variants")
+    s_pp = b.sock("Primary Props", "NodeSocketCollection", p_assets, desc="Collection of primary prop variants")
+    # v2.7 design-language default: a FRESHLY-ADDED VM_SceneDetailer (Fit+Slots)
+    # places openings out of the box - the default layer shows doors. Cladding
+    # layers point this at their tile collection (the Dress Object recipe does).
+    if bpy.data.collections.get("VM_Doors") is not None:
+        s_pp.default_value = bpy.data.collections["VM_Doors"]
     b.sock("Debris/Trash Props", "NodeSocketCollection", p_assets, desc="Collection of debris/trash variants")
     b.sock("Debris Ratio", "NodeSocketFloat", p_assets, 0.35, 0.0, 1.0, "FACTOR")
 
     p_pl = b.panel("Placement", "How parts are placed: Scatter (v1 random), Fit (architectural), Cladding (courses)")
-    b.menu_sock("Placement Mode", p_pl, "Scatter", "Scatter=v1 random, Fit=wall-aligned architectural parts, Cladding=row courses")
+    b.menu_sock("Placement Mode", p_pl, "Fit", "Fit (v2.7 default) = wall-aligned architectural parts/openings (doors, windows); Scatter = v1 random props; Cladding = row courses")
     b.sock("Embed", "NodeSocketFloat", p_pl, 0.02, -10.0, 10.0, "DISTANCE", "Fit: sink the instance's back face into the placement plane by this depth (final normal offset = Backing Offset - Embed)")
     b.sock("Backing Offset", "NodeSocketFloat", p_pl, 0.0, -10.0, 10.0, "DISTANCE", "Fit: distance from the sampled face along +normal to the placement plane the variant's BACK face lands on (set it to the cladding/surface buildup in front of the base wall)")
     b.sock("Fit Jitter", "NodeSocketFloat", p_pl, 0.0, 0.0, 6.283, "ANGLE", "Fit: tiny random rotation (0 = perfectly flush)")
@@ -759,7 +797,7 @@ def build_node_group():
     b.sock("Slot Width", "NodeSocketFloat", p_pl, 0.25, 0.001, 100.0, "DISTANCE", "Cladding: tile width; slot pitch = Slot Width * (1 - Row Overlap)")
 
     p_slot = b.panel("Slots", "HouseCraft-style opening placement math for Fit mode: per-face column slots derived from wall width, enforced gaps, one row, shared sill line, no duplicate neighbours")
-    b.menu_sock("Slot Layout", p_slot, "Random", "Random = v2.5-pre density sampling; Slots = deterministic per-face column slots (HouseCraft opening math)")
+    b.menu_sock("Slot Layout", p_slot, "Slots", "Slots (v2.7 default) = deterministic per-face column slots (HouseCraft opening math); Random = v2.5-pre density sampling")
     b.menu_sock("Count Mode", p_slot, "Per Width", "Slots: Per Width = one opening per Openings Per Width meters of wall (wall-length-derived counts); Explicit = fixed Slot Count per face; Exact N (v2.6) = EXACTLY 'Exact Count' openings for the whole layer (all faces combined, HouseCraft exact-number parity)")
     b.sock("Openings Per Width", "NodeSocketFloat", p_slot, 2.5, 0.1, 100.0, "DISTANCE", "Slots/Per Width: wall meters per opening (count = floor(face width / this), min 1)")
     b.sock("Slot Count", "NodeSocketInt", p_slot, 2, 0, 64, desc="Slots/Explicit: columns per face")
@@ -2262,7 +2300,31 @@ def build_node_group():
     b.L(store_c.outputs["Geometry"], join_all.inputs["Geometry"])
     b.L(join_all.outputs["Geometry"], go.inputs["Geometry"])
 
+    # ---- v2.7 About panel: appended LAST so every v2.5/v2.6 socket IDENTIFIER
+    # is unchanged (old stacks that re-point at this group keep their values),
+    # then MOVED to the top of the interface ----
+    p_about = b.panel("About", "Engine version + quick usage (v2.7): tells you exactly which code this modifier runs")
+    b.sock("Engine Version", "NodeSocketString", p_about, "v2.7",
+           desc="Version of the VM engine code behind this modifier (v2.7). If this "
+                "panel/socket is missing the stack runs a PRE-v2.7 group - see USAGE.txt "
+                "'Which version am I running?' and 'Upgrading old stacks'")
+    b.sock("Usage Hint", "NodeSocketString", p_about,
+           "v2.7 quick use: Fit+Slots puts doors/windows on walls ('Opening Fit: Scale To "
+           "Face' keeps them on short walls); VM_RoofCap caps flat tops (Style 'Gable'/'Hip' "
+           "= opt-in pitch). Old stack? See USAGE.txt 'Which version am I running?'.",
+           desc="One-line usage reminder")
+
     b.finish_menu_defaults()
+    b.ng.description = (
+        "VM_SceneDetailer v2.7 - semantic architectural application engine (Scatter/Fit/"
+        "Cladding + HouseCraft Slots openings; 'Opening Fit: Scale To Face' default; fresh "
+        "modifiers default to Fit+Slots openings). The About panel shows the Engine Version "
+        "socket ('v2.7'). Which code does my stack run / how do I upgrade? See USAGE.txt "
+        "'Which version am I running?'")
+    try:
+        b.iface.move(p_about, 0)   # render About first, identifiers unchanged
+    except Exception as e:
+        log(f"  !! About panel move failed: {e}")
     return b.ng
 
 
@@ -2285,7 +2347,7 @@ def build_roofcap_group():
     p = b.panel("Roof", "Per-region pitched roof generated over each qualifying flat top face")
     b.sock("Pitch", "NodeSocketFloat", p, math.radians(35.0), 0.0, math.radians(89.0), "ANGLE")
     b.sock("Overhang", "NodeSocketFloat", p, 0.25, 0.0, 10.0, "DISTANCE")
-    b.menu_sock("Style", p, "Gable", "Gable = full-length ridge along the region's long axis; Hip = ridge shortened by half the short side; Flat (v2.6) = near-flat cap with a very subtle incline + thin edge fascia, NEVER any invented gable triangles (for flat-topped designs)")
+    b.menu_sock("Style", p, "Flat", "Flat (DEFAULT since v2.7) = near-flat cap with a very subtle incline + thin edge fascia, NEVER any invented gable triangles (for flat-topped designs); Gable = full-length ridge along the region's long axis; Hip = ridge shortened by half the short side (both opt-in pitch)")
     b.sock("Incline", "NodeSocketFloat", p, math.radians(2.5), 0.0, math.radians(45.0), "ANGLE",
            "Flat style: subtle incline of the flat cap along the region's long axis "
            "(world angle, default 2.5 deg - the roof reads flat but drains)")
@@ -2812,7 +2874,30 @@ def build_roofcap_group():
     b.L(st_rg.outputs["Geometry"], join.inputs["Geometry"])
     b.L(st_cap.outputs["Geometry"], join.inputs["Geometry"])
     b.L(join.outputs["Geometry"], go.inputs["Geometry"])
+
+    # ---- v2.7 About panel (appended LAST -> v2.5/v2.6 identifiers unchanged,
+    # then moved to the top of the interface) ----
+    p_about = b.panel("About", "Engine version + quick usage (v2.7): tells you exactly which code this modifier runs")
+    b.sock("Engine Version", "NodeSocketString", p_about, "v2.7",
+           desc="Version of the VM engine code behind this modifier (v2.7). If this "
+                "panel/socket is missing the stack runs a PRE-v2.7 group - see USAGE.txt "
+                "'Which version am I running?' and 'Upgrading old stacks'")
+    b.sock("Usage Hint", "NodeSocketString", p_about,
+           "v2.7 quick use: a fresh VM_RoofCap caps flat tops with a subtle 2.5 deg incline "
+           "(Style 'Gable'/'Hip' = opt-in pitch - gables are NEVER invented on flat tops). "
+           "Old stack? See USAGE.txt 'Which version am I running?'.",
+           desc="One-line usage reminder")
+
     b.finish_menu_defaults()
+    b.ng.description = (
+        "VM_RoofCap v2.7 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: "
+        "subtle 2.5 deg incline + fascia, NEVER invented gable triangles) / 'Gable' / 'Hip' "
+        "(opt-in pitch). The About panel shows the Engine Version socket ('v2.7'). Which "
+        "code does my stack run / how do I upgrade? See USAGE.txt 'Which version am I running?'")
+    try:
+        b.iface.move(p_about, 0)
+    except Exception as e:
+        log(f"  !! About panel move failed: {e}")
     return b.ng
 
 
@@ -3190,6 +3275,115 @@ def make_user_shape2(name, col):
     me.update()
     return ob
 
+# ---------------------------------------------------------------- v2.7 StarterCompound
+# The USER's exact action on StarterCube (2026-10-22 confusion report): he
+# DUPLICATED StarterCube and extruded/stepped it into a tower + lower wing +
+# annex compound. This is the authentic extrusion result: CLEAN exterior
+# topology the way edit-mode extrusions leave it (the wall behind an extruded
+# mass is not a face of the host any more - exactly like make_compound's step
+# walls), with one genuine edit-mode extrusion step on the tower top (+0.35 m)
+# after the copy. Massing heights are deliberate: only the TOWER walls can
+# legally receive openings (wing/annex walls are shorter than the door layer's
+# 'Min Face Height' 1.2, the tower's step wall above the wing is shorter than
+# the window layer's 'Min Face Height' 1.5) - openings can never end up hidden
+# inside the massing or sticking out above a short wall.
+STAGE_COMPOUND_BLOCKS = [
+    # interior volumes (x0, x1, y0, y1, z0, z1) - local meters, base z=0
+    (-1.0, 1.0, -1.0, 1.0, 0.0, 2.55),       # tower (tallest)
+    (1.0, 2.95, -1.0, 1.0, 0.0, 1.15),       # lower wing
+    (1.0, 2.2, 1.0, 1.9, 0.0, 0.8),          # small front annex
+]
+STAGE_COMPOUND_EXTRUDE = 0.35                 # the user's last extrude/step
+
+
+def build_compound_mesh(me):
+    """Write the tower+lower-wing+annex compound into mesh datablock `me`
+    (clean exterior massing + genuine bmesh extrude step on the tower top)."""
+    P = {  # shared corner points (T-junctions where the steps meet)
+        "T0": (-1, -1, 0), "T1": (1, -1, 0), "T2": (1, 1, 0), "T3": (-1, 1, 0),
+        "T4": (-1, -1, 2.2), "T5": (1, -1, 2.2), "T6": (1, 1, 2.2), "T7": (-1, 1, 2.2),
+        "W2": (2.95, -1, 0), "W3": (2.95, 1, 0),
+        "A1": (1, -1, 1.15), "A2": (2.95, -1, 1.15), "A3": (2.95, 1, 1.15), "A4": (1, 1, 1.15),
+        "N2": (2.2, 1, 0), "N3": (2.2, 1.9, 0), "N4": (1, 1.9, 0),
+        "N5": (1, 1, 0.8), "N6": (2.2, 1, 0.8), "N7": (2.2, 1.9, 0.8), "N8": (1, 1.9, 0.8),
+        "M": (2.2, 1, 1.15),                   # T-junction on the wing's north top edge
+    }
+    order = ["T0", "T1", "T2", "T3", "T4", "T5", "T6", "T7",
+             "W2", "W3", "A1", "A2", "A3", "A4",
+             "N2", "N3", "N4", "N5", "N6", "N7", "N8", "M"]
+    idx = {k: i for i, k in enumerate(order)}
+    verts = [P[k] for k in order]
+    F = [
+        ("T0", "T3", "T2", "T1"),        # tower bottom
+        ("T1", "T2", "W3", "W2"),        # wing bottom
+        ("T2", "N4", "N3", "N2"),        # annex bottom
+        ("T4", "T5", "T6", "T7"),        # tower top
+        ("A1", "A2", "A3", "A4"),        # wing top deck
+        ("N5", "N6", "N7", "N8"),        # annex top
+        ("T0", "T1", "T5", "T4"),        # tower south wall  3.0w x 2.55h (ground)
+        ("T2", "T6", "T7", "T3"),        # tower north wall  3.0w x 2.55h (ground)
+        ("T0", "T4", "T7", "T3"),        # tower west wall   2.0w x 2.55h (ground)
+        ("A1", "T5", "T6", "A4"),        # tower east STEP wall 3.0w x 1.4h, base 1.15
+        ("T1", "W2", "A2", "A1"),        # wing south wall   1.95w x 1.15h (too short for openings)
+        ("W2", "W3", "A3", "A2"),        # wing east wall    2.0w x 1.15h
+        ("N2", "W3", "A3", "M"),         # wing north wall (right of the annex) 0.75w x 1.15h
+        ("N5", "N6", "M", "A4"),         # wing north wall (above the annex)    1.2w x 0.35h
+        ("N4", "N3", "N7", "N8"),        # annex north wall  1.2w x 0.8h
+        ("N2", "N3", "N7", "N6"),        # annex east wall   1.2w x 0.8h
+        ("T2", "N4", "N8", "N5"),        # annex west wall   1.2w x 0.8h (flush with the tower plane)
+        # annex south wall (against the wing) + wing west wall (against the
+        # tower) are INTERNAL - edit-mode extrusions leave no face there
+    ]
+    faces = [tuple(idx[k] for k in fc) for fc in F]
+    me.clear_geometry()
+    me.from_pydata(verts, [], faces)
+    me.update()
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    # the LAST edit-mode step, literally: extrude the tower top region upward
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    top = max(bm.faces, key=lambda f: f.calc_center_median().z)
+    res = bmesh.ops.extrude_face_region(bm, geom=[top])
+    new_verts = [el for el in res["geom"] if isinstance(el, bmesh.types.BMVert)]
+    bmesh.ops.translate(bm, verts=new_verts, vec=(0, 0, STAGE_COMPOUND_EXTRUDE))
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    return me
+
+
+def point_in_blocks(p, blocks, eps=1e-4):
+    for (x0, x1, y0, y1, z0, z1) in blocks:
+        if (x0 + eps < p.x < x1 - eps and y0 + eps < p.y < y1 - eps
+                and z0 + eps < p.z < z1 - eps):
+            return True
+    return False
+
+
+def face_is_exterior(f, mw_inv, blocks):
+    """True when the modeled face's surface really faces OUT of the block massing
+    (the merged-block topology keeps a few hidden internal faces - openings must
+    never be placed on those)."""
+    c = mw_inv @ Vector(f["c"])
+    n = (mw_inv.to_3x3() @ Vector(f["n"])).normalized()
+    return not point_in_blocks(c + n * 0.06, blocks)
+
+
+def opening_is_exterior(box, mw_inv, blocks):
+    """The OPENING's own placement point must face out of the massing. A wall
+    face can be half-hidden behind a lower wing (the tower's east wall above
+    the wing reads exterior at its CENTER while a LOW opening on it is buried
+    inside the wing) - so openings are tested at their own origin."""
+    n = Vector((box["n"][0], box["n"][1], box["n"][2])).normalized()
+    p = mw_inv @ (Vector(box["org"]) + n * 0.06)
+    return not point_in_blocks(p, blocks)
+
+
 def paint_slot_group(ob, group_name, face_selector):
     """Manual-placement demo: weight-paint a VERTEX GROUP on the faces selected
     by face_selector(face) -> bool (Blender-native weight painting; the user
@@ -3495,6 +3689,86 @@ def shape_accept(tag, host, door_sill=0.0, win_sill=0.9, tol=0.05,
     return res, out
 
 
+def compound_accept(tag, ob):
+    """v2.7 acceptance for the duplicated-StarterCube compound (the user's exact
+    action: duplicate StarterCube, extrude/step it into a tower + lower wing +
+    annex): doors/windows on the EXTERIOR ground walls, ZERO gable triangles on
+    the flat tops, complete roof coverage. Returns (results_dict, checks_list)."""
+    faces = face_table(ob)
+    inv = ob.matrix_world.inverted()
+    doors = inst_boxes(ob, "Door_")
+    wins = inst_boxes(ob, "Window_")
+    tops = [f for f in faces if f["n"].z >= 0.98]
+
+    def rows(boxes):
+        out = []
+        for b in boxes:
+            f, _ = match_face(faces, b["n"], b["org"], b)
+            out.append(dict(name=b["name"],
+                            exterior=bool(f and face_is_exterior(f, inv, STAGE_COMPOUND_BLOCKS)
+                                          and opening_is_exterior(b, inv, STAGE_COMPOUND_BLOCKS)),
+                            face_base=round(f["min_z"], 4) if f else None,
+                            base_z=round(b["lo"].z, 4),
+                            height=round(b["hi"].z - b["lo"].z, 4),
+                            face_h=round(f["h"], 4) if f else None))
+        return out
+
+    drows, wrows = rows(doors), rows(wins)
+    out = []
+    ground_ok = (len(drows) >= 1 and len(wrows) >= 1
+                 and all(r["exterior"] and r["face_base"] is not None and r["face_base"] <= 0.06
+                         and abs(r["base_z"]) <= 0.06 for r in drows)
+                 and all(r["exterior"] and r["face_base"] is not None and r["face_base"] <= 0.06
+                         and 0.25 <= r["base_z"] <= 1.05 for r in wrows))
+    out.append((f"compound[{tag}]: doors AND windows on the EXTERIOR ground walls of the "
+                f"tower+wing+annex edit (the copied stack survives the user's exact action)",
+                ground_ok,
+                f"{len(drows)} doors {[(r['name'], r['base_z'], r['face_base'], r['exterior']) for r in drows]}, "
+                f"{len(wrows)} windows {[(r['name'], r['base_z'], r['face_base'], r['exterior']) for r in wrows]}"))
+    rr = roof_report(ob, style="Flat")
+    out.append((f"compound[{tag}]: ZERO gable triangles on the flat tops (saved Style 'Flat' "
+                f"rides along with the duplicate) + COMPLETE roof coverage",
+                rr["generated"] == 0 and rr["cap_tops"] == rr["expected_caps"] == len(tops)
+                and not rr["uncovered"] and not rr["strays"] and rr["zero_area"] == 0,
+                f"gable faces={rr['generated']} (expected 0), cap tops={rr['cap_tops']} "
+                f"(expected {rr['expected_caps']}, host tops={len(tops)}), "
+                f"uncovered={rr['uncovered']}, strays={rr['strays']}"))
+    exp_pl, _ = expected_courses(ob, lambda n, c: abs(n.z) <= 0.35, 2.0, 0.05, 0.22,
+                                 skip_generated=True)
+    n_pl = len(inst_boxes(ob, "Plank_"))
+    out.append((f"compound[{tag}]: cladding re-tiles the edited massing (plank count matches "
+                f"the independent course formula)",
+                n_pl == exp_pl and n_pl > 0, f"planks {n_pl} (formula {exp_pl})"))
+    res = dict(n_doors=len(doors), n_windows=len(wins), doors=drows, windows=wrows,
+               n_planks=n_pl, expected_planks=exp_pl,
+               n_shingles=len(inst_boxes(ob, "Shingle_")), roof=rr, top_faces=len(tops))
+    return res, out
+
+
+def gable_showcase_accept(tag, ob):
+    """v2.7 GableShowcase: the pitched style is OPT-IN and still works."""
+    rr = roof_report(ob, style="Gable")
+    sh = inst_boxes(ob, "Shingle_")
+    exp, _ = expected_courses(ob, lambda n, c: 0.55 <= n.z < 0.92, 0.25, 0.35, 0.11)
+    doors = inst_boxes(ob, "Door_")
+    wins = inst_boxes(ob, "Window_")
+    out = [(f"gable_showcase[{tag}]: Style 'Gable' OPTED IN generates the pitched roof "
+            f"(4 clean faces for the region, zero strays, coverage complete)",
+            rr["qualifying"] >= 1 and rr["generated"] == rr["expected_generated"] == 4
+            and rr["zero_area"] == 0 and not rr["strays"] and not rr["uncovered"],
+            f"qualifying={rr['qualifying']}, generated={rr['generated']} "
+            f"(expected {rr['expected_generated']}), strays={rr['strays']}, "
+            f"uncovered={rr['uncovered']}"),
+           (f"gable_showcase[{tag}]: shingles clad the pitched slopes (course formula match)",
+            len(sh) == exp and len(sh) > 0,
+            f"{len(sh)} shingles (formula {exp}) in the slope band"),
+           (f"gable_showcase[{tag}]: openings still present on the pitched twin",
+            len(doors) + len(wins) >= 1,
+            f"{len(doors)} doors, {len(wins)} windows")]
+    return dict(roof=rr, n_shingles=len(sh), expected_shingles=exp,
+                n_doors=len(doors), n_windows=len(wins)), out
+
+
 def reflow_edit(host, scale=(1.5, 1.0, 1.4), extrude_z=0.6):
     """Live-edit semantics: edit the BASE MESH after the engine stack is on,
     exactly like edit mode - non-uniform scale + one more extrusion step."""
@@ -3751,8 +4025,12 @@ def main():
     set_params(m_plank, ng, plank_params)
     m_roof = starter.modifiers.new("VM_RoofCap", "NODES")
     m_roof.node_group = ng_roof
+    # v2.7: the canonical CURRENT-DEFAULTS demo - Style 'Flat' (was 'Gable':
+    # the user saw invented gable triangles on his flat tops). Pitch stays
+    # opt-in via GableShowcase.
     set_params(m_roof, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.25,
-                                 "Style": "Gable", "Roof Material": mat_roof})
+                                 "Style": "Flat", "Incline": math.radians(2.5),
+                                 "Fascia": 0.12, "Roof Material": mat_roof})
     m_shing = starter.modifiers.new("VM_SceneDetailer_Shingles", "NODES")
     m_shing.node_group = ng
     shingle_params = dict(defaults, **{
@@ -3789,31 +4067,70 @@ def main():
     })
     set_params(m_door, ng, door_params)
 
-    # ---- v2.4 door seed search: deterministic, on a cheap hidden rig (cube +
+    # ---- v2.4 door seed search: deterministic, on cheap hidden rigs (cube +
     # VM_RoofCap = the starter's host geometry) with the starter's own
     # wall-contact contract as the predicate (3 doors, cube walls only, corners
     # clear, well separated) - the v2.4 RoofCap/selection changes reshuffle the
     # random draws so the layout is re-derived, never hard-coded.
-    log("== doors layer: deterministic seed search (3 doors on cube walls, corners clear)")
+    # v2.7: ONE seed serves THREE hosts - the StarterCube (Flat cap), the
+    # StarterCompound (the user's duplicate + tower/wing/annex extrusion edit)
+    # and the GableShowcase twin (opt-in pitched roof) - so the starter's saved
+    # seed is guaranteed to dress all of them.
+    log("== doors layer: deterministic seed search (cube + compound + gable twin)")
     drig = make_cube("DoorSearchRig", 2.0, col_scene)
     drig.location = (0, -40, 0)
     drig.hide_render = True
     m_drig_roof = drig.modifiers.new("VM_RoofCap", "NODES")
     m_drig_roof.node_group = ng_roof
     set_params(m_drig_roof, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.25,
-                                      "Style": "Gable", "Roof Material": None,
+                                      "Style": "Flat", "Roof Material": None,
                                       "Min Roof Face Size": 0.4, "Largest Face Only": False})
     m_drig_door = drig.modifiers.new("VM_SceneDetailer_Door", "NODES")
     m_drig_door.node_group = ng
     set_params(m_drig_door, ng, door_params)
     exp_r = 1.0 + door_params["Backing Offset"] - door_params["Embed"]
 
-    def door_ok(dbs):
+    def new_compound_rig(name):
+        me_r = bpy.data.meshes.new(name)
+        build_compound_mesh(me_r)
+        rig = bpy.data.objects.new(name, me_r)
+        col_scene.objects.link(rig)
+        rig.location = (0, -40, 0)
+        rig.hide_render = True
+        m_r = rig.modifiers.new("VM_RoofCap", "NODES"); m_r.node_group = ng_roof
+        set_params(m_r, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.25,
+                                  "Style": "Flat", "Incline": math.radians(2.5),
+                                  "Fascia": 0.12, "Roof Material": None,
+                                  "Min Roof Face Size": 0.4, "Largest Face Only": False})
+        return rig
+
+    def new_gable_rig(name):
+        rig = make_cube(name, 2.0, col_scene)
+        rig.location = (0, -40, 0)
+        rig.hide_render = True
+        m_r = rig.modifiers.new("VM_RoofCap", "NODES"); m_r.node_group = ng_roof
+        set_params(m_r, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.25,
+                                  "Style": "Gable", "Roof Material": None,
+                                  "Min Roof Face Size": 0.4, "Largest Face Only": False})
+        return rig
+
+    dcrig = new_compound_rig("DoorCompoundRig")
+    m_dcrig_door = dcrig.modifiers.new("VM_SceneDetailer_Door", "NODES")
+    m_dcrig_door.node_group = ng
+    set_params(m_dcrig_door, ng, door_params)
+    dgrig = new_gable_rig("DoorGableRig")
+    m_dgrig_door = dgrig.modifiers.new("VM_SceneDetailer_Door", "NODES")
+    m_dgrig_door.node_group = ng
+    set_params(m_dgrig_door, ng, door_params)
+    comp_faces = face_table(dcrig)
+    comp_inv = dcrig.matrix_world.inverted()
+
+    def door_ok(dbs, rig=None):
         if len(dbs) != 3:
             return False, 0.0
         # instance origins are WORLD space; the contract is stated in host-local
-        # coordinates (the rig sits at y=-40 like the starter)
-        host_inv = drig.matrix_world.inverted()
+        # coordinates (the rigs sit at y=-40 like the starter)
+        host_inv = (rig or drig).matrix_world.inverted()
         dpos = [tuple(host_inv @ b["org"]) for b in dbs]
         on_cube = all((abs(abs(x) - exp_r) < 0.02 and abs(y) < 0.6) or
                       (abs(abs(y) - exp_r) < 0.02 and abs(x) < 0.6)
@@ -3823,28 +4140,52 @@ def main():
         dgaps = [aabb_gap(dbs[i], dbs[j]) for i in range(len(dbs)) for j in range(i + 1, len(dbs))]
         return on_cube and min_sep > 0.85 and (not dgaps or min(dgaps) >= 0), min_sep
 
-    door_seed_used, door_tried, door_fallback = 229, 0, None
+    def door_ok_compound(dbs):
+        """v2.7 compound contract: >= 1 door, every door on an EXTERIOR GROUND
+        wall of the tower+wing+annex massing, fully inside its wall height."""
+        if len(dbs) < 1:
+            return False
+        for d in dbs:
+            f, _ = match_face(comp_faces, d["n"], d["org"], d)
+            if f is None or not face_is_exterior(f, comp_inv, STAGE_COMPOUND_BLOCKS):
+                return False
+            if not opening_is_exterior(d, comp_inv, STAGE_COMPOUND_BLOCKS):
+                return False                     # low opening buried behind the wing
+            if f["min_z"] > 0.06 or abs(d["lo"].z) > 0.06:
+                return False                     # not a ground wall / not standing on it
+            if (d["hi"].z - d["lo"].z) > f["h"] + 0.05 or d["hi"].z > f["max_z"] + 0.05:
+                return False                     # door sticks out above its wall
+        return True
+
+    def door_ok_gable(dbs):
+        if len(dbs) < 1:
+            return False
+        host_inv = dgrig.matrix_world.inverted()
+        return all((abs(abs((host_inv @ b["org"]).x) - exp_r) < 0.02) or
+                   (abs(abs((host_inv @ b["org"]).y) - exp_r) < 0.02) for b in dbs)
+
+    # v2.7 JOINT search: the starter's saved seed dresses StarterCube AND its
+    # duplicates (StarterCompound / GableShowcase share the saved stack), and
+    # the cube's window contract (2-3 windows, corners clear, zero door/window/
+    # plank intersections) is only satisfiable around SOME door layouts - so
+    # door candidates are collected first and the window scan runs per
+    # candidate until the full contract passes on ALL THREE hosts.
+    door_candidates, door_tried = [], 0
     for seed in range(4000):
         door_tried = seed + 1
-        set_params(m_drig_door, ng, dict(door_params, **{"Seed": seed}))
-        drig.update_tag()
+        for m_d in (m_drig_door, m_dcrig_door, m_dgrig_door):
+            set_params(m_d, ng, dict(door_params, **{"Seed": seed}))
+        drig.update_tag(); dcrig.update_tag(); dgrig.update_tag()
         bpy.context.view_layer.update()
         ok_d, sep_d = door_ok(inst_boxes(drig, "Door_"))
-        if not ok_d:
+        if not (ok_d and door_ok_compound(inst_boxes(dcrig, "Door_"))
+                and door_ok_gable(inst_boxes(dgrig, "Door_"))):
             continue
-        if door_fallback is None:
-            door_fallback = dict(seed=seed, min_sep=round(sep_d, 5))
-        if sep_d > 1.2:
-            door_seed_used = seed
+        if not door_candidates or sep_d > 1.2:
+            door_candidates.append((seed, round(sep_d, 5)))
+        if sep_d > 1.2 and len([1 for _, s in door_candidates if s > 1.2]) >= 3:
             break
-    else:
-        door_seed_used = door_fallback["seed"] if door_fallback else 229
-    set_params(m_door, ng, dict(door_params, **{"Seed": door_seed_used}))
-    starter.update_tag()
-    bpy.context.view_layer.update()
-    results["doors_seed_search"] = dict(seed=door_seed_used, seeds_tried=door_tried,
-                                        fallback=door_fallback)
-    log(f"  doors seed {door_seed_used} chosen after {door_tried} candidates (fallback={door_fallback})")
+    log(f"  door candidates after {door_tried} scans: {door_candidates}")
 
     # ---- windows layer (v2.2): SAME VM_SceneDetailer node group, windows
     # collection from pack_ingest (WeatheredWoodenWindow shutters + a
@@ -3865,25 +4206,38 @@ def main():
     })
     # Deterministic reseed (shift/reseed, no geometry edits). Window sampling
     # only sees the HOST mesh (instance layers are deleted before sampling), so
-    # the seed search runs on a cheap hidden rig (cube + VM_RoofCap = identical
-    # host geometry) against the real door/plank boxes, then verifies on the
-    # full starter stack. Hard constraints: windows stay on the wall (never
-    # hang off a corner, never on roof gables), base at window height, and
-    # zero window/door, window/window, window/plank bbox intersections.
-    log("== windows layer: deterministic seed search (cheap rig + full-stack verify)")
+    # the seed search runs on cheap hidden rigs against the real door/plank
+    # boxes, then verifies on the full starter stack. Hard constraints: windows
+    # stay on the wall (never hang off a corner, never on roof gables), base at
+    # window height, and zero window/door, window/window, window/plank bbox
+    # intersections. v2.7: the SAME seed also serves the StarterCompound and
+    # the GableShowcase twin (see the doors search above).
+    log("== windows layer: deterministic seed search (cube + compound + gable twin)")
     rig = make_cube("WinSearchRig", 2.0, col_scene)
     rig.location = (0, -40, 0)
     rig.hide_render = True
     m_rig_roof = rig.modifiers.new("VM_RoofCap", "NODES")
     m_rig_roof.node_group = ng_roof
     set_params(m_rig_roof, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.25,
-                                     "Style": "Gable", "Roof Material": None})
+                                     "Style": "Flat", "Roof Material": None})
     m_rig_win = rig.modifiers.new("VM_SceneDetailer_Windows", "NODES")
     m_rig_win.node_group = ng
     set_params(m_rig_win, ng, win_params)
-    doors_b = inst_boxes(starter, "Door_")
+    wcrig = new_compound_rig("WinCompoundRig")
+    m_wcrig_door = wcrig.modifiers.new("VM_SceneDetailer_Door", "NODES")
+    m_wcrig_door.node_group = ng
+    m_wcrig_win = wcrig.modifiers.new("VM_SceneDetailer_Windows", "NODES")
+    m_wcrig_win.node_group = ng
+    set_params(m_wcrig_win, ng, win_params)
+    wgrig = new_gable_rig("WinGableRig")
+    m_wgrig_door = wgrig.modifiers.new("VM_SceneDetailer_Door", "NODES")
+    m_wgrig_door.node_group = ng
+    m_wgrig_win = wgrig.modifiers.new("VM_SceneDetailer_Windows", "NODES")
+    m_wgrig_win.node_group = ng
+    set_params(m_wgrig_win, ng, win_params)
     planks_b = inst_boxes(starter, "Plank_")
     lo_h, hi_h = host_planes(starter)
+    doors_b = []          # refreshed per door candidate below
 
     def win_evaluate(wins):
         if not (2 <= len(wins) <= 3):
@@ -3904,32 +4258,134 @@ def main():
         vis = sum(1 for w in wins if wall_of(w["n"]) in ((1, -1), (0, -1)))
         return True, vis, min(pairs)
 
+    def win_ok_compound(wins):
+        """v2.7 compound contract (acceptance-literal): >= 1 window and every
+        window on an EXTERIOR GROUND wall at window height, not buried in the
+        massing. Door-collision cleanliness is PREFERRED by the scan but not
+        required (the acceptance asks for openings on ground walls)."""
+        if len(wins) < 1:
+            return False
+        for w in wins:
+            f, _ = match_face(comp_faces, w["n"], w["org"], w)
+            if f is None or not face_is_exterior(f, comp_inv, STAGE_COMPOUND_BLOCKS):
+                return False
+            if not opening_is_exterior(w, comp_inv, STAGE_COMPOUND_BLOCKS):
+                return False
+            if f["min_z"] > 0.06 or not (0.25 <= w["lo"].z <= 1.05):
+                return False
+            if (w["hi"].z - w["lo"].z) > f["h"] + 0.05 or w["hi"].z > f["max_z"] + 0.05:
+                return False
+        return True
+
+    def win_ok_compound_strict(wins):
+        """The PREFERRED variant: also zero window/door bbox intersections."""
+        if not win_ok_compound(wins):
+            return False
+        wdoors = inst_boxes(wcrig, "Door_")
+        return not any(aabb_gap(w, d) < 0 for w in wins for d in wdoors)
+
+    def win_ok_gable(wins):
+        return len(wins) >= 1 and all(0.25 <= w["lo"].z <= 1.05 for w in wins)
+
+    # ---- the JOINT scan: per door candidate, scan window seeds with a cheap
+    # one-rig prefilter (the cube contract is the rare one: measured ~1 per 500
+    # seeds) and only then evaluate the compound/gable hosts. The first
+    # RELAXED pass wins; a STRICT (collision-free compound) pass found within
+    # the same scan replaces it.
     win_seed_used, win_fallback, win_tried = 0, None, 0
-    for seed in range(4000):
-        win_tried = seed + 1
-        set_params(m_rig_win, ng, dict(win_params, **{"Seed": seed}))
-        rig.update_tag()
+    door_seed_used = door_candidates[0][0] if door_candidates else 229
+    chosen, chosen_strict = None, None
+    for dseed, dsep in door_candidates[:4]:
+        set_params(m_door, ng, dict(door_params, **{"Seed": dseed}))
+        set_params(m_wcrig_door, ng, dict(door_params, **{"Seed": dseed}))
+        set_params(m_wgrig_door, ng, dict(door_params, **{"Seed": dseed}))
+        starter.update_tag(); wcrig.update_tag(); wgrig.update_tag()
         bpy.context.view_layer.update()
-        ok, vis, mgap = win_evaluate(inst_boxes(rig, "Window_"))
-        if not ok:
-            continue
-        if win_fallback is None:
-            win_fallback = dict(seed=seed, visible=vis, min_gap=round(mgap, 5))
-        if vis >= 1:
-            win_seed_used = seed
+        doors_b = inst_boxes(starter, "Door_")
+        for seed in range(10000):
+            win_tried += 1
+            set_params(m_rig_win, ng, dict(win_params, **{"Seed": seed}))
+            rig.update_tag()
+            bpy.context.view_layer.update()
+            ok, vis, mgap = win_evaluate(inst_boxes(rig, "Window_"))
+            if not ok:
+                continue
+            if win_fallback is None:
+                win_fallback = dict(door=dseed, seed=seed, visible=vis, min_gap=round(mgap, 5))
+            set_params(m_wcrig_win, ng, dict(win_params, **{"Seed": seed}))
+            set_params(m_wgrig_win, ng, dict(win_params, **{"Seed": seed}))
+            wcrig.update_tag(); wgrig.update_tag()
+            bpy.context.view_layer.update()
+            wcomp = inst_boxes(wcrig, "Window_")
+            if not (win_ok_compound(wcomp) and win_ok_gable(inst_boxes(wgrig, "Window_"))):
+                continue
+            if win_ok_compound_strict(wcomp) and vis >= 1:
+                chosen_strict = (dseed, seed)
+                break
+            if chosen is None and vis >= 1:
+                chosen = (dseed, seed)   # first acceptance-literal pass
+        if chosen_strict or chosen:
             break
-    else:
-        win_seed_used = win_fallback["seed"] if win_fallback else 0
+    if chosen_strict is None and chosen is None and win_fallback:
+        chosen = (win_fallback["door"], win_fallback["seed"])
+    if chosen_strict is None and chosen is None:
+        chosen = (door_candidates[0][0] if door_candidates else 229, 0)
+    door_seed_used, win_seed_used = chosen_strict or chosen
+    set_params(m_door, ng, dict(door_params, **{"Seed": door_seed_used}))
     set_params(m_win, ng, dict(win_params, **{"Seed": win_seed_used}))
     starter.update_tag()
     bpy.context.view_layer.update()
     f_ok, f_vis, f_gap = win_evaluate(inst_boxes(starter, "Window_"))
+    results["doors_seed_search"] = dict(
+        seed=door_seed_used, seeds_tried=door_tried,
+        candidates=[dict(seed=s, min_sep=sep) for s, sep in door_candidates],
+        hosts=["StarterCube(Flat)", "StarterCompound", "GableShowcase(Gable)"])
     results["windows_seed_search"] = dict(seed=win_seed_used, seeds_tried=win_tried,
                                           fallback=win_fallback,
                                           full_stack_ok=f_ok, full_stack_visible=f_vis,
                                           full_stack_min_gap=round(f_gap, 5))
-    log(f"  windows seed {win_seed_used} chosen after {win_tried} candidates "
-        f"(fallback={win_fallback}, full-stack verify ok={f_ok}, min gap={f_gap:.5f})")
+    log(f"  JOINT seed pair chosen: door={door_seed_used} win={win_seed_used} "
+        f"after {win_tried} window scans (fallback={win_fallback})")
+
+    # ================================================== v2.7: GableShowcase + StarterCompound
+    log("\n== v2.7: GableShowcase (pitched OPT-IN) + StarterCompound (the user's exact action) ==")
+    # (1) GableShowcase: the StarterCube's twin with the pitched style explicitly
+    # requested - side by side, the two design languages of the engine.
+    gs = starter.copy()
+    gs.data = starter.data.copy()
+    gs.name = "GableShowcase"
+    col_scene.objects.link(gs)
+    gs.location = (5.5, -40, 0)
+    set_params(gs.modifiers["VM_RoofCap"], ng_roof,
+               {"Pitch": math.radians(35.0), "Overhang": 0.25,
+                "Style": "Gable", "Roof Material": mat_roof})
+    gs.update_tag()
+    bpy.context.view_layer.update()
+    gs_res, gs_chk = gable_showcase_accept("GableShowcase", gs)
+    for name, cond, detail in gs_chk:
+        check(name, cond, detail)
+    results["gable_showcase"] = gs_res
+    log(f"  GableShowcase: {gs_res['n_shingles']} shingles (formula {gs_res['expected_shingles']}), "
+        f"{gs_res['n_doors']} doors, {gs_res['n_windows']} windows")
+
+    # (2) StarterCompound: the user's EXACT action - duplicate StarterCube (the
+    # saved modifier stack copies along untouched), then extrude/step the base
+    # mesh into a tower + lower wing + annex compound (build_compound_mesh).
+    sc = starter.copy()
+    sc.data = starter.data.copy()
+    sc.name = "StarterCompound"
+    col_scene.objects.link(sc)
+    sc.location = (11.5, -40, 0)
+    build_compound_mesh(sc.data)          # his edit-mode work: extrude + steps
+    sc.update_tag()
+    bpy.context.view_layer.update()
+    sc_res, sc_chk = compound_accept("StarterCompound", sc)
+    for name, cond, detail in sc_chk:
+        check(name, cond, detail)
+    results["starter_compound"] = sc_res
+    log(f"  StarterCompound: {sc_res['n_doors']} doors, {sc_res['n_windows']} windows, "
+        f"{sc_res['n_planks']} planks (formula {sc_res['expected_planks']}), "
+        f"gable faces={sc_res['roof']['generated']}")
 
     m_ground = starter_ground.modifiers.new("VM_SceneDetailer", "NODES")
     m_ground.node_group = ng
@@ -5060,6 +5516,12 @@ def main():
     render_from("preview_user2_massing", (165.6, -64.6, 3.4), (163.2, -59.9, 1.0), 38)
 
     u2_roof = u2.modifiers.new("VM_RoofCap", "NODES"); u2_roof.node_group = ng_roof
+    # v2.7: pin the roof state explicitly (the group default is 'Flat' now, but
+    # the shipped demo must not depend on defaults)
+    set_params(u2_roof, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.15,
+                                  "Style": "Flat", "Incline": math.radians(2.5),
+                                  "Fascia": 0.12, "Roof Material": mat_roof,
+                                  "Min Roof Face Size": 0.4, "Largest Face Only": False})
     u2_door = u2.modifiers.new("VM_SceneDetailer_Door", "NODES"); u2_door.node_group = ng
     u2_win = u2.modifiers.new("VM_SceneDetailer_Windows", "NODES"); u2_win.node_group = ng
 
@@ -5365,6 +5827,11 @@ def main():
     render_from("preview_stage4_materials", (93.6, -4.4, 2.8), (90, 0, 1.0), 35)
     render_from("preview_stage5_roofcap", (106.5, -10.5, 5.5), (103.5, 0, 1.6), 35)
     render_from("preview_starter_house", (-3.0, -47.6, 2.3), (0, -40, 1.3), 38)
+    # v2.7: the two design languages side by side + the user's exact action
+    render_from("preview_starter_pair", (-2.8, -48.8, 3.4), (2.75, -40, 1.4), 32)
+    render_from("preview_starter_compound", (7.2, -47.2, 4.8), (12.4, -40, 1.5), 35)
+    render_from("preview_starter_compound_top", (12.4, -40.0, 11.0), (12.4, -40.0, 0.0), 35)
+    render_from("preview_gable_showcase", (2.4, -46.2, 3.2), (5.5, -40, 1.5), 40)
     # close-up of a fitted door mounted on the wall planks (v2.2 proof): camera
     # at door height, ~15 deg off the wall normal so the junction and contact
     # read without exaggerated perspective on the door's side faces
@@ -5668,13 +6135,241 @@ def main():
         live_back_dist={k: round(v, 5) for k, v in live.items()},
         testfit_instances=len(tf_boxes), testfit_variants=len({b["name"] for b in tf_boxes}))
 
-    # ---- VM_SceneDetailer.blend / VM_RoofCap.blend: images
+    # ================================================== v2.7 acceptance (measured on the delivered blends)
+    log("\n== v2.7 ACCEPTANCE (delivered VM_Starter.blend: defaults, versions, compound) ==")
+
+    def probe_versions(tag):
+        bad, total = [], 0
+        for ob in bpy.data.objects:
+            for m in ob.modifiers:
+                if m.type != 'NODES' or m.node_group is None:
+                    continue
+                if m.node_group.name.split(".")[0] not in ("VM_SceneDetailer", "VM_RoofCap"):
+                    continue
+                total += 1
+                try:
+                    v = str(getattr(m.properties.inputs,
+                                    socket_id(m.node_group, "Engine Version")).value)
+                except Exception as e:
+                    v = f"<missing:{e}>"
+                if v != "v2.7":
+                    bad.append((ob.name, m.name, v))
+        check(f"version: Engine Version socket reads 'v2.7' on EVERY VM modifier in {tag}",
+              total > 0 and not bad, f"{total} VM modifiers probed, non-v2.7: {bad[:8]}")
+        return total, bad
+
+    def probe_descriptions(tag):
+        descs = {n: (bpy.data.node_groups[n].description or "")[:80]
+                 for n in ("VM_SceneDetailer", "VM_RoofCap")}
+        ok = all("v2.7" in d for d in descs.values())
+        check(f"version: node-group DESCRIPTIONS carry v2.7 in {tag} "
+              f"(visible in the node-group selector tooltip)",
+              ok, f"descriptions={descs}")
+
+    def sock_val(ob, mod_name, sock_name):
+        m = ob.modifiers.get(mod_name)
+        return getattr(m.properties.inputs, socket_id(m.node_group, sock_name)).value
+
+    # ---- (1) starter read-back: the saved stack IS the current-defaults demo
+    sc_rb = bpy.data.objects["StarterCube"]
+    rb_style = sock_val(sc_rb, "VM_RoofCap", "Style")
+    rb_incl = float(sock_val(sc_rb, "VM_RoofCap", "Incline"))
+    rb_fit = sock_val(sc_rb, "VM_SceneDetailer_Door", "Opening Fit")
+    rb_ver = str(sock_val(sc_rb, "VM_RoofCap", "Engine Version"))
+    check("starter read-back (delivered VM_Starter.blend): saved VM_RoofCap Style='Flat' "
+          "(gables never invented on flat tops), Incline=2.5 deg, layers on 'Scale To Face', "
+          "Engine Version 'v2.7'",
+          rb_style == "Flat" and abs(rb_incl - math.radians(2.5)) < 1e-5
+          and rb_fit == "Scale To Face" and rb_ver == "v2.7",
+          f"Style={rb_style}, Incline={math.degrees(rb_incl):.3f} deg, "
+          f"Opening Fit={rb_fit}, Engine Version={rb_ver}")
+    results["starter_readback"] = dict(style=rb_style, incline_deg=round(math.degrees(rb_incl), 4),
+                                       opening_fit=rb_fit, engine_version=rb_ver)
+
+    # ---- (2) compound + gable showcase read-back (the user's exact action)
+    comp_rb = bpy.data.objects["StarterCompound"]
+    c_res, c_chk = compound_accept("delivered blend", comp_rb)
+    for name, cond, detail in c_chk:
+        check(name, cond, detail)
+    results["starter_compound_readback"] = c_res
+    gs_rb = bpy.data.objects["GableShowcase"]
+    g_res, g_chk = gable_showcase_accept("delivered blend", gs_rb)
+    for name, cond, detail in g_chk:
+        check(name, cond, detail)
+    results["gable_showcase_readback"] = g_res
+
+    # ---- (3) version visibility across the delivered file
+    n_vm, bad_vm = probe_versions("VM_Starter.blend")
+    probe_descriptions("VM_Starter.blend")
+    results["version_probe"] = {"VM_Starter.blend": dict(total=n_vm, bad=bad_vm)}
+
+    # ================================================== v2.7 ACCEPTANCE 1: the untouched default path
+    log("\n== v2.7 DEFAULT PATH: fresh scene + fresh cube + Add Modifier, ZERO socket tweaks ==")
+    bpy.ops.scene.new(type='NEW')
+    df_scene = bpy.context.scene
+    df_scene.render.engine = "CYCLES"
+    df_scene.cycles.device = "CPU"
+    df_scene.cycles.samples = 32
+    df_scene.cycles.use_denoising = True
+    df_scene.render.resolution_x = 960
+    df_scene.render.resolution_y = 540
+    df_scene.render.resolution_percentage = 100
+    if bpy.data.worlds.get("World") is not None:
+        df_scene.world = bpy.data.worlds["World"]
+    df_cube = make_cube("DefaultPathCube", 2.0, df_scene.collection)
+    m_dp1 = df_cube.modifiers.new("VM_SceneDetailer", "NODES")
+    m_dp1.node_group = bpy.data.node_groups["VM_SceneDetailer"]
+    m_dp2 = df_cube.modifiers.new("VM_RoofCap", "NODES")
+    m_dp2.node_group = bpy.data.node_groups["VM_RoofCap"]
+    # ^^ ZERO socket writes - this is the untouched default path
+    df_cube.update_tag()
+    bpy.context.view_layer.update()
+    df_boxes = inst_boxes(df_cube, "Door_") + inst_boxes(df_cube, "Window_")
+    df_stats = eval_stats(df_cube)
+    df_zc = zone_counts_on_cube(df_stats["positions"], df_stats["normals"])
+    df_tops, df_gables = cap_inclines(df_cube)
+    df_incl_err = max(abs(t - 2.5) for t in df_tops) if df_tops else 99.0
+    check("default path: fresh scene + fresh cube + Add Modifier (ZERO socket tweaks) -> "
+          "openings present on the walls out of the box",
+          len(df_boxes) >= 1 and df_stats["n_instances"] > 0
+          and df_zc["on_wall"] == df_stats["n_instances"]
+          and df_zc["on_top"] == 0 and df_zc["on_bottom"] == 0,
+          f"{len(df_boxes)} opening instances, freq={df_stats['freq']}, zone counts={df_zc}")
+    check("default path: fresh VM_RoofCap defaults to FLAT cap - zero gable triangles, "
+          "subtle incline measured at 2.5 deg",
+          df_gables == 0 and bool(df_tops) and df_incl_err <= 0.75,
+          f"gable faces={df_gables} (expected 0), measured cap inclines={df_tops} deg "
+          f"(socket 2.5 deg, tolerance +/-0.75)")
+    results["default_path"] = dict(freq=df_stats["freq"], zone=df_zc,
+                                   gable_faces=df_gables, inclines=df_tops,
+                                   n_openings=len(df_boxes))
+    df_cam_d = bpy.data.cameras.new("DefaultPathCam")
+    df_cam = bpy.data.objects.new("DefaultPathCam", df_cam_d)
+    df_scene.collection.objects.link(df_cam)
+    df_scene.camera = df_cam
+    df_cam.location = (4.4, -5.4, 2.9)
+    look_at(df_cam, (0, 0, 1.0))
+    df_cam_d.lens = 38
+    df_sun_d = bpy.data.lights.new("DefaultPathSun", "SUN")
+    df_sun_d.energy = 3.5
+    df_sun = bpy.data.objects.new("DefaultPathSun", df_sun_d)
+    df_scene.collection.objects.link(df_sun)
+    df_sun.rotation_euler = (math.radians(52), math.radians(8), math.radians(35))
+    df_scene.render.filepath = os.path.join(ROOT, "renders", "preview_default_path.png")
+    bpy.ops.render.render(write_still=True)
+    log("  rendered preview_default_path.png (untouched default path)")
+
+    # ================================================== v2.7 VM_Tools_Addon (part 1: same file)
+    log("\n== v2.7 VM_Tools_Addon: Dress Object / Copy / Paste / Save Preset ==")
+    import VM_Tools_Addon as vmt
+    vmt.register()
+    bpy.ops.scene.new(type='NEW')
+    ad_scene = bpy.context.scene
+    ad_scene.render.engine = "CYCLES"
+    ad_scene.cycles.device = "CPU"
+    ad_scene.cycles.samples = 32
+    ad_scene.cycles.use_denoising = True
+    ad_scene.render.resolution_x = 960
+    ad_scene.render.resolution_y = 540
+    ad_scene.render.resolution_percentage = 100
+    if bpy.data.worlds.get("World") is not None:
+        ad_scene.world = bpy.data.worlds["World"]
+    ad_col = ad_scene.collection
+    cube_a = make_cube("AddonSource", 2.0, ad_col)
+    cube_b = make_cube("AddonPasted", 2.0, ad_col)
+    cube_b.location = (4.5, 0, 0)
+
+    bpy.ops.object.select_all(action='DESELECT')
+    cube_a.select_set(True)
+    ad_scene.view_layers[0].objects.active = cube_a
+    bpy.ops.vm.dress_object()
+    # 'the only remaining manual step': assign the variant collections (fetched
+    # by NAME from the reopened file - pre-open Python refs are dead here)
+    for mod_name, col_name in (("VM_SceneDetailer_Planks", "VM_Tiles_Plank"),
+                               ("VM_SceneDetailer_Shingles", "VM_Tiles_Shingle"),
+                               ("VM_SceneDetailer_Door", "VM_Doors"),
+                               ("VM_SceneDetailer_Windows", "VM_Windows")):
+        m_ = cube_a.modifiers[mod_name]
+        set_params(m_, m_.node_group, {"Primary Props": bpy.data.collections[col_name],
+                                       "Debris/Trash Props": bpy.data.collections["VM_Debris_Trash"]})
+    cube_a.update_tag()
+    bpy.context.view_layer.update()
+    a_names = [m.name for m in cube_a.modifiers]
+    a_roof_style = sock_val(cube_a, "VM_RoofCap", "Style")
+    a_door_fit = sock_val(cube_a, "VM_SceneDetailer_Door", "Opening Fit")
+    check("addon(dress): 'VM: Dress Object' applies the FULL default v2.7 stack in one click "
+          "(wall cladding + VM_RoofCap + roof cladding + doors + windows)",
+          a_names == ["VM_SceneDetailer_Planks", "VM_RoofCap", "VM_SceneDetailer_Shingles",
+                      "VM_SceneDetailer_Door", "VM_SceneDetailer_Windows"]
+          and a_roof_style == "Flat" and a_door_fit == "Scale To Face",
+          f"modifiers={a_names}, RoofCap Style={a_roof_style}, Door Opening Fit={a_door_fit}")
+
+    ad_scene.view_layers[0].objects.active = cube_a
+    bpy.ops.vm.copy_engine_setup()
+    bpy.ops.object.select_all(action='DESELECT')
+    cube_b.select_set(True)
+    ad_scene.view_layers[0].objects.active = cube_b
+    bpy.ops.vm.paste_engine_setup()
+    snap_a = vmt.snapshot_object(cube_a)
+    snap_b = vmt.snapshot_object(cube_b)
+    mism_ab = [k for k in range(max(len(snap_a), len(snap_b)))
+               if (snap_a[k] if k < len(snap_a) else None) != (snap_b[k] if k < len(snap_b) else None)]
+    n_socks = vmt.count_sockets(snap_a)
+    check("addon(copy/paste): cube B's VM stack == cube A's (same groups, identical socket "
+          "values incl. collection pointers, counted)",
+          snap_a == snap_b and len(snap_a) == 5 and n_socks >= 100 and not mism_ab,
+          f"{len(snap_a)} modifiers, {n_socks} sockets compared per object, "
+          f"modifier-index mismatches={mism_ab}, collection pointers "
+          f"{[v for s in snap_b for k, v in s['values'].items() if v[1][0] == 'id' and v[1][2]][:8]}")
+    results["addon_copy_paste"] = dict(n_modifiers=len(snap_a), n_sockets=n_socks,
+                                       mismatches=mism_ab)
+
+    ad_scene.view_layers[0].objects.active = cube_a
+    bpy.ops.vm.save_preset(name="acceptance_v27")
+    preset_path = os.path.join(os.path.expanduser(
+        os.path.join("~", ".config", "vm_engine", "presets")), "acceptance_v27.json")
+    preset_ok = os.path.isfile(preset_path)
+    preset_meta = json.load(open(preset_path)) if preset_ok else {}
+    preset_snap = preset_meta.get("modifiers", [])
+    check("addon(preset): 'VM: Save Preset' stores the full stack config + collection NAMES "
+          "to ~/.config/vm_engine/presets/<name>.json",
+          preset_ok and len(preset_snap) == 5 and vmt.count_sockets(preset_snap) == n_socks,
+          f"{preset_path}: exists={preset_ok}, {len(preset_snap)} modifiers, "
+          f"{vmt.count_sockets(preset_snap)} sockets")
+
+    # renders: the pasted cube must look IDENTICAL to the source
+    ad_cam_d = bpy.data.cameras.new("AddonCam")
+    ad_cam = bpy.data.objects.new("AddonCam", ad_cam_d)
+    ad_col.objects.link(ad_cam)
+    ad_scene.camera = ad_cam
+    ad_sun_d = bpy.data.lights.new("AddonSun", "SUN")
+    ad_sun_d.energy = 3.5
+    ad_sun = bpy.data.objects.new("AddonSun", ad_sun_d)
+    ad_col.objects.link(ad_sun)
+    ad_sun.rotation_euler = (math.radians(52), math.radians(8), math.radians(35))
+
+    def ad_render(tag, loc, target, lens):
+        ad_cam.location = loc
+        look_at(ad_cam, target)
+        ad_cam_d.lens = lens
+        ad_scene.render.filepath = os.path.join(ROOT, "renders", tag + ".png")
+        bpy.ops.render.render(write_still=True)
+        log(f"  rendered {tag}.png")
+
+    ad_render("preview_addon_pair", (2.25, -10.5, 4.6), (2.25, 0, 1.2), 35)
+    ad_render("preview_addon_source", (0.0, -6.2, 2.7), (0.0, 0, 1.1), 45)
+    ad_render("preview_addon_pasted", (4.5, -6.2, 2.7), (4.5, 0, 1.1), 45)
+
+    # ---- VM_SceneDetailer.blend / VM_RoofCap.blend: images + version probes
     for path in (BLEND_PATH, ROOFCAP_PATH):
         rep2 = blend_image_report(path)
         results["images_packed"][os.path.basename(path)] = rep2
         check(f"images_packed {os.path.basename(path)}: {rep2['packed']}/{rep2['total']}",
               rep2["total"] > 0 and not rep2["unpacked"],
               f"{rep2['packed']}/{rep2['total']} image datablocks packed, unpacked={rep2['unpacked']}")
+        n_vm2, bad_vm2 = probe_versions(os.path.basename(path))
+        probe_descriptions(os.path.basename(path))
+        results["version_probe"][os.path.basename(path)] = dict(total=n_vm2, bad=bad_vm2)
 
     # ---- adapter wiring proof: Fit collections contain only classified slab
     # outputs; quarantined objects never mix in (measured on the delivered blend)
@@ -5695,6 +6390,71 @@ def main():
           len(results.get("pack_ingest", {})) == 5,
           f"packs={sorted(results.get('pack_ingest', {}))}; counts={pack_counts}")
 
+    # ================================================== v2.7 VM_Tools_Addon part 2 + VM_Assets.blend
+    log("\n== v2.7 preset CROSS-FILE load + VM_Assets.blend asset packaging ==")
+    bpy.ops.wm.read_factory_settings()      # a genuinely FRESH file
+    vmt.register()                          # factory reset may drop scripted classes
+    # same-named collections + materials in the fresh file (the preset re-matches
+    # references BY NAME - this is the 'setups travel across .blend files' path)
+    for cname in ("VM_Tiles_Plank", "VM_Tiles_Shingle", "VM_Doors", "VM_Windows",
+                  "VM_Debris_Trash"):
+        bpy.data.collections.new(cname)
+    for mname in ("VM_WallWeatheredPlanks", "VM_RoofClayTiles", "VM_FloorGrass"):
+        bpy.data.materials.new(mname)
+    # the engine is present in the file (as it would be after appending the node
+    # groups or dragging them from the VM_Assets.blend Asset Browser)
+    ng2 = build_node_group()
+    ng2r = build_roofcap_group()
+    cube_c = make_cube("PresetTarget", 2.0, bpy.context.scene.collection)
+    bpy.ops.object.select_all(action='DESELECT')
+    cube_c.select_set(True)
+    bpy.context.scene.view_layers[0].objects.active = cube_c
+    bpy.ops.vm.load_preset(name="acceptance_v27")
+    snap_c = vmt.snapshot_object(cube_c)
+    mism_c = [k for k in range(max(len(snap_c), len(preset_snap)))
+              if (snap_c[k] if k < len(snap_c) else None)
+              != (preset_snap[k] if k < len(preset_snap) else None)]
+    check("addon(preset CROSS-FILE): Load Preset in a FRESH file with same-named collections/"
+          "materials rebuilds the identical stack (counted, 0 mismatches)",
+          snap_c == preset_snap and len(snap_c) == 5 and not mism_c,
+          f"{len(snap_c)} modifiers, {vmt.count_sockets(snap_c)} sockets, "
+          f"modifier-index mismatches={mism_c}")
+    results["addon_preset_crossfile"] = dict(n_modifiers=len(snap_c),
+                                             n_sockets=vmt.count_sockets(snap_c),
+                                             mismatches=mism_c)
+
+    # ---- v2.7: VM_Assets.blend - both node groups marked as BLENDER ASSETS so
+    # the engine can be dragged onto any object in any file from the Asset Browser
+    for ob in list(bpy.data.objects):
+        bpy.data.objects.remove(ob)          # the assets file ships groups, not a scene
+    for ngn_, desc in (
+            ("VM_SceneDetailer",
+             "VM engine v2.7 - semantic architectural application engine (Scatter/Fit/"
+             "Cladding + Slots openings; 'Opening Fit: Scale To Face'; About panel shows "
+             "Engine Version 'v2.7'). Drag onto a mesh object (or use VM: Dress Object)."),
+            ("VM_RoofCap",
+             "VM engine v2.7 - per-region roof caps: Style 'Flat' DEFAULT (subtle incline, "
+             "never invented gables) / 'Gable' / 'Hip' opt-in. About panel shows Engine "
+             "Version 'v2.7'.")):
+        ng_ = bpy.data.node_groups[ngn_]
+        ng_.asset_mark()
+        ng_.asset_data.description = desc
+        ng_.asset_data.author = "kristo / ViperMesh"
+    bpy.ops.wm.save_as_mainfile(filepath=ASSETS_PATH)
+    log(f"  saved {ASSETS_PATH}")
+    bpy.ops.wm.open_mainfile(filepath=ASSETS_PATH)
+    marked = sorted(n.name for n in bpy.data.node_groups
+                    if n.name.split(".")[0] in ("VM_SceneDetailer", "VM_RoofCap")
+                    and n.asset_data is not None)
+    check("assets: VM_Assets.blend ships BOTH node groups marked as Blender assets "
+          "(Asset Browser: drag the engine onto any object in any file)",
+          sorted(m.split(".")[0] for m in marked) == ["VM_RoofCap", "VM_SceneDetailer"],
+          f"marked assets: {marked}")
+    results["vm_assets"] = dict(marked=marked, path=ASSETS_PATH,
+                                descriptions={n.name: (n.asset_data.description or "")[:60]
+                                              for n in bpy.data.node_groups
+                                              if n.asset_data is not None})
+
     with open(os.path.join(ROOT, "verification_v2.json"), "w") as f:
         json.dump({"results": results,
                    "checks": [{"name": n, "pass": p, "detail": d} for n, p, d in checks]}, f, indent=2, default=str)
@@ -5705,7 +6465,7 @@ def main():
         log("!! FAILED: " + ", ".join(failed))
 
     # deliverables
-    for f in ("build_engine.py", "pack_ingest.py", "USAGE.txt"):
+    for f in ("build_engine.py", "pack_ingest.py", "USAGE.txt", "VM_Tools_Addon.py"):
         shutil.copy2(os.path.join(ROOT, f), os.path.join(DELIVER, f))
     for rep_name in sorted(os.listdir(ROOT)):
         if rep_name.endswith("_ingest.json"):
@@ -5713,6 +6473,7 @@ def main():
     shutil.copy2(STARTER_PATH, os.path.join(DELIVER, "VM_Starter.blend"))
     shutil.copy2(BLEND_PATH, os.path.join(DELIVER, "VM_SceneDetailer.blend"))
     shutil.copy2(ROOFCAP_PATH, os.path.join(DELIVER, "VM_RoofCap.blend"))
+    shutil.copy2(ASSETS_PATH, os.path.join(DELIVER, "VM_Assets.blend"))
     shutil.copy2(os.path.join(ROOT, "verification_v2.json"), os.path.join(DELIVER, "verification_v2.json"))
     for r in sorted(os.listdir(os.path.join(ROOT, "renders"))):
         if r.startswith("preview_"):

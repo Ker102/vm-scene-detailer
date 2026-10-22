@@ -12,15 +12,28 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
+  VM_Assets.blend (v2.7) - BOTH node groups marked as BLENDER ASSETS for the
+    Asset Browser: add this file ONCE to Blender's asset libraries (see
+    'ZERO-SETUP UX' below) and drag the engine onto any object in any file
+  VM_Tools_Addon.py (v2.7) - one-click helpers: 'VM: Dress Object' (full
+    default v2.7 stack on selected objects), 'VM: Copy/Paste Engine Setup'
+    (copy the whole VM_* modifier stack, incl. collection references, between
+    objects) and 'VM: Save/Load Preset <name>' (JSON setups that travel
+    across .blend files). Install as an add-on (see 'ZERO-SETUP UX' below)
   build_engine.py - deterministic generator (rebuilds everything from scratch)
   pack_ingest.py - GENERIC ZERO-CONFIG asset-pack adapter (see PACK ADAPTER
     below); ingests any glTF/OBJ pack into classified variant collections
   <Pack>_ingest.json - per-pack ingest reports (decisions, scale factors,
     quarantine reasons) for WornWoodenDoorsPack + the 4 window packs
   preview_*.png - rendered proofs for each stage (incl. preview_door_closeup.png,
-    preview_window_closeup.png and preview_starter_house.png: doors/windows
-    mounted against the wall planks)
-  verification_v2.json - numeric proof log
+    preview_window_closeup.png, preview_starter_house.png, and the v2.7 set:
+    preview_starter_pair.png (StarterCube vs GableShowcase side by side),
+    preview_starter_compound.png + preview_starter_compound_top.png (the
+    user's duplicate-and-extrude action), preview_default_path.png (the
+    untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
+    (Dress Object + Copy/Paste identity proof))
+  verification_v2.json - numeric proof log (223 checks: the original 197 kept
+    green + 26 v2.7 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
 
@@ -28,7 +41,17 @@ SCENE CONTENTS - WHAT TO LOOK AT, WHAT TO IGNORE
 ------------------------------------------------
 * LOOK AT: "StarterCube" + "StarterGround" (near x=0, y=-40) - the v2
   worked example described below. The preview_starter_house.png render is
-  exactly this.
+  exactly this. v2.7: StarterCube is the canonical CURRENT-DEFAULTS demo -
+  a FLAT-capped plank house with visible doors/windows ('Scale To Face').
+* LOOK AT (v2.7): "GableShowcase" (x=5.5, y=-40) - StarterCube's twin with
+  the pitched roof explicitly requested (Style 'Gable' + shingles on the
+  slopes). Pitch is OPT-IN since v2.7 - this object is the opt-in demo,
+  side by side with the flat default (preview_starter_pair.png).
+* LOOK AT (v2.7): "StarterCompound" (x=11.5, y=-40) - the user's EXACT
+  action: a DUPLICATE of StarterCube edited into a tower + lower wing +
+  annex compound (extrude/step massing). The copied stack keeps doors and
+  windows on the exterior ground walls and the flat tops get flat caps -
+  ZERO gable triangles (preview_starter_compound.png + _top.png).
 * IGNORE/DELETE FREELY: "HouseA" and "HouseB" (near the origin) and their
   floating platform + furniture - these are the OLD v1 demo scenes kept for
   comparison. The furniture hovering around them is v1 Scatter mode doing its
@@ -48,16 +71,138 @@ QUICK START: MAKE A LITTLE HOUSE FROM A CUBE
    "StarterGround" has a sixth VM_SceneDetailer in Scatter mode for debris.
 2. To build it yourself on any cube:
    - Add > Mesh > Cube (2m). Optionally set its origin so the base sits at z=0.
-   - Modifier Properties > Add Modifier > Geometry Nodes, pick "VM_SceneDetailer".
-     Set Placement Mode = Cladding for the walls (see panels below).
-   - Add another Geometry Nodes modifier, pick "VM_RoofCap".
-     Pitch 35 deg, Overhang 0.25 m, Style Gable, Roof Material = your material.
+   - ZERO-SETUP (v2.7, recommended): select the cube and press
+     'VM: Dress Object' (VM Tools panel) - the FULL default v2.7 stack is
+     applied in one click (wall cladding + VM_RoofCap + roof cladding + doors
+     + windows). The ONLY remaining step: assign the variant collections in
+     the Assets panels of each layer. (Or drag 'VM_SceneDetailer'/'VM_RoofCap'
+     from the VM_Assets.blend Asset Browser onto the object.)
+   - BY HAND: Modifier Properties > Add Modifier > Geometry Nodes, pick
+     "VM_SceneDetailer". Since v2.7 a FRESH modifier already defaults to
+     Placement Mode 'Fit' + Slot Layout 'Slots' (doors on walls out of the
+     box - see 'THE DEFAULT PATH' below); set Placement Mode = Cladding for
+     wall planks (see panels below).
+   - Add another Geometry Nodes modifier, pick "VM_RoofCap". Since v2.7 the
+     default Style is 'Flat' (subtle 2.5 deg incline, NEVER invented gable
+     triangles). For the pitched look set Style 'Gable' (or 'Hip'), Pitch
+     35 deg, Overhang 0.25 m, Roof Material = your material.
    - Stack as many VM_SceneDetailer modifiers as you want (one per job:
      wall cladding, roof cladding, doors, debris...). Later modifiers see the
      geometry produced by earlier ones, so roof cladding automatically lands on
      the VM_RoofCap roof. Sampling always ignores earlier INSTANCES, so tiles
      never get clad with more tiles.
 3. Press F12. Done.
+
+THE DEFAULT PATH (v2.7) - what you get with ZERO socket tweaks
+--------------------------------------------------------------
+Add Modifier > VM_SceneDetailer + VM_RoofCap on a fresh cube, touch NOTHING:
+  * VM_SceneDetailer (Placement Mode 'Fit', Slot Layout 'Slots', 'Opening Fit'
+    'Scale To Face'): doors appear on the walls immediately (the 'Primary
+    Props' collection defaults to VM_Doors when that collection exists in the
+    file; assign your own variant collection to change the parts).
+  * VM_RoofCap (Style 'Flat', Incline 2.5 deg): a near-flat cap over the top -
+    zero gable triangles, ever, unless you explicitly pick 'Gable'/'Hip'.
+This exact path is rendered in preview_default_path.png and verified by the
+checks 'default path: ...' in verification_v2.json.
+
+WHICH VERSION AM I RUNNING? (v2.7)
+----------------------------------
+The engine version is now VISIBLE on every modifier:
+  1. Select the dressed object and open any VM modifier. The FIRST panel is
+     'About' with an 'Engine Version' string socket - it reads 'v2.7' on this
+     release. The 'Usage Hint' socket under it is a one-line reminder.
+  2. Hover the node group in the modifier's node-group selector: the tooltip
+     shows the group DESCRIPTION, which also carries the version.
+  3. What version is my OLD stack? Look at the panels:
+       - The Slots panel LACKS 'Opening Fit'          -> pre-v2.6 (v2.5-era) group.
+       - VM_RoofCap LACKS 'Incline'/'Fascia'          -> pre-v2.6 group.
+       - No 'About' panel at all                      -> pre-v2.7 group.
+     Anything pre-v2.7 runs OLD code: old stacks put gable triangles on flat
+     tops (RoofCap defaulted to 'Gable') and silently dropped openings that
+     did not fit their wall.
+  4. UPGRADE: re-Append the NodeTrees 'VM_SceneDetailer' and 'VM_RoofCap'
+     from the delivered VM_SceneDetailer.blend (File > Append > NodeTrees),
+     then re-point each VM modifier's Node Group at the freshly appended
+     group - or simply open the new VM_Starter.blend / drag the groups from
+     VM_Assets.blend and rebuild with 'VM: Dress Object' + 'VM: Load Preset'.
+     The About-panel sockets were APPENDED at the end of the interface, so
+     every v2.5/v2.6 socket IDENTIFIER is unchanged: re-pointing an old
+     modifier at the new group keeps all of its saved values.
+
+UPGRADING OLD STACKS (v2.5 -> v2.7): the 3 sockets whose behavior changed
+-------------------------------------------------------------------------
+Only three sockets changed behavior since v2.5. Old stacks keep working; set
+these for the v2.7 behavior (all three are what 'VM: Dress Object' applies):
+  1. 'Opening Fit' (Slots panel; NEW in v2.6 - missing on old groups):
+       v2.5 behavior = 'Drop': an opening taller/wider than its wall was
+       rejected outright -> the classic 'ZERO doors/windows' on blocky
+       massing. Set 'Scale To Face' (the v2.6/v2.7 default): the opening
+       shrinks to fit its wall (gap law still holds, base stays on the sill).
+       'Min Fit Scale' 0.5 rejects rows that would shrink below half size.
+  2. VM_RoofCap 'Style' (Roof panel): the DEFAULT changed from 'Gable' to
+       'Flat' in v2.7. Old saved stacks still read 'Gable' (that is what put
+       gable triangles on the user's flat tops!). For FLAT-TOPPED designs set
+       'Flat' (subtle 2.5 deg 'Incline', thin 'Fascia'; tops are never left
+       open). Want pitch? Explicitly set 'Gable' or 'Hip' - pitch is opt-in.
+  3. 'Ground Floor Only' (Placement panel; default ON since v2.5): keeps
+       doors off steps and roof-adjacent wall segments ('Max Base Height'
+       0.5 m ceiling). For flat-topped compounds leave it ON so doors stay on
+       the ground floor walls; for deliberate upper doors/windows switch it
+       OFF and raise 'Max Base Height'.
+
+RECIPE for a flat-topped design (the user's design language):
+  VM_RoofCap Style 'Flat' + Incline 2.5 deg + Fascia 0.12 m;
+  doors/windows layers: Slot Layout 'Slots', 'Opening Fit' 'Scale To Face',
+  'Sill Line' 'Common Z', doors 'Ground Floor Only' ON + Sill 0.0,
+  windows Sill 0.9 (cross-layer split: doors 'First Only', windows
+  'Skip First' - or 'Exact N' counts).
+
+ZERO-SETUP UX (v2.7): VM_Tools_Addon + VM_Assets.blend
+------------------------------------------------------
+Goal (the user's words): "apply the engine on a new cube and only have to
+configure the collections... copy and paste the engine configuration and all
+the collection configuration from an existing object to another new one
+without having to do all the manual setting up all modifiers."
+
+INSTALL ONCE:
+  * Add-on: Blender > Edit > Preferences > Add-ons > Install... >
+    VM_Tools_Addon.py (enable 'VM Tools'). Buttons appear in the Modifier
+    Properties tab and the 3D-view N-panel > 'VM', next to 'Toggle All
+    Modifiers'.
+  * Asset library: Blender > Edit > Preferences > File Paths > Asset
+    Libraries > add THIS FOLDER (or point at VM_Assets.blend's folder). The
+    Asset Browser then shows 'VM_SceneDetailer' and 'VM_RoofCap' (both carry
+    the v2.7 description) - drag either onto any object in ANY file.
+
+OPERATORS (VM Tools panel):
+  * VM: Dress Object       - one click = the FULL default v2.7 stack on all
+    selected meshes (wall cladding, VM_RoofCap 'Flat', roof cladding, doors,
+    windows - the StarterCube recipe with current defaults). Collections are
+    intentionally left EMPTY: assigning the variant collections in the Assets
+    panels is the only remaining step. Materials named VM_WallWeatheredPlanks
+    / VM_RoofClayTiles / VM_FloorGrass are auto-wired when they exist.
+  * VM: Copy Engine Setup  - snapshot ALL VM_* modifiers of the active object
+    (node group + EVERY socket value + collection/object/material references).
+    Non-VM modifiers are never touched.
+  * VM: Paste Engine Setup - apply the snapshot to the selected objects,
+    fully REPLACING their existing VM stack (again: non-VM modifiers stay).
+    Socket values are copied by interface IDENTIFIER (rename-safe across
+    group revisions; falls back to socket name) and ID references are matched
+    by NAME in the target file - missing names are REPORTED, never dropped
+    silently.
+  * VM: Save Preset <name> - the same snapshot of the active object written
+    to ~/.config/vm_engine/presets/<name>.json (stack config + collection
+    NAMES, so setups travel across .blend files).
+  * VM: Load Preset <name> - rebuild the stack on the selected objects from
+    the JSON. Collections/materials are re-matched BY NAME in the current
+    file; any missing names are listed in the status bar report.
+
+WORKED EXAMPLE (verified headless in verification_v2.json):
+  cube A: Dress Object + collections assigned -> Copy -> cube B: Paste
+  => B's VM modifiers == A's (same groups, identical socket values incl.
+  collection pointers). Save Preset from A -> open a FRESH file (engine
+  groups present + same-named collections) -> Load Preset -> identical stack.
+  Renders: preview_addon_source.png vs preview_addon_pasted.png (identical).
 
 WORLD-SPACE SIZING (v2.4.1) - 'make the house bigger' works
 -----------------------------------------------------------
@@ -317,12 +462,13 @@ VM_RoofCap
 ----------
 Pitch      roof slope angle (35 deg default)
 Overhang   eave overhang in meters (0.25)
-Style      Gable = ridge runs the full length of the region's LONG axis;
+Style      Flat (DEFAULT since v2.7) = NEAR-FLAT CAP over every flat top -
+           subtle incline, thin edge fascia, NEVER any invented gable
+           triangles (the right style for flat-topped/stepped designs -
+           which is why it is now the default: gables only on request);
+           Gable = ridge runs the full length of the region's LONG axis;
            Hip = ridge shortened by half the short side (on a square footprint
-           this becomes a pyramid);
-           Flat (v2.6) = NEAR-FLAT CAP over every flat top - subtle incline,
-           thin edge fascia, NEVER any invented gable triangles (this is the
-           right style for flat-topped/stepped designs like UserShape2)
+           this becomes a pyramid). Both are OPT-IN pitch since v2.7.
 Incline    (v2.6, Flat style) subtle cap incline along the region's long
            axis - a world ANGLE, default 2.5 deg (the roof reads flat but
            drains). Measured on UserShape2: exactly 2.5 deg per cap.
@@ -553,3 +699,32 @@ REBUILDING FROM SCRATCH
   cd <blender dir> && ./blender -b --python build_engine.py
 Deterministic: fixed seeds, same output every run. The script also re-runs the
 full numeric verification suite and re-renders the preview PNGs.
+
+THE VERIFICATION SUITE (verification_v2.json)
+---------------------------------------------
+build_engine.py re-runs every numeric check on every rebuild and writes the
+whole log to verification_v2.json ("checks": name/pass/detail). The v2.6 suite
+of 197 checks is KEPT GREEN (197/197); v2.7 EXTENDS it with 26 new checks
+(223 total, all green) - all measured on the DELIVERED .blend files, not
+in-memory:
+  * default path: fresh scene + fresh cube + Add Modifier with ZERO socket
+    tweaks -> openings on the walls + flat cap + 2.5 deg incline measured;
+  * starter read-back: saved VM_RoofCap Style 'Flat', Incline 2.5 deg,
+    'Scale To Face' on the layers, Engine Version 'v2.7';
+  * compound[...] (the user's exact action): doors AND windows on the
+    EXTERIOR ground walls of the tower+wing+annex edit, ZERO gable triangles,
+    complete roof coverage, cladding re-tiling vs the course formula;
+  * gable_showcase[...]: Style 'Gable' opted in -> 4 clean pitched faces,
+    shingles on the slopes (formula match), openings still present;
+  * version: 'Engine Version' socket reads 'v2.7' on EVERY VM modifier in all
+    three delivered blends + node-group descriptions carry v2.7;
+  * addon(dress/copy/paste/preset): VM: Dress Object applies the full stack;
+    Copy/Paste reproduces it exactly (identical socket values incl. collection
+    pointers, counted); Save/Load Preset round-trips across a FRESH file with
+    same-named collections (0 mismatches);
+  * assets: VM_Assets.blend ships both node groups marked as Blender assets.
+Total for this release: 223 checks, 223 passed (verification_v2.json).
+The starter's door/window layout uses deterministic JOINT seed search
+(measured rates: the cube's no-intersection window contract passes ~1 seed in
+500; the compound's ground-wall contract ~8 in 10 of those): the delivered
+pair is door Seed 20 + window Seed 687 and is re-derived on every rebuild.

@@ -39,9 +39,10 @@ mirror; sources here are canonical).
 ## Versioning
 
 Every version bump = a git tag + a GitHub release on this repo. Current:
-**v2.6** (openings fit any wall height, Flat roof style with subtle incline,
-manual painted placement + Exact Count. v2.5 = slot placement math; v2.4 =
-shape robustness; v2.3 = pack adapter; v2.2 = engine v2 base).
+**v2.7** (Flat default + gables opt-in, Engine Version labels, packaged UX:
+Dress Object / Copy-Paste setup / presets / Asset Browser bundle. v2.6 =
+openings fit any wall + manual/exact placement; earlier: v2.5 slot math,
+v2.4 shape robustness, v2.3 pack adapter, v2.2 engine v2 base).
 
 ## Roadmap
 
