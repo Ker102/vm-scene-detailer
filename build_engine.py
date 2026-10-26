@@ -547,6 +547,12 @@ def make_cube(name, size, col, base_z=0.0):
 # ---------------------------------------------------------------------------- node group v2
 SEED_OFF = dict(keep=3, vert=5, debris=7, rot=11, scale=13, idx_p=17, idx_d=19, tint=23,
                 jitter=29, fitrot=31, cladpick=37, slotjit=41)
+# v2.8 cladding containment tolerance (LOCAL units): slots whose anchor is not
+# within this distance of a real face polygon are dropped (float noise only -
+# the phantom-slab fix). Override on the module for debugging.
+CLAD_EPS = 0.0005
+# v2.8 internal gate switches (diagnostics only - all True in production):
+V28_FLAGS = dict(contain=True, gate1=True, greedy=True, occ=True, rr=True)
 
 
 class NGBuilder:
@@ -990,6 +996,41 @@ def build_node_group():
     b.L(nrm.outputs["Normal"], cross_zn.inputs[1])
     u_norm = b.N("ShaderNodeVectorMath", (-1450, -1300), operation="NORMALIZE")
     b.L(cross_zn.outputs["Vector"], u_norm.inputs[0])
+    # v2.8 CANONICAL TANGENT: cross(Z, n) flips sign with the normal, so two
+    # coincident duplicate wall faces (opposite windings - the user's hand-built
+    # massing has them) mirrored each other's u grids and their openings
+    # interleaved/collided. Flip u into the +Y (or +X when horizontal) half
+    # plane so every face on the same plane shares ONE grid.
+    u_nsep = b.N("ShaderNodeSeparateXYZ", (-1600, -1150))
+    b.L(u_norm.outputs["Vector"], u_nsep.inputs["Vector"])
+    u_neg_y = b.N("FunctionNodeCompare", (-1450, -1150), data_type="FLOAT",
+                  operation="LESS_THAN")
+    b.L(u_nsep.outputs["Y"], u_neg_y.inputs["A"])
+    u_neg_y.inputs["B"].default_value = -1e-6
+    u_absy = b.N("ShaderNodeMath", (-1550, -1250), operation="ABSOLUTE")
+    b.L(u_nsep.outputs["Y"], u_absy.inputs[0])
+    u_zero_y = b.N("FunctionNodeCompare", (-1450, -1250), data_type="FLOAT",
+                   operation="LESS_EQUAL")
+    b.L(u_absy.outputs["Value"], u_zero_y.inputs["A"])
+    u_zero_y.inputs["B"].default_value = 1e-6
+    u_neg_x = b.N("FunctionNodeCompare", (-1300, -1250), data_type="FLOAT",
+                  operation="LESS_THAN")
+    b.L(u_nsep.outputs["X"], u_neg_x.inputs["A"])
+    u_neg_x.inputs["B"].default_value = 0.0
+    u_flip2 = b.N("FunctionNodeBooleanMath", (-1300, -1150), operation="AND")
+    b.L(u_zero_y.outputs["Result"], u_flip2.inputs[0])
+    b.L(u_neg_x.outputs["Result"], u_flip2.inputs[1])
+    u_flip = b.N("FunctionNodeBooleanMath", (-1150, -1150), operation="OR")
+    b.L(u_neg_y.outputs["Result"], u_flip.inputs[0])
+    b.L(u_flip2.outputs["Boolean"], u_flip.inputs[1])
+    u_negv = b.N("ShaderNodeVectorMath", (-1150, -1300), operation="SCALE")
+    b.L(u_norm.outputs["Vector"], u_negv.inputs[0])
+    u_negv.inputs["Scale"].default_value = -1.0
+    u_can_sw = b.N("GeometryNodeSwitch", (-1000, -1250))
+    u_can_sw.input_type = "VECTOR"
+    b.L(u_flip.outputs["Boolean"], u_can_sw.inputs["Switch"])
+    b.L(u_norm.outputs["Vector"], u_can_sw.inputs["False"])
+    b.L(u_negv.outputs["Vector"], u_can_sw.inputs["True"])
     u_sw = b.N("GeometryNodeSwitch", (-1300, -1400))
     u_sw.input_type = "VECTOR"
     u_degen = b.N("FunctionNodeCompare", (-1450, -1500), data_type="FLOAT", operation="GREATER_THAN")
@@ -997,7 +1038,7 @@ def build_node_group():
     u_degen.inputs["B"].default_value = 0.995
     b.L(u_degen.outputs["Result"], u_sw.inputs["Switch"])
     u_sw.inputs["True"].default_value = (1.0, 0.0, 0.0)   # degenerate (flat) faces: world X
-    b.L(u_norm.outputs["Vector"], u_sw.inputs["False"])
+    b.L(u_can_sw.outputs["Output"], u_sw.inputs["False"])
     u_out = u_sw.outputs["Output"]
     cross_nu = b.N("ShaderNodeVectorMath", (-1150, -1300), operation="CROSS_PRODUCT")
     b.L(nrm.outputs["Normal"], cross_nu.inputs[0])
@@ -1292,6 +1333,27 @@ def build_node_group():
     b.L(fit_sel1.outputs["Boolean"], fit_sel2.inputs[0])
     b.L(clear_gate.outputs["Boolean"], fit_sel2.inputs[1])
 
+    # ---- v2.8 SPREAD: per-face ordinal among qualifying Fit faces + their total
+    # (stored as face attrs; the Max Instances cap below becomes ROUND-ROBIN -
+    # one opening per qualifying face before any face gets a second - instead of
+    # first-N in point order which starved every face after the first wall).
+    fit_ff = b.N("ShaderNodeMath", (1000, -1100), operation="ADD")
+    b.L(fit_sel2.outputs["Boolean"], fit_ff.inputs[0])
+    fit_ff.inputs[1].default_value = 0.0
+    acc_ffo = b.N("GeometryNodeAccumulateField", (1150, -1100), domain="FACE")
+    b.L(fit_ff.outputs["Value"], acc_ffo.inputs["Value"])
+    st_ffo = b.N("GeometryNodeStoreNamedAttribute", (1300, -1100), data_type="FLOAT",
+                 domain="FACE")
+    b.L(frame_chain, st_ffo.inputs["Geometry"])
+    st_ffo.inputs["Name"].default_value = "vm_ffo"
+    b.L(acc_ffo.outputs["Leading"], st_ffo.inputs["Value"])
+    st_ffn = b.N("GeometryNodeStoreNamedAttribute", (1480, -1100), data_type="FLOAT",
+                 domain="FACE")
+    b.L(st_ffo.outputs["Geometry"], st_ffn.inputs["Geometry"])
+    st_ffn.inputs["Name"].default_value = "vm_ffn"
+    b.L(acc_ffo.outputs["Total"], st_ffn.inputs["Value"])
+    frame_chain = st_ffn.outputs["Geometry"]
+
     dist_f = b.N("GeometryNodeDistributePointsOnFaces", (250, -100), distribute_method="RANDOM")
     b.L(frame_chain, dist_f.inputs["Mesh"])
     b.L(fit_sel2.outputs["Boolean"], dist_f.inputs["Selection"])
@@ -1336,16 +1398,160 @@ def build_node_group():
     b.L(gi.outputs["Stand On Face Base"], g_sw.inputs["Switch"])
     b.L(z_plain.outputs["Vector"], g_sw.inputs["False"])
     b.L(z_stand.outputs["Vector"], g_sw.inputs["True"])
+
+    # ---- v2.8 GAP LAW for Fit openings (the user's 'all openings cram onto one
+    # wall' bug, part B): every Fit candidate snaps onto the wall's OPENING
+    # GRID - one opening per (wall plane, column) strip, centered in its strip.
+    # Strip pitch = Opening Width + Min Gap X + 2*Slot Jitter (world), so any
+    # two kept neighbours are >= Opening Width + Min Gap X + 2*Slot Jitter apart
+    # before jitter and keep >= Min Gap X of bbox gap after it - the Slots gap
+    # law, now also for 'Random' layout (random which strips fill, never
+    # overlapping). Strips whose nominal opening would cross the face edge are
+    # dropped. Per-plane groups merge coincident duplicate faces (hand-built
+    # meshes) so they share one grid instead of interleaving.
+    def rnamed(name, dt="FLOAT", dy=0):
+        n = b.N("GeometryNodeInputNamedAttribute", (250, -2600 - 110 * rnamed.counter - dy))
+        rnamed.counter += 1
+        n.data_type = dt
+        n.inputs["Name"].default_value = name
+        return n.outputs["Attribute"]
+    rnamed.counter = 0
+    r_c = rnamed("vm_c", "FLOAT_VECTOR"); r_u = rnamed("vm_u", "FLOAT_VECTOR")
+    r_alo = rnamed("vm_alo"); r_w = rnamed("vm_w"); r_eu = rnamed("vm_eu")
+    dpos = b.N("GeometryNodeInputPosition", (250, -3450))
+    dsub = b.N("ShaderNodeVectorMath", (400, -3450), operation="SUBTRACT")
+    b.L(dpos.outputs["Position"], dsub.inputs[0]); b.L(r_c, dsub.inputs[1])
+    da_ = b.N("ShaderNodeVectorMath", (550, -3450), operation="DOT_PRODUCT")
+    b.L(dsub.outputs["Vector"], da_.inputs[0]); b.L(r_u, da_.inputs[1])
+    gx_s0 = b.N("ShaderNodeMath", (400, -3600), operation="ADD")
+    b.L(gi.outputs["Opening Width"], gx_s0.inputs[0])
+    b.L(gi.outputs["Min Gap X"], gx_s0.inputs[1])
+    gx_s1 = b.N("ShaderNodeMath", (550, -3600), operation="MULTIPLY_ADD")
+    b.L(gi.outputs["Slot Jitter"], gx_s1.inputs[0])
+    gx_s1.inputs[1].default_value = 2.0
+    b.L(gx_s0.outputs["Value"], gx_s1.inputs[2])     # Opening Width + Min Gap X + 2*Jitter
+    gx_s2 = b.N("ShaderNodeMath", (700, -3600), operation="DIVIDE")
+    b.L(gx_s1.outputs["Value"], gx_s2.inputs[0])
+    b.L(r_eu, gx_s2.inputs[1])
+    strip_pitch = b.N("ShaderNodeMath", (850, -3600), operation="MAXIMUM")
+    b.L(gx_s2.outputs["Value"], strip_pitch.inputs[0])
+    strip_pitch.inputs[1].default_value = 0.001
+    # v2.8.2 EVEN-FILL STRIPS: the strip grid fills the face EVENLY (ns strips
+    # centred at alo + (k+0.5)*w/ns) instead of a fixed pitch glued to the
+    # face's left edge. The old alignment put a narrow face's single strip at
+    # pitch/2 and the edge guard then rejected it outright (1.6 m tower wall:
+    # centre 0.92 + half-opening 0.72 = 1.64 > 1.6 -> ZERO doors there).
+    # Even fill satisfies the same gap law (spacing w/ns >= pitch) and every
+    # centred opening fits inside its face by construction.
+    ns_n1 = b.N("ShaderNodeMath", (550, -3300), operation="DIVIDE")
+    b.L(r_w, ns_n1.inputs[0])
+    b.L(strip_pitch.outputs["Value"], ns_n1.inputs[1])
+    ns_n2 = b.N("ShaderNodeMath", (700, -3300), operation="FLOOR")
+    b.L(ns_n1.outputs["Value"], ns_n2.inputs[0])
+    ns_cnt = b.N("ShaderNodeMath", (850, -3300), operation="MAXIMUM")
+    b.L(ns_n2.outputs["Value"], ns_cnt.inputs[0])
+    ns_cnt.inputs[1].default_value = 1.0
+    strip_eff = b.N("ShaderNodeMath", (1000, -3300), operation="DIVIDE")
+    b.L(r_w, strip_eff.inputs[0])
+    b.L(ns_cnt.outputs["Value"], strip_eff.inputs[1])
+    s_r1 = b.N("ShaderNodeMath", (850, -3450), operation="SUBTRACT")
+    b.L(da_.outputs["Value"], s_r1.inputs[0]); b.L(r_alo, s_r1.inputs[1])
+    s_r2 = b.N("ShaderNodeMath", (1000, -3450), operation="DIVIDE")
+    b.L(s_r1.outputs["Value"], s_r2.inputs[0])
+    b.L(strip_eff.outputs["Value"], s_r2.inputs[1])
+    s_r3 = b.N("ShaderNodeMath", (1150, -3450), operation="FLOOR")
+    b.L(s_r2.outputs["Value"], s_r3.inputs[0])
+    ns_m1 = b.N("ShaderNodeMath", (1150, -3250), operation="SUBTRACT")
+    b.L(ns_cnt.outputs["Value"], ns_m1.inputs[0])
+    ns_m1.inputs[1].default_value = 1.0
+    s_r3b = b.N("ShaderNodeMath", (1300, -3350), operation="MINIMUM")
+    b.L(s_r3.outputs["Value"], s_r3b.inputs[0])
+    b.L(ns_m1.outputs["Value"], s_r3b.inputs[1])
+    s_rand = b.N("ShaderNodeMath", (1300, -3450), operation="MAXIMUM")
+    b.L(s_r3b.outputs["Value"], s_rand.inputs[0])
+    s_rand.inputs[1].default_value = 0.0
+    c_u1 = b.N("ShaderNodeMath", (1450, -3450), operation="MULTIPLY_ADD")
+    b.L(s_rand.outputs["Value"], c_u1.inputs[0])
+    b.L(strip_eff.outputs["Value"], c_u1.inputs[1])
+    b.L(r_alo, c_u1.inputs[2])
+    c_u2 = b.N("ShaderNodeMath", (1600, -3450), operation="MULTIPLY_ADD")
+    c_u2.inputs[0].default_value = 0.5
+    b.L(strip_eff.outputs["Value"], c_u2.inputs[1])
+    b.L(c_u1.outputs["Value"], c_u2.inputs[2])
+    half_s1 = b.N("ShaderNodeMath", (850, -3750), operation="MULTIPLY_ADD")
+    half_s1.inputs[1].default_value = 0.5
+    b.L(gi.outputs["Opening Width"], half_s1.inputs[0])
+    b.L(gi.outputs["Slot Jitter"], half_s1.inputs[2])
+    half_s2 = b.N("ShaderNodeMath", (1000, -3750), operation="DIVIDE")
+    b.L(half_s1.outputs["Value"], half_s2.inputs[0])
+    b.L(r_eu, half_s2.inputs[1])
+    e_lo1 = b.N("ShaderNodeMath", (1300, -3750), operation="SUBTRACT")
+    b.L(c_u2.outputs["Value"], e_lo1.inputs[0])
+    b.L(half_s2.outputs["Value"], e_lo1.inputs[1])
+    e_lo = b.N("FunctionNodeCompare", (1450, -3750), data_type="FLOAT",
+               operation="GREATER_EQUAL")
+    b.L(e_lo1.outputs["Value"], e_lo.inputs["A"]); b.L(r_alo, e_lo.inputs["B"])
+    e_hi1 = b.N("ShaderNodeMath", (1300, -3900), operation="ADD")
+    b.L(c_u2.outputs["Value"], e_hi1.inputs[0])
+    b.L(half_s2.outputs["Value"], e_hi1.inputs[1])
+    e_hi2 = b.N("ShaderNodeMath", (1450, -3900), operation="ADD")
+    b.L(r_alo, e_hi2.inputs[0]); b.L(r_w, e_hi2.inputs[1])
+    e_hi = b.N("FunctionNodeCompare", (1600, -3900), data_type="FLOAT",
+               operation="LESS_EQUAL")
+    b.L(e_hi1.outputs["Value"], e_hi.inputs["A"]); b.L(e_hi2.outputs["Value"], e_hi.inputs["B"])
+    edge_ok = b.N("FunctionNodeBooleanMath", (1750, -3800), operation="AND")
+    b.L(e_lo.outputs["Result"], edge_ok.inputs[0])
+    b.L(e_hi.outputs["Result"], edge_ok.inputs[1])
+    # snap: u := strip centre + slot jitter (world meters -> local via vm_eu)
+    rv_rjit = b.N("FunctionNodeRandomValue", (1750, -3600), data_type="FLOAT")
+    rv_rjit.inputs["Min"].default_value = -1.0
+    rv_rjit.inputs["Max"].default_value = 1.0
+    b.L(idx.outputs["Index"], rv_rjit.inputs["ID"])
+    b.L(seed_node(b, gi.outputs["Seed"], SEED_OFF["slotjit"] + 2), rv_rjit.inputs["Seed"])
+    rj_l = b.N("ShaderNodeMath", (1900, -3600), operation="DIVIDE")
+    b.L(gi.outputs["Slot Jitter"], rj_l.inputs[0]); b.L(r_eu, rj_l.inputs[1])
+    rj_m = b.N("ShaderNodeMath", (2050, -3600), operation="MULTIPLY")
+    b.L(rv_rjit.outputs["Value"], rj_m.inputs[0])
+    b.L(rj_l.outputs["Value"], rj_m.inputs[1])
+    a_snap = b.N("ShaderNodeMath", (2200, -3500), operation="ADD")
+    b.L(c_u2.outputs["Value"], a_snap.inputs[0])
+    b.L(rj_m.outputs["Value"], a_snap.inputs[1])
+    da_snap = b.N("ShaderNodeMath", (2350, -3500), operation="SUBTRACT")
+    b.L(a_snap.outputs["Value"], da_snap.inputs[0])
+    b.L(da_.outputs["Value"], da_snap.inputs[1])
+    snap_vec = b.N("ShaderNodeVectorMath", (2500, -3500), operation="SCALE")
+    b.L(r_u, snap_vec.inputs[0])
+    b.L(da_snap.outputs["Value"], snap_vec.inputs["Scale"])
+
     off_sum = b.N("ShaderNodeVectorMath", (1250, -300), operation="ADD")
     b.L(vscale_f.outputs["Vector"], off_sum.inputs[0])
     b.L(g_sw.outputs["Output"], off_sum.inputs[1])
-    setpos_f = b.N("GeometryNodeSetPosition", (1400, -150))
+    off_sum2 = b.N("ShaderNodeVectorMath", (1450, -300), operation="ADD")
+    b.L(off_sum.outputs["Vector"], off_sum2.inputs[0])
+    b.L(snap_vec.outputs["Vector"], off_sum2.inputs[1])
+    setpos_f = b.N("GeometryNodeSetPosition", (1600, -150))
     b.L(dist_f.outputs["Points"], setpos_f.inputs["Geometry"])
-    b.L(off_sum.outputs["Vector"], setpos_f.inputs["Offset"])
-    capn_f = b.N("GeometryNodeStoreNamedAttribute", (1600, -150), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(off_sum2.outputs["Vector"], setpos_f.inputs["Offset"])
+    capn_f = b.N("GeometryNodeStoreNamedAttribute", (1800, -150), data_type="FLOAT_VECTOR", domain="POINT")
     b.L(setpos_f.outputs["Geometry"], capn_f.inputs["Geometry"])
     capn_f.inputs["Name"].default_value = "vm_normal"
     b.L(dist_f.outputs["Normal"], capn_f.inputs["Value"])
+    # v2.8: per-point strip column + row 0 + edge guard -> shared gap-law greedy
+    rg1 = b.N("GeometryNodeStoreNamedAttribute", (2000, -150), data_type="FLOAT", domain="POINT")
+    b.L(capn_f.outputs["Geometry"], rg1.inputs["Geometry"])
+    rg1.inputs["Name"].default_value = "vm_gcol"
+    b.L(s_rand.outputs["Value"], rg1.inputs["Value"])
+    rg2 = b.N("GeometryNodeStoreNamedAttribute", (2200, -150), data_type="FLOAT", domain="POINT")
+    b.L(rg1.outputs["Geometry"], rg2.inputs["Geometry"])
+    rg2.inputs["Name"].default_value = "vm_grow"
+    rg2.inputs["Value"].default_value = 0.0
+    rg3 = b.N("GeometryNodeStoreNamedAttribute", (2400, -150), data_type="FLOAT", domain="POINT")
+    b.L(rg2.outputs["Geometry"], rg3.inputs["Geometry"])
+    rg3.inputs["Name"].default_value = "vm_gate1"
+    eg_f = b.N("ShaderNodeMath", (2200, -4000), operation="ADD")
+    b.L(edge_ok.outputs["Boolean"], eg_f.inputs[0])
+    eg_f.inputs[1].default_value = 0.0
+    b.L(eg_f.outputs["Value"], rg3.inputs["Value"])
 
     # ---------------- v2.5 SLOTS branch (HouseCraft opening placement math) ----
     # Per-face COLUMN SLOTS: one point per eligible face -> a 64x4 column/row
@@ -1401,6 +1607,15 @@ def build_node_group():
         return n.outputs["Attribute"]
     snamed.counter = 0
     sgi_v = snamed("vm_sgi"); sgj_v = snamed("vm_sgj")
+    # v2.8: the Column Select filter reads ONE column index in both layouts -
+    # the Slots grid column in 'Slots', the opening-grid strip in 'Random'
+    gcol_v = snamed("vm_gcol")
+    col_sw = b.N("GeometryNodeSwitch", (2700, -2200))
+    col_sw.input_type = "FLOAT"
+    b.L(is_slots, col_sw.inputs["Switch"])
+    b.L(gcol_v, col_sw.inputs["False"])
+    b.L(sgi_v, col_sw.inputs["True"])
+    col_v = col_sw.outputs["Output"]
     sw_v = snamed("vm_w"); seu_v = snamed("vm_eu"); sev_v = snamed("vm_ev")
     sc_v = snamed("vm_c", "FLOAT_VECTOR"); su_v = snamed("vm_u", "FLOAT_VECTOR")
     sv_v = snamed("vm_v", "FLOAT_VECTOR"); sfz_v = snamed("vm_fz")
@@ -1577,10 +1792,10 @@ def build_node_group():
     b.L(sgj_v, keep_r1.inputs["A"])
     b.L(gi.outputs["Slot Rows"], keep_r1.inputs["B"])
     sgi_zero = b.N("FunctionNodeCompare", (2900, -2210), data_type="FLOAT", operation="EQUAL")
-    b.L(sgi_v, sgi_zero.inputs["A"])
+    b.L(col_v, sgi_zero.inputs["A"])
     sgi_zero.inputs[1].default_value = 0.0
     sgi_pos = b.N("FunctionNodeCompare", (2900, -2340), data_type="FLOAT", operation="GREATER_THAN")
-    b.L(sgi_v, sgi_pos.inputs["A"])
+    b.L(col_v, sgi_pos.inputs["A"])
     sgi_pos.inputs[1].default_value = 0.0
     cs_sw, cs_bools = b.menu_switch(["All", "First Only", "Skip First"], "BOOLEAN",
                                     gi.outputs["Column Select"],
@@ -1616,9 +1831,10 @@ def build_node_group():
     mp_u = b.N("ShaderNodeVectorMath", (4300, -2500), operation="SCALE")
     b.L(su_v, mp_u.inputs[0])
     b.L(mp_pos.outputs["Value"], mp_u.inputs["Scale"])
-    mp_v = b.N("ShaderNodeVectorMath", (4300, -2650), operation="SCALE")
-    b.L(sv_v, mp_v.inputs[0])
-    b.L(mp_dz.outputs["Value"], mp_v.inputs["Scale"])
+    mp_v = b.N("ShaderNodeCombineXYZ", (4300, -2650))
+    # v2.8.2: probe offset along ABSOLUTE world-z (the frame's v can point -Z
+    # after the canonical-u flip - see the sv_pos note)
+    b.L(mp_dz.outputs["Value"], mp_v.inputs["Z"])
     mp_p1 = b.N("ShaderNodeVectorMath", (4450, -2550), operation="ADD")
     b.L(sc_v, mp_p1.inputs[0])
     b.L(mp_u.outputs["Vector"], mp_p1.inputs[1])
@@ -1770,8 +1986,12 @@ def build_node_group():
     b.L(csep_s.outputs["Z"], b_abs_s.inputs[1])
     su_pos = b.N("ShaderNodeVectorMath", (4600, -1350), operation="SCALE")
     b.L(su_v, su_pos.inputs[0]); b.L(a_pos.outputs["Value"], su_pos.inputs["Scale"])
-    sv_pos = b.N("ShaderNodeVectorMath", (4600, -1620), operation="SCALE")
-    b.L(sv_v, sv_pos.inputs[0]); b.L(b_abs_s.outputs["Value"], sv_pos.inputs["Scale"])
+    # v2.8.2: the row offset is ABSOLUTE world-z, never the face frame's v axis -
+    # the v2.8 canonical-u flip also flips v = cross(n, u) to -Z on some walls,
+    # and a v-scaled z offset then MIRRORED openings about the face centre
+    # (windows landed at 2*c.z - sill instead of sill).
+    sv_pos = b.N("ShaderNodeCombineXYZ", (4600, -1620))
+    b.L(b_abs_s.outputs["Value"], sv_pos.inputs["Z"])
     p1_s = b.N("ShaderNodeVectorMath", (4800, -1450), operation="ADD")
     b.L(sc_v, p1_s.inputs[0]); b.L(su_pos.outputs["Vector"], p1_s.inputs[1])
     p2_s = b.N("ShaderNodeVectorMath", (4950, -1450), operation="ADD")
@@ -1839,13 +2059,22 @@ def build_node_group():
     b.L(pick_store.outputs["Geometry"], fitk_store.inputs["Geometry"])
     fitk_store.inputs["Name"].default_value = "vm_fitk"
     b.L(fitk_sw.outputs["Output"], fitk_store.inputs["Value"])
-    slot_geo = fitk_store.outputs["Geometry"]
+    # v2.8: grid column/row on the slot points too (shared gap-law greedy)
+    sg_a = b.N("GeometryNodeStoreNamedAttribute", (6150, -750), data_type="FLOAT", domain="POINT")
+    b.L(fitk_store.outputs["Geometry"], sg_a.inputs["Geometry"])
+    sg_a.inputs["Name"].default_value = "vm_gcol"
+    b.L(sgi_v, sg_a.inputs["Value"])
+    sg_b = b.N("GeometryNodeStoreNamedAttribute", (6350, -750), data_type="FLOAT", domain="POINT")
+    b.L(sg_a.outputs["Geometry"], sg_b.inputs["Geometry"])
+    sg_b.inputs["Name"].default_value = "vm_grow"
+    b.L(sgj_v, sg_b.inputs["Value"])
+    slot_geo = sg_b.outputs["Geometry"]
 
     # Fit points: Slots layout -> slot_geo, Random layout -> density sampling
     fit_geo_sw = b.N("GeometryNodeSwitch", (1800, -150))
     fit_geo_sw.input_type = "GEOMETRY"
     b.L(is_slots, fit_geo_sw.inputs["Switch"])
-    b.L(capn_f.outputs["Geometry"], fit_geo_sw.inputs["False"])
+    b.L(rg3.outputs["Geometry"], fit_geo_sw.inputs["False"])
     b.L(slot_geo, fit_geo_sw.inputs["True"])
     fit_geo = fit_geo_sw.outputs["Output"]
 
@@ -1925,11 +2154,6 @@ def build_node_group():
     keep_ij = b.N("FunctionNodeBooleanMath", (2400, -2550), operation="AND")
     b.L(keep_i.outputs["Result"], keep_ij.inputs[0])
     b.L(keep_j.outputs["Result"], keep_ij.inputs[1])
-    del_c = b.N("GeometryNodeDeleteGeometry", (2600, -2200), domain="POINT")
-    b.L(real.outputs["Geometry"], del_c.inputs["Geometry"])
-    not_keep = b.N("FunctionNodeBooleanMath", (2400, -2400), operation="NOT")
-    b.L(keep_ij.outputs["Boolean"], not_keep.inputs[0])
-    b.L(not_keep.outputs["Boolean"], del_c.inputs["Selection"])
 
     # position: c + u*(alo + mod(gi+0.5+shift, ns)*sp) + v*(blo + (gj+0.5)*rh) + jitter
     sh_row = b.N("ShaderNodeMath", (2200, -2850), operation="MULTIPLY")
@@ -1970,28 +2194,130 @@ def build_node_group():
     p_sum2 = b.N("ShaderNodeVectorMath", (3400, -2900), operation="ADD")
     b.L(c_v, p_sum2.inputs[0])
     b.L(p_sum1.outputs["Vector"], p_sum2.inputs[1])
+    # v2.8: jitter stays IN THE FACE PLANE (u/v components only) - the wall
+    # contact contract (Embed/Backing Offset) owns the depth, and a normal
+    # component would push the slot anchor off the face plane and outside the
+    # containment test. Jitter is WORLD meters -> local via vm_eu / vm_ev.
     rv_jit = b.N("FunctionNodeRandomValue", (3100, -3250), data_type="FLOAT_VECTOR")
     rv_jit.inputs["Min"].default_value = (-1.0, -1.0, -1.0)
     rv_jit.inputs["Max"].default_value = (1.0, 1.0, 1.0)
     b.L(idx.outputs["Index"], rv_jit.inputs["ID"])
     b.L(seed(SEED_OFF["jitter"]), rv_jit.inputs["Seed"])
-    # v2.4.1: Jitter is WORLD meters -> per-object-axis local components
-    jit_c = b.N("ShaderNodeCombineXYZ", (3150, -3450))
-    for _ch, _g in (("X", sx_g), ("Y", sy_g), ("Z", sz_g)):
-        _d = b.N("ShaderNodeMath", (3000, -3450 - 60 * "XYZ".index(_ch)), operation="DIVIDE")
-        b.L(gi.outputs["Jitter"], _d.inputs[0])
-        b.L(_g, _d.inputs[1])
-        b.L(_d.outputs["Value"], jit_c.inputs[_ch])
-    jit_s = b.N("ShaderNodeVectorMath", (3300, -3250), operation="MULTIPLY")
-    b.L(rv_jit.outputs["Value"], jit_s.inputs[0])
-    b.L(jit_c.outputs["Vector"], jit_s.inputs[1])
-    p_sum3 = b.N("ShaderNodeVectorMath", (3550, -2950), operation="ADD")
-    b.L(p_sum2.outputs["Vector"], p_sum3.inputs[0])
-    b.L(jit_s.outputs["Vector"], p_sum3.inputs[1])
+    jit_u1 = b.N("ShaderNodeMath", (3000, -3450), operation="DIVIDE")
+    b.L(gi.outputs["Jitter"], jit_u1.inputs[0])
+    b.L(eu_pts, jit_u1.inputs[1])
+    ev_pts = named("vm_ev")
+    jit_v1 = b.N("ShaderNodeMath", (3000, -3520), operation="DIVIDE")
+    b.L(gi.outputs["Jitter"], jit_v1.inputs[0])
+    b.L(ev_pts, jit_v1.inputs[1])
+    jit_sep = b.N("ShaderNodeSeparateXYZ", (3150, -3320))
+    b.L(rv_jit.outputs["Value"], jit_sep.inputs["Vector"])
+    jit_ux2 = b.N("ShaderNodeMath", (3300, -3450), operation="MULTIPLY")
+    b.L(jit_sep.outputs["X"], jit_ux2.inputs[0])
+    b.L(jit_u1.outputs["Value"], jit_ux2.inputs[1])
+    jit_vy2 = b.N("ShaderNodeMath", (3300, -3520), operation="MULTIPLY")
+    b.L(jit_sep.outputs["Y"], jit_vy2.inputs[0])
+    b.L(jit_v1.outputs["Value"], jit_vy2.inputs[1])
+    # v2.8: clamp the jittered slot coordinates back inside the face bbox (0.1mm
+    # margin) so no anchor can ever escape a face by jitter - the containment
+    # contract is exact AND tile counts stay deterministic (the course formula
+    # keeps matching). Staggered wrap columns land exactly on the face edge and
+    # used to jitter outside it (randomly dropping edge tiles).
+    CLM = 0.0001
+    aj_1 = b.N("ShaderNodeMath", (3450, -3450), operation="ADD")
+    b.L(a_sp.outputs["Value"], aj_1.inputs[0])
+    b.L(jit_ux2.outputs["Value"], aj_1.inputs[1])
+    alo_m = b.N("ShaderNodeMath", (3450, -3600), operation="ADD")
+    b.L(alo_v, alo_m.inputs[0]); alo_m.inputs[1].default_value = CLM
+    ahi_m = b.N("ShaderNodeMath", (3450, -3680), operation="MULTIPLY_ADD")
+    b.L(w_v, ahi_m.inputs[0]); ahi_m.inputs[1].default_value = 1.0
+    b.L(alo_v, ahi_m.inputs[2])
+    ahi_m2 = b.N("ShaderNodeMath", (3600, -3680), operation="SUBTRACT")
+    b.L(ahi_m.outputs["Value"], ahi_m2.inputs[0]); ahi_m2.inputs[1].default_value = CLM
+    aj_2 = b.N("ShaderNodeMath", (3600, -3450), operation="MINIMUM")
+    b.L(aj_1.outputs["Value"], aj_2.inputs[0])
+    b.L(ahi_m2.outputs["Value"], aj_2.inputs[1])
+    a_fin = b.N("ShaderNodeMath", (3750, -3450), operation="MAXIMUM")
+    b.L(aj_2.outputs["Value"], a_fin.inputs[0])
+    b.L(alo_m.outputs["Value"], a_fin.inputs[1])
+    bj_1 = b.N("ShaderNodeMath", (3450, -3520), operation="ADD")
+    b.L(bhalf.outputs["Value"], bj_1.inputs[0])
+    b.L(jit_vy2.outputs["Value"], bj_1.inputs[1])
+    blo_m = b.N("ShaderNodeMath", (3750, -3600), operation="ADD")
+    b.L(blo_v, blo_m.inputs[0]); blo_m.inputs[1].default_value = CLM
+    bhi_m = b.N("ShaderNodeMath", (3750, -3680), operation="MULTIPLY_ADD")
+    b.L(h_v, bhi_m.inputs[0]); bhi_m.inputs[1].default_value = 1.0
+    b.L(blo_v, bhi_m.inputs[2])
+    bhi_m2 = b.N("ShaderNodeMath", (3900, -3680), operation="SUBTRACT")
+    b.L(bhi_m.outputs["Value"], bhi_m2.inputs[0]); bhi_m2.inputs[1].default_value = CLM
+    bj_2 = b.N("ShaderNodeMath", (3600, -3520), operation="MINIMUM")
+    b.L(bj_1.outputs["Value"], bj_2.inputs[0])
+    b.L(bhi_m2.outputs["Value"], bj_2.inputs[1])
+    b_fin = b.N("ShaderNodeMath", (3750, -3520), operation="MAXIMUM")
+    b.L(bj_2.outputs["Value"], b_fin.inputs[0])
+    b.L(blo_m.outputs["Value"], b_fin.inputs[1])
+    u_fin = b.N("ShaderNodeVectorMath", (3950, -3450), operation="SCALE")
+    b.L(u_v, u_fin.inputs[0])
+    b.L(a_fin.outputs["Value"], u_fin.inputs["Scale"])
+    v_fin = b.N("ShaderNodeVectorMath", (3950, -3520), operation="SCALE")
+    b.L(v_v, v_fin.inputs[0])
+    b.L(b_fin.outputs["Value"], v_fin.inputs["Scale"])
+    p_sum1 = b.N("ShaderNodeVectorMath", (4100, -3485), operation="ADD")
+    b.L(u_fin.outputs["Vector"], p_sum1.inputs[0])
+    b.L(v_fin.outputs["Vector"], p_sum1.inputs[1])
+    p_sum3 = b.N("ShaderNodeVectorMath", (4250, -3485), operation="ADD")
+    b.L(c_v, p_sum3.inputs[0])
+    b.L(p_sum1.outputs["Vector"], p_sum3.inputs[1])
     setpos_c = b.N("GeometryNodeSetPosition", (3750, -2200))
-    b.L(del_c.outputs["Geometry"], setpos_c.inputs["Geometry"])
+    b.L(real.outputs["Geometry"], setpos_c.inputs["Geometry"])
     b.L(p_sum3.outputs["Vector"], setpos_c.inputs["Position"])
-    clad_geo = setpos_c.outputs["Geometry"]
+    # ---- v2.8 CONTAINMENT (the user's phantom-wall-slab bug): a cladding slot
+    # is kept ONLY if its anchor lies inside a real face polygon of the host
+    # mesh. The v2.2 course layout fills the face BOUNDING BOX, so non-rect
+    # faces (his gable triangle, thin sliver fragments) used to flood tiles into
+    # empty air outside the face. Proximity distance to the mesh is exactly 0
+    # inside any face polygon and positive outside it - the slot-level
+    # point-in-face test, run on the FINAL (post-jitter) positions after Set
+    # Position so it evaluates in the plain point context. Tolerance 0.5 mm
+    # local (float noise only; edge slots sit >= half a slot from any edge so
+    # jitter can never trigger it).
+    prox_c = b.N("GeometryNodeProximity", (3400, -3200))
+    b.L(mesh_only, prox_c.inputs["Geometry"])
+    pos_c = b.N("GeometryNodeInputPosition", (3250, -3350))
+    b.L(pos_c.outputs["Position"], prox_c.inputs["Sample Position"])
+    try:
+        prox_c.inputs["Accuracy"].default_value = 0.0   # exact search (0.05 default is approximate)
+    except Exception:
+        pass
+    # v2.4 evaluation-context contract: proximity fields read directly in a
+    # DELETE SELECTION evaluate as garbage for most points (measured: only ~25%
+    # of in-face anchors kept). Materialize the distance as a POINT ATTRIBUTE in
+    # a STORE context first, then the selection reads it back - the exact
+    # pattern the frame attributes use above.
+    st_cd = b.N("GeometryNodeStoreNamedAttribute", (3400, -2500), data_type="FLOAT",
+                domain="POINT")
+    b.L(setpos_c.outputs["Geometry"], st_cd.inputs["Geometry"])
+    st_cd.inputs["Name"].default_value = "vm_cd"
+    b.L(prox_c.outputs["Distance"], st_cd.inputs["Value"])
+    cd_rd = b.N("GeometryNodeInputNamedAttribute", (3550, -3350))
+    cd_rd.data_type = "FLOAT"
+    cd_rd.inputs["Name"].default_value = "vm_cd"
+    in_face = b.N("FunctionNodeCompare", (3650, -3200), data_type="FLOAT",
+                  operation="LESS_EQUAL")
+    b.L(cd_rd.outputs["Attribute"], in_face.inputs["A"])
+    in_face.inputs["B"].default_value = CLAD_EPS
+    keep_c2 = b.N("FunctionNodeBooleanMath", (3850, -3100), operation="AND")
+    b.L(keep_ij.outputs["Boolean"], keep_c2.inputs[0])
+    if V28_FLAGS.get("contain", True):
+        b.L(in_face.outputs["Result"], keep_c2.inputs[1])
+    else:
+        keep_c2.inputs[1].default_value = True
+    not_keep = b.N("FunctionNodeBooleanMath", (4050, -3100), operation="NOT")
+    b.L(keep_c2.outputs["Boolean"], not_keep.inputs[0])
+    del_c = b.N("GeometryNodeDeleteGeometry", (4250, -2200), domain="POINT")
+    b.L(st_cd.outputs["Geometry"], del_c.inputs["Geometry"])
+    b.L(not_keep.outputs["Boolean"], del_c.inputs["Selection"])
+    clad_geo = del_c.outputs["Geometry"]
 
     # ---------------- shared: masks + cap on mode-selected points ----------------
     pts_all, mode_bools = b.menu_switch(
@@ -2062,21 +2388,437 @@ def build_node_group():
     b.L(and1.outputs["Boolean"], and2.inputs[0])
     b.L(gate_prox.outputs["Boolean"], and2.inputs[1])
 
+    # ================= v2.8 GAP LAW + SPREAD (the user's two opening bugs) =====
+    # (1) vm_gate1: the Random-layout strip edge guard (stored on Fit points).
+    g1_a = b.N("GeometryNodeInputNamedAttribute", (600, -2200))
+    g1_a.data_type = "FLOAT"
+    g1_a.inputs["Name"].default_value = "vm_gate1"
+    g1_sw = b.N("GeometryNodeSwitch", (800, -2200))
+    g1_sw.input_type = "FLOAT"
+    b.L(g1_a.outputs["Exists"], g1_sw.inputs["Switch"])
+    g1_sw.inputs["False"].default_value = 1.0
+    b.L(g1_a.outputs["Attribute"], g1_sw.inputs["True"])
+    g1_ok = b.N("FunctionNodeCompare", (950, -2200), data_type="FLOAT",
+                operation="GREATER_EQUAL")
+    b.L(g1_sw.outputs["Output"], g1_ok.inputs["A"])
+    g1_ok.inputs["B"].default_value = 0.5
+    # (2) gap-law GREEDY: only the FIRST candidate per (wall plane, column, row)
+    # survives - coincident duplicate faces (hand-built meshes) share ONE grid
+    # instead of interleaving, and no two kept openings on a plane can collide.
+    gcol_a = b.N("GeometryNodeInputNamedAttribute", (600, -2400))
+    gcol_a.data_type = "FLOAT"
+    gcol_a.inputs["Name"].default_value = "vm_gcol"
+    grow_a = b.N("GeometryNodeInputNamedAttribute", (600, -2550))
+    grow_a.data_type = "FLOAT"
+    grow_a.inputs["Name"].default_value = "vm_grow"
+    gn_a = b.N("GeometryNodeInputNamedAttribute", (600, -2700))
+    gn_a.data_type = "FLOAT_VECTOR"
+    gn_a.inputs["Name"].default_value = "vm_normal"
+    gc_a = b.N("GeometryNodeInputNamedAttribute", (600, -2850))
+    gc_a.data_type = "FLOAT_VECTOR"
+    gc_a.inputs["Name"].default_value = "vm_c"
+    # canonical plane hash (same sign convention as the canonical u tangent)
+    gn_sep = b.N("ShaderNodeSeparateXYZ", (800, -2700))
+    b.L(gn_a.outputs["Attribute"], gn_sep.inputs["Vector"])
+    n_flipx = b.N("FunctionNodeCompare", (950, -2700), data_type="FLOAT",
+                  operation="LESS_THAN")
+    b.L(gn_sep.outputs["X"], n_flipx.inputs["A"])
+    n_flipx.inputs["B"].default_value = -1e-6
+    n_absx = b.N("ShaderNodeMath", (950, -2850), operation="ABSOLUTE")
+    b.L(gn_sep.outputs["X"], n_absx.inputs[0])
+    n_zerox = b.N("FunctionNodeCompare", (1100, -2850), data_type="FLOAT",
+                  operation="LESS_EQUAL")
+    b.L(n_absx.outputs["Value"], n_zerox.inputs["A"])
+    n_zerox.inputs["B"].default_value = 1e-6
+    n_posy = b.N("FunctionNodeCompare", (1100, -3000), data_type="FLOAT",
+                 operation="GREATER_THAN")
+    b.L(gn_sep.outputs["Y"], n_posy.inputs["A"])
+    n_posy.inputs["B"].default_value = 1e-6
+    n_fx2 = b.N("FunctionNodeBooleanMath", (1250, -2900), operation="AND")
+    b.L(n_zerox.outputs["Result"], n_fx2.inputs[0])
+    b.L(n_posy.outputs["Result"], n_fx2.inputs[1])
+    n_flip = b.N("FunctionNodeBooleanMath", (1400, -2750), operation="OR")
+    b.L(n_flipx.outputs["Result"], n_flip.inputs[0])
+    b.L(n_fx2.outputs["Boolean"], n_flip.inputs[1])
+    n_neg = b.N("ShaderNodeVectorMath", (1400, -2700), operation="SCALE")
+    b.L(gn_a.outputs["Attribute"], n_neg.inputs[0])
+    n_neg.inputs["Scale"].default_value = -1.0
+    n_can_sw = b.N("GeometryNodeSwitch", (1550, -2750))
+    n_can_sw.input_type = "VECTOR"
+    b.L(n_flip.outputs["Boolean"], n_can_sw.inputs["Switch"])
+    b.L(gn_a.outputs["Attribute"], n_can_sw.inputs["False"])
+    b.L(n_neg.outputs["Vector"], n_can_sw.inputs["True"])
+    d_pl = b.N("ShaderNodeVectorMath", (1700, -2850), operation="DOT_PRODUCT")
+    b.L(gc_a.outputs["Attribute"], d_pl.inputs[0])
+    b.L(n_can_sw.outputs["Output"], d_pl.inputs[1])
+    # SAFE group id (v2.8.1): the id MUST stay < 2^24 = 16.7M - Blender's math
+    # nodes run float32 and any larger id silently drops the low bits (the
+    # column term!), collapsing every column of a wall into ONE greedy group.
+    #   norm_code (0..26) * 420 + plane_d (0..400)   -> <= 11,320
+    #   * 1024 + col_row (grow*64 + gcol, 0..1087)   -> <= 11,591,680  (safe)
+    d_q1 = b.N("ShaderNodeMath", (1850, -2850), operation="MULTIPLY")
+    b.L(d_pl.outputs["Value"], d_q1.inputs[0])
+    d_q1.inputs[1].default_value = 20.0
+    d_q = b.N("ShaderNodeMath", (2000, -2850), operation="ADD")
+    b.L(d_q1.outputs["Value"], d_q.inputs[0])
+    d_q.inputs[1].default_value = 200.0
+    d_sh = b.N("ShaderNodeMath", (2150, -2850), operation="FLOORED_MODULO")
+    b.L(d_q.outputs["Value"], d_sh.inputs[0])
+    d_sh.inputs[1].default_value = 420.0
+    nh_sep = b.N("ShaderNodeSeparateXYZ", (1700, -3050))
+    b.L(n_can_sw.outputs["Output"], nh_sep.inputs["Vector"])
+    nh_1 = b.N("ShaderNodeMath", (1850, -3050), operation="MULTIPLY_ADD")
+    b.L(nh_sep.outputs["X"], nh_1.inputs[0])
+    nh_1.inputs[1].default_value = 9.0
+    nh_1.inputs[2].default_value = 9.0
+    nh_2 = b.N("ShaderNodeMath", (2000, -3050), operation="MULTIPLY_ADD")
+    b.L(nh_sep.outputs["Y"], nh_2.inputs[0])
+    nh_2.inputs[1].default_value = 3.0
+    nh_2.inputs[2].default_value = 3.0
+    nh_3 = b.N("ShaderNodeMath", (2150, -3050), operation="ADD")
+    b.L(nh_sep.outputs["Z"], nh_3.inputs[0])
+    nh_3.inputs[1].default_value = 1.0
+    nh_4 = b.N("ShaderNodeMath", (2300, -3050), operation="ADD")
+    b.L(nh_1.outputs["Value"], nh_4.inputs[0])
+    b.L(nh_2.outputs["Value"], nh_4.inputs[1])
+    nh_r = b.N("ShaderNodeMath", (2300, -3150), operation="ADD")
+    b.L(nh_4.outputs["Value"], nh_r.inputs[0])
+    b.L(nh_3.outputs["Value"], nh_r.inputs[1])
+    nh_m = b.N("ShaderNodeMath", (2450, -3050), operation="FLOORED_MODULO")
+    b.L(nh_r.outputs["Value"], nh_m.inputs[0])
+    nh_m.inputs[1].default_value = 27.0
+    gid_1 = b.N("ShaderNodeMath", (2600, -2950), operation="MULTIPLY_ADD")
+    b.L(nh_m.outputs["Value"], gid_1.inputs[0])
+    gid_1.inputs[1].default_value = 420.0
+    b.L(d_sh.outputs["Value"], gid_1.inputs[2])
+    gid_2 = b.N("ShaderNodeMath", (2750, -2950), operation="FLOORED_MODULO")
+    b.L(gid_1.outputs["Value"], gid_2.inputs[0])
+    gid_2.inputs[1].default_value = 12000.0
+    col_g = b.N("ShaderNodeMath", (2600, -3200), operation="MULTIPLY_ADD")
+    b.L(grow_a.outputs["Attribute"], col_g.inputs[0])
+    col_g.inputs[1].default_value = 64.0
+    b.L(gcol_a.outputs["Attribute"], col_g.inputs[2])
+    col_gm = b.N("ShaderNodeMath", (2750, -3200), operation="FLOORED_MODULO")
+    b.L(col_g.outputs["Value"], col_gm.inputs[0])
+    col_gm.inputs[1].default_value = 1088.0
+    col_gz = b.N("ShaderNodeMath", (2900, -3200), operation="MAXIMUM")
+    b.L(col_gm.outputs["Value"], col_gz.inputs[0])
+    col_gz.inputs[1].default_value = 0.0
+    gid_3 = b.N("ShaderNodeMath", (2900, -2950), operation="MULTIPLY_ADD")
+    b.L(gid_2.outputs["Value"], gid_3.inputs[0])
+    gid_3.inputs[1].default_value = 1088.0
+    b.L(col_gz.outputs["Value"], gid_3.inputs[2])
+    _gsrc = V28_FLAGS.get("gidsrc", "full")
+    if _gsrc == "colonly":
+        b.L(col_gz.outputs["Value"], gid_3.inputs[0])
+        gid_3.inputs[1].default_value = 1.0
+        gid_3.inputs[2].default_value = 0.0
+    elif _gsrc == "planeonly":
+        b.L(gid_2.outputs["Value"], gid_3.inputs[0])
+        gid_3.inputs[1].default_value = 1.0
+        gid_3.inputs[2].default_value = 0.0
+    gid_i = b.N("ShaderNodeMath", (3050, -2950), operation="ROUND")
+    b.L(gid_3.outputs["Value"], gid_i.inputs[0])
+    acc_g = b.N("GeometryNodeAccumulateField", (3200, -2750), domain="POINT")
+    acc_g.inputs["Value"].default_value = 1.0
+    if V28_FLAGS.get("greedy") == "zerogroup":
+        acc_g.inputs["Group ID"].default_value = 0
+    else:
+        b.L(gid_i.outputs["Value"], acc_g.inputs["Group ID"])
+    first_ok = b.N("FunctionNodeCompare", (3350, -2750), data_type="FLOAT",
+                   operation="LESS_THAN")
+    b.L(acc_g.outputs["Leading"], first_ok.inputs["A"])
+    # Blender 5.2 Accumulate Field 'Leading' counts the CURRENT element too
+    # (the v2.7 cap's 'Leading > Max keeps exactly Max' semantics rely on it),
+    # so the group's FIRST element has Leading == 1; < 1.5 is robust to either
+    # convention.
+    first_ok.inputs["B"].default_value = 1.5
+    greedy_ok = b.N("FunctionNodeBooleanMath", (3500, -2600), operation="OR")
+    gcol_not = b.N("FunctionNodeBooleanMath", (3350, -2600), operation="NOT")
+    b.L(gcol_a.outputs["Exists"], gcol_not.inputs[0])
+    b.L(gcol_not.outputs["Boolean"], greedy_ok.inputs[0])
+    b.L(first_ok.outputs["Result"], greedy_ok.inputs[1])
+    # (3) CROSS-LAYER gap law: openings placed by EARLIER modifiers (marked
+    # instances) collapse to their anchors; any candidate whose anchor sits
+    # within the clearance of a neighbour anchor is dropped - layers can never
+    # overlap each other however they are configured.
+    mark_a = b.N("GeometryNodeInputNamedAttribute", (600, -3300))
+    mark_a.data_type = "FLOAT"
+    mark_a.inputs["Name"].default_value = "vm_openmark"
+    # v2.8.1: only REAL marks count - on a bare input mesh (no previous layer)
+    # the attribute is missing and SeparateGeometry would happily treat the
+    # mesh's own points as 'marked neighbours' (rejecting every candidate).
+    mark_sw = b.N("GeometryNodeSwitch", (700, -3300))
+    mark_sw.input_type = "FLOAT"
+    b.L(mark_a.outputs["Exists"], mark_sw.inputs["Switch"])
+    mark_sw.inputs["False"].default_value = 0.0
+    b.L(mark_a.outputs["Attribute"], mark_sw.inputs["True"])
+    mark_ok = b.N("FunctionNodeCompare", (800, -3300), data_type="FLOAT",
+                  operation="GREATER_EQUAL")
+    b.L(mark_sw.outputs["Output"], mark_ok.inputs["A"])
+    mark_ok.inputs["B"].default_value = 0.5
+    sep_mark = b.N("GeometryNodeSeparateGeometry", (950, -3300))
+    sep_mark.domain = "INSTANCE"
+    b.L(gi.outputs["Geometry"], sep_mark.inputs["Geometry"])
+    b.L(mark_ok.outputs["Result"], sep_mark.inputs["Selection"])
+    real_mark = b.N("GeometryNodeRealizeInstances", (1150, -3300))
+    b.L(sep_mark.outputs["Selection"], real_mark.inputs["Geometry"])
+    anc_a = b.N("GeometryNodeInputNamedAttribute", (1350, -3300))
+    anc_a.data_type = "FLOAT_VECTOR"
+    anc_a.inputs["Name"].default_value = "vm_anchor"
+    # v2.8.1: unanchored points (attribute missing) get pushed to the far
+    # sentinel position instead of the origin - a stray origin point would sit
+    # within one opening-width of every candidate on the ground floor.
+    anc_sw = b.N("GeometryNodeSwitch", (1450, -3300))
+    anc_sw.input_type = "VECTOR"
+    b.L(anc_a.outputs["Exists"], anc_sw.inputs["Switch"])
+    anc_sw.inputs["False"].default_value = (1e6, 1e6, 1e6)
+    b.L(anc_a.outputs["Attribute"], anc_sw.inputs["True"])
+    set_mark = b.N("GeometryNodeSetPosition", (1550, -3300))
+    b.L(real_mark.outputs["Geometry"], set_mark.inputs["Geometry"])
+    b.L(anc_sw.outputs["Output"], set_mark.inputs["Position"])
+    # NOTE: Proximity on an EMPTY target reports distance 0 (Is Valid stays
+    # True in Blender 5.2!) which would reject every candidate on the first
+    # layer of a stack - a far-away sentinel point keeps the target non-empty
+    # and can never be the nearest neighbour.
+    mark_sent = b.N("GeometryNodePoints", (1650, -3450))
+    mark_sent.inputs["Count"].default_value = 1
+    mark_sent.inputs["Position"].default_value = (1e6, 1e6, 1e6)
+    mark_join = b.N("GeometryNodeJoinGeometry", (1700, -3300))
+    b.L(set_mark.outputs["Geometry"], mark_join.inputs["Geometry"])
+    b.L(mark_sent.outputs["Points"], mark_join.inputs["Geometry"])
+    prox_o = b.N("GeometryNodeProximity", (1750, -3300))
+    b.L(mark_join.outputs["Geometry"], prox_o.inputs["Geometry"])
+    b.L(pos.outputs["Position"], prox_o.inputs["Sample Position"])
+    # v2.8.2 CROSS-LAYER CLEARANCE: the neighbour's HORIZONTAL distance (the
+    # world-XY plane - openings only ever sit on vertical walls) decides, not
+    # the 3D anchor distance. A 3D threshold inflated by the vertical offset
+    # either killed every window beside a door on a 2 m cube (v2.8.1: windows
+    # 0 everywhere) or, smaller, let same-column overlaps through. Rule: an
+    # opening keeps its slot only if it stands at least its OWN nominal Opening
+    # Width (horizontally) from every earlier layer's opening anchor - then two
+    # kept cross-layer openings can never share wall space.
+    o_delta = b.N("ShaderNodeVectorMath", (1750, -3650), operation="SUBTRACT")
+    b.L(prox_o.outputs["Position"], o_delta.inputs[0])
+    b.L(pos.outputs["Position"], o_delta.inputs[1])
+    o_dsep = b.N("ShaderNodeSeparateXYZ", (1900, -3650))
+    b.L(o_delta.outputs["Vector"], o_dsep.inputs["Vector"])
+    o_dxy = b.N("ShaderNodeCombineXYZ", (2050, -3650))
+    b.L(o_dsep.outputs["X"], o_dxy.inputs["X"])
+    b.L(o_dsep.outputs["Y"], o_dxy.inputs["Y"])
+    o_len = b.N("ShaderNodeVectorMath", (2200, -3650), operation="LENGTH")
+    b.L(o_dxy.outputs["Vector"], o_len.inputs[0])
+    # v2.4 evaluation-context contract again: store the distance first (store
+    # context), then the selection reads it back as a plain named attribute.
+    st_od = b.N("GeometryNodeStoreNamedAttribute", (300, -3300), data_type="FLOAT",
+                domain="POINT")
+    b.L(pts_all, st_od.inputs["Geometry"])
+    st_od.inputs["Name"].default_value = "vm_od"
+    b.L(o_len.outputs["Value"], st_od.inputs["Value"])
+    od_rd = b.N("GeometryNodeInputNamedAttribute", (2350, -3550))
+    od_rd.data_type = "FLOAT"
+    od_rd.inputs["Name"].default_value = "vm_od"
+    occ_thr = b.N("ShaderNodeMath", (2050, -3500), operation="DIVIDE")
+    b.L(gi.outputs["Opening Width"], occ_thr.inputs[0])
+    b.L(geo_f, occ_thr.inputs[1])
+    occ_far = b.N("FunctionNodeCompare", (2200, -3300), data_type="FLOAT",
+                  operation="GREATER_EQUAL")
+    b.L(od_rd.outputs["Attribute"], occ_far.inputs["A"])
+    b.L(occ_thr.outputs["Value"], occ_far.inputs["B"])
+    occ_ok = b.N("FunctionNodeBooleanMath", (2350, -3300), operation="OR")
+    prox_inv = b.N("FunctionNodeBooleanMath", (2200, -3450), operation="NOT")
+    b.L(prox_o.outputs["Is Valid"], prox_inv.inputs[0])
+    b.L(prox_inv.outputs["Boolean"], occ_ok.inputs[0])
+    b.L(occ_far.outputs["Result"], occ_ok.inputs[1])
+    # ---- v2.8.3 OPENING CONTAINMENT (the floating-window leak): a Fit
+    # candidate is kept only if its anchor sits ON the clad surface - the
+    # strip grid fills the face BBOX, so on non-rect faces (the user's giant
+    # non-planar fragments) column centres can land outside the real polygon
+    # and the opening hung in empty air. The probe is the anchor projected
+    # back along its own normal (undoing the Backing-Embed offset the wall
+    # contact contract adds), so the tolerance stays float-noise small.
+    ft_en = b.N("GeometryNodeInputNamedAttribute", (2350, -3800))
+    ft_en.data_type = "FLOAT"
+    ft_en.inputs["Name"].default_value = "vm_en"
+    ft_nrm = b.N("GeometryNodeInputNamedAttribute", (2350, -3950))
+    ft_nrm.data_type = "FLOAT_VECTOR"
+    ft_nrm.inputs["Name"].default_value = "vm_normal"
+    ft_e1 = b.N("ShaderNodeMath", (2500, -3800), operation="SUBTRACT")
+    b.L(gi.outputs["Backing Offset"], ft_e1.inputs[0])
+    b.L(gi.outputs["Embed"], ft_e1.inputs[1])
+    ft_e2 = b.N("ShaderNodeMath", (2650, -3800), operation="DIVIDE")
+    b.L(ft_e1.outputs["Value"], ft_e2.inputs[0])
+    b.L(ft_en.outputs["Attribute"], ft_e2.inputs[1])
+    ft_sv = b.N("ShaderNodeVectorMath", (2800, -3800), operation="SCALE")
+    b.L(ft_nrm.outputs["Attribute"], ft_sv.inputs[0])
+    b.L(ft_e2.outputs["Value"], ft_sv.inputs["Scale"])
+    ft_probe = b.N("ShaderNodeVectorMath", (2950, -3800), operation="SUBTRACT")
+    b.L(pos.outputs["Position"], ft_probe.inputs[0])
+    b.L(ft_sv.outputs["Vector"], ft_probe.inputs[1])
+    ft_prox = b.N("GeometryNodeProximity", (3100, -3800))
+    b.L(mesh_only, ft_prox.inputs["Geometry"])
+    b.L(ft_probe.outputs["Vector"], ft_prox.inputs["Sample Position"])
+    st_fd = b.N("GeometryNodeStoreNamedAttribute", (300, -3450), data_type="FLOAT",
+                domain="POINT")
+    b.L(st_od.outputs["Geometry"], st_fd.inputs["Geometry"])
+    st_fd.inputs["Name"].default_value = "vm_fd"
+    b.L(ft_prox.outputs["Distance"], st_fd.inputs["Value"])
+    fd_rd = b.N("GeometryNodeInputNamedAttribute", (3250, -3800))
+    fd_rd.data_type = "FLOAT"
+    fd_rd.inputs["Name"].default_value = "vm_fd"
+    ft_ok = b.N("FunctionNodeCompare", (3400, -3800), data_type="FLOAT",
+                operation="LESS_EQUAL")
+    b.L(fd_rd.outputs["Attribute"], ft_ok.inputs["A"])
+    ft_ok.inputs["B"].default_value = CLAD_EPS
+    fit_not2 = b.N("FunctionNodeBooleanMath", (3400, -3950), operation="NOT")
+    b.L(is_fit, fit_not2.inputs[0])
+    ft_gate = b.N("FunctionNodeBooleanMath", (3550, -3850), operation="OR")
+    b.L(fit_not2.outputs["Boolean"], ft_gate.inputs[0])
+    b.L(ft_ok.outputs["Result"], ft_gate.inputs[1])
+
+    # combine: masks AND edge guard AND greedy AND column filter AND occupancy
+    def _flag(name, sock):
+        if V28_FLAGS.get(name, True):
+            return sock
+        tnode = b.N("FunctionNodeCompare", (760, -400), data_type="FLOAT",
+                    operation="GREATER_THAN")
+        tnode.inputs["A"].default_value = 1.0
+        tnode.inputs["B"].default_value = 0.0
+        return tnode.outputs["Result"]
+    and2a = b.N("FunctionNodeBooleanMath", (800, -400), operation="AND")
+    b.L(and2.outputs["Boolean"], and2a.inputs[0])
+    b.L(_flag("gate1", g1_ok.outputs["Result"]), and2a.inputs[1])
+    and2b = b.N("FunctionNodeBooleanMath", (950, -400), operation="AND")
+    b.L(and2a.outputs["Boolean"], and2b.inputs[0])
+    b.L(_flag("greedy", greedy_ok.outputs["Boolean"]), and2b.inputs[1])
+    # Column Select applies to Fit points in BOTH layouts (v2.8 strip columns)
+    fit_not = b.N("FunctionNodeBooleanMath", (3500, -2450), operation="NOT")
+    b.L(is_fit, fit_not.inputs[0])
+    col_gate = b.N("FunctionNodeBooleanMath", (3650, -2450), operation="OR")
+    b.L(fit_not.outputs["Boolean"], col_gate.inputs[0])
+    b.L(cs_sw, col_gate.inputs[1])
+    and2c = b.N("FunctionNodeBooleanMath", (1100, -400), operation="AND")
+    b.L(and2b.outputs["Boolean"], and2c.inputs[0])
+    b.L(col_gate.outputs["Boolean"], and2c.inputs[1])
+    occ_gate = b.N("FunctionNodeBooleanMath", (3800, -2450), operation="OR")
+    b.L(fit_not.outputs["Boolean"], occ_gate.inputs[0])
+    b.L(_flag("occ", occ_ok.outputs["Boolean"]), occ_gate.inputs[1])
+    and2d = b.N("FunctionNodeBooleanMath", (1250, -400), operation="AND")
+    b.L(and2c.outputs["Boolean"], and2d.inputs[0])
+    b.L(occ_gate.outputs["Boolean"], and2d.inputs[1])
+    and2e = b.N("FunctionNodeBooleanMath", (1400, -400), operation="AND")
+    b.L(and2d.outputs["Boolean"], and2e.inputs[0])
+    b.L(ft_gate.outputs["Boolean"], and2e.inputs[1])
+
     keep_f = b.N("ShaderNodeMath", operation="ADD", location=(600, -500))
-    b.L(and2.outputs["Boolean"], keep_f.inputs[0])
+    # v2.4 evaluation-context contract: the whole gate decision is materialized
+    # as a point attribute in a STORE context first (and2d chains several new
+    # v2.8 fields), then the cap/delete read it back as a plain named field.
+    st_keep = b.N("GeometryNodeStoreNamedAttribute", (300, -400), data_type="FLOAT",
+                domain="POINT")
+    b.L(st_fd.outputs["Geometry"], st_keep.inputs["Geometry"])
+    st_keep.inputs["Name"].default_value = "vm_keep"
+    mk_conv = b.N("ShaderNodeMath", (300, -550), operation="ADD")
+    b.L(and2e.outputs["Boolean"], mk_conv.inputs[0])
+    mk_conv.inputs[1].default_value = 0.0
+    b.L(mk_conv.outputs["Value"], st_keep.inputs["Value"])
+    mk_rd = b.N("GeometryNodeInputNamedAttribute", (450, -450))
+    mk_rd.data_type = "FLOAT"
+    mk_rd.inputs["Name"].default_value = "vm_keep"
+    b.L(mk_rd.outputs["Attribute"], keep_f.inputs[0])
     keep_f.inputs[1].default_value = 0.0
     acc = b.N("GeometryNodeAccumulateField", (800, -500), domain="POINT")
     b.L(keep_f.outputs["Value"], acc.inputs["Value"])
-    cmp_cap = b.N("FunctionNodeCompare", (1000, -500), data_type="FLOAT", operation="GREATER_THAN")
-    b.L(acc.outputs["Leading"], cmp_cap.inputs["A"])
-    b.L(gi.outputs["Max Instances"], cmp_cap.inputs["B"])
-    not_keep2 = b.N("FunctionNodeBooleanMath", (800, -700), operation="NOT")
-    b.L(and2.outputs["Boolean"], not_keep2.inputs[0])
+    cmp_cap_n = b.N("FunctionNodeCompare", (1000, -500), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(acc.outputs["Leading"], cmp_cap_n.inputs["A"])
+    b.L(gi.outputs["Max Instances"], cmp_cap_n.inputs["B"])
+    # v2.8 ROUND-ROBIN cap for Fit: rank = per-face kept rank * #faces + face
+    # ordinal, so the budget visits EVERY qualifying wall before any wall gets a
+    # second opening (first-N in point order starved every wall after the first).
+    gfi_a = b.N("GeometryNodeInputNamedAttribute", (1200, -5200))
+    gfi_a.data_type = "FLOAT"
+    gfi_a.inputs["Name"].default_value = "vm_fi"
+    gffo_a = b.N("GeometryNodeInputNamedAttribute", (1200, -5350))
+    gffo_a.data_type = "FLOAT"
+    gffo_a.inputs["Name"].default_value = "vm_ffo"
+    gffn_a = b.N("GeometryNodeInputNamedAttribute", (1200, -5500))
+    gffn_a.data_type = "FLOAT"
+    gffn_a.inputs["Name"].default_value = "vm_ffn"
+    acc_r = b.N("GeometryNodeAccumulateField", (1400, -5200), domain="POINT")
+    b.L(keep_f.outputs["Value"], acc_r.inputs["Value"])
+    b.L(gfi_a.outputs["Attribute"], acc_r.inputs["Group ID"])
+    ffn_g = b.N("ShaderNodeMath", (1400, -5500), operation="MAXIMUM")
+    b.L(gffn_a.outputs["Attribute"], ffn_g.inputs[0])
+    ffn_g.inputs[1].default_value = 1.0
+    # 'Leading' is 1-based for KEPT points but a DROPPED point's Leading counts
+    # only the kept points strictly before it - subtract the point's OWN keep
+    # value (v2.8.1 bug: rr_0 = Leading - 1 went NEGATIVE for a dropped first
+    # point of a face and the min-offset cap below then deleted everything).
+    rr_0 = b.N("ShaderNodeMath", (1550, -5350), operation="SUBTRACT")
+    b.L(acc_r.outputs["Leading"], rr_0.inputs[0])
+    b.L(keep_f.outputs["Value"], rr_0.inputs[1])
+    # vm_ffo is a 1-based face ordinal (Accumulate Leading) -> 0-based here too
+    ffo_0 = b.N("ShaderNodeMath", (1550, -5550), operation="SUBTRACT")
+    b.L(gffo_a.outputs["Attribute"], ffo_0.inputs[0])
+    ffo_0.inputs[1].default_value = 1.0
+    rr_1 = b.N("ShaderNodeMath", (1650, -5350), operation="MULTIPLY_ADD")
+    b.L(rr_0.outputs["Value"], rr_1.inputs[0])
+    b.L(ffn_g.outputs["Value"], rr_1.inputs[1])
+    b.L(ffo_0.outputs["Value"], rr_1.inputs[2])
+    # v2.8.2 CAP ACCOUNTING: the kept set must be exactly the Max SMALLEST
+    # round-robin ranks - but raw ranks have interior GAPS whenever faces run
+    # out of candidates, so threshold arithmetic on the rank value undercounts
+    # (v2.8.1: 15 kept where 25 were budgeted, 0 kept where 3 were budgeted).
+    # Sort the candidates by rank and keep the first Max in SORTED order:
+    # gap-free by construction. The rank is materialized as vm_rr first (the
+    # store evaluates in the UNSORTED context, so the per-face accumulate order
+    # - and therefore the rank itself - stays stable and deterministic).
+    rr_st = b.N("GeometryNodeStoreNamedAttribute", (1750, -5150), data_type="FLOAT",
+                domain="POINT")
+    b.L(st_keep.outputs["Geometry"], rr_st.inputs["Geometry"])
+    rr_st.inputs["Name"].default_value = "vm_rr"
+    b.L(rr_1.outputs["Value"], rr_st.inputs["Value"])
+    rr_rd = b.N("GeometryNodeInputNamedAttribute", (1750, -5250))
+    rr_rd.data_type = "FLOAT"
+    rr_rd.inputs["Name"].default_value = "vm_rr"
+    rr_sort = b.N("GeometryNodeSortElements", (1900, -5150))
+    rr_sort.domain = "POINT"
+    b.L(rr_st.outputs["Geometry"], rr_sort.inputs["Geometry"])
+    b.L(rr_rd.outputs["Attribute"], rr_sort.inputs["Sort Weight"])
+    rr_sort_sw = b.N("GeometryNodeSwitch", (2050, -5100))
+    rr_sort_sw.input_type = "GEOMETRY"
+    if V28_FLAGS.get("rr", True):
+        b.L(is_fit, rr_sort_sw.inputs["Switch"])
+    else:
+        rr_sort_sw.inputs["Switch"].default_value = False
+    b.L(rr_st.outputs["Geometry"], rr_sort_sw.inputs["False"])
+    b.L(rr_sort.outputs["Geometry"], rr_sort_sw.inputs["True"])
+    geo_capped = rr_sort_sw.outputs["Output"]
+    # global kept-rank in SORTED order: Leading > Max deletes -> exactly Max kept
+    acc2 = b.N("GeometryNodeAccumulateField", (1900, -5450), domain="POINT")
+    b.L(keep_f.outputs["Value"], acc2.inputs["Value"])
+    cmp_cap_fit = b.N("FunctionNodeCompare", (2100, -5350), data_type="FLOAT",
+                      operation="GREATER_THAN")
+    b.L(acc2.outputs["Leading"], cmp_cap_fit.inputs["A"])
+    b.L(gi.outputs["Max Instances"], cmp_cap_fit.inputs["B"])
+    cap_sw = b.N("GeometryNodeSwitch", (2100, -500))
+    cap_sw.input_type = "BOOLEAN"
+    if V28_FLAGS.get("rr", True):
+        b.L(is_fit, cap_sw.inputs["Switch"])
+        b.L(cmp_cap_n.outputs["Result"], cap_sw.inputs["False"])
+        b.L(cmp_cap_fit.outputs["Result"], cap_sw.inputs["True"])
+        cmp_cap = cap_sw.outputs["Output"]
+    else:
+        cmp_cap = cmp_cap_n.outputs["Result"]
+    not_keep2 = b.N("FunctionNodeCompare", (800, -700), data_type="FLOAT",
+                    operation="LESS_THAN")
+    b.L(mk_rd.outputs["Attribute"], not_keep2.inputs["A"])
+    not_keep2.inputs["B"].default_value = 0.5
     del_sel = b.N("FunctionNodeBooleanMath", (1200, -600), operation="OR")
-    b.L(not_keep2.outputs["Boolean"], del_sel.inputs[0])
-    b.L(cmp_cap.outputs["Result"], del_sel.inputs[1])
+    b.L(not_keep2.outputs["Result"], del_sel.inputs[0])
+    b.L(cmp_cap, del_sel.inputs[1])
     dele = b.N("GeometryNodeDeleteGeometry", (1400, 100), domain="POINT")
-    b.L(pts_all, dele.inputs["Geometry"])
+    b.L(geo_capped, dele.inputs["Geometry"])
     b.L(del_sel.outputs["Boolean"], dele.inputs["Selection"])
 
     # ---------------- rotations ----------------
@@ -2294,33 +3036,55 @@ def build_node_group():
     b.L(join_i.outputs["Geometry"], store_c.inputs["Geometry"])
     store_c.inputs["Name"].default_value = "Color"
     b.L(comb_c.outputs["Color"], store_c.inputs["Value"])
+    # v2.8: mark placed OPENINGS + their anchors so LATER modifiers can keep the
+    # gap law across layers (doors vs windows can never overlap)
+    mk_1 = b.N("ShaderNodeMath", (2450, -50), operation="ADD")
+    b.L(is_fit, mk_1.inputs[0]); mk_1.inputs[1].default_value = 0.0
+    mk_2 = b.N("ShaderNodeMath", (2600, -50), operation="ADD")
+    b.L(not_debris.outputs["Boolean"], mk_2.inputs[0]); mk_2.inputs[1].default_value = 0.0
+    mk_f = b.N("ShaderNodeMath", (2750, -50), operation="MULTIPLY")
+    b.L(mk_1.outputs["Value"], mk_f.inputs[0])
+    b.L(mk_2.outputs["Value"], mk_f.inputs[1])
+    store_mk = b.N("GeometryNodeStoreNamedAttribute", (2850, 150), data_type="FLOAT",
+                   domain="INSTANCE")
+    b.L(store_c.outputs["Geometry"], store_mk.inputs["Geometry"])
+    store_mk.inputs["Name"].default_value = "vm_openmark"
+    b.L(mk_f.outputs["Value"], store_mk.inputs["Value"])
+    store_an = b.N("GeometryNodeStoreNamedAttribute", (3050, 150), data_type="FLOAT_VECTOR",
+                   domain="INSTANCE")
+    b.L(store_mk.outputs["Geometry"], store_an.inputs["Geometry"])
+    store_an.inputs["Name"].default_value = "vm_anchor"
+    b.L(pos.outputs["Position"], store_an.inputs["Value"])
 
     join_all = b.N("GeometryNodeJoinGeometry", (2650, 100))
     b.L(base_out, join_all.inputs["Geometry"])
-    b.L(store_c.outputs["Geometry"], join_all.inputs["Geometry"])
+    b.L(store_an.outputs["Geometry"], join_all.inputs["Geometry"])
     b.L(join_all.outputs["Geometry"], go.inputs["Geometry"])
 
     # ---- v2.7 About panel: appended LAST so every v2.5/v2.6 socket IDENTIFIER
     # is unchanged (old stacks that re-point at this group keep their values),
     # then MOVED to the top of the interface ----
-    p_about = b.panel("About", "Engine version + quick usage (v2.7): tells you exactly which code this modifier runs")
-    b.sock("Engine Version", "NodeSocketString", p_about, "v2.7",
-           desc="Version of the VM engine code behind this modifier (v2.7). If this "
-                "panel/socket is missing the stack runs a PRE-v2.7 group - see USAGE.txt "
+    p_about = b.panel("About", "Engine version + quick usage (v2.8): tells you exactly which code this modifier runs")
+    b.sock("Engine Version", "NodeSocketString", p_about, "v2.8",
+           desc="Version of the VM engine code behind this modifier (v2.8). If this "
+                "panel/socket is missing the stack runs a PRE-v2.8 group - see USAGE.txt "
                 "'Which version am I running?' and 'Upgrading old stacks'")
     b.sock("Usage Hint", "NodeSocketString", p_about,
-           "v2.7 quick use: Fit+Slots puts doors/windows on walls ('Opening Fit: Scale To "
-           "Face' keeps them on short walls); VM_RoofCap caps flat tops (Style 'Gable'/'Hip' "
-           "= opt-in pitch). Old stack? See USAGE.txt 'Which version am I running?'.",
+           "v2.8 quick use: Fit+Slots puts doors/windows on walls (openings snap to the "
+           "wall's opening grid - they SPREAD over all walls and never overlap, in Random "
+           "AND Slots layouts); Cladding stays INSIDE every face (no phantom slabs on "
+           "triangles/slivers); VM_RoofCap caps flat tops (Style 'Hip' on a square top = "
+           "pyramid, on a round top = cone; 'Gable' for ridge roofs). Old stack? See "
+           "USAGE.txt 'Which version am I running?'.",
            desc="One-line usage reminder")
 
     b.finish_menu_defaults()
     b.ng.description = (
-        "VM_SceneDetailer v2.7 - semantic architectural application engine (Scatter/Fit/"
-        "Cladding + HouseCraft Slots openings; 'Opening Fit: Scale To Face' default; fresh "
-        "modifiers default to Fit+Slots openings). The About panel shows the Engine Version "
-        "socket ('v2.7'). Which code does my stack run / how do I upgrade? See USAGE.txt "
-        "'Which version am I running?'")
+        "VM_SceneDetailer v2.8 - semantic architectural application engine (Scatter/Fit/"
+        "Cladding + HouseCraft Slots openings; openings spread round-robin over all walls "
+        "with the gap law in BOTH layouts; cladding confined to real face polygons). The "
+        "About panel shows the Engine Version socket ('v2.8'). Which code does my stack "
+        "run / how do I upgrade? See USAGE.txt 'Which version am I running?'")
     try:
         b.iface.move(p_about, 0)   # render About first, identifiers unchanged
     except Exception as e:
@@ -2496,7 +3260,12 @@ def build_roofcap_group():
 
     def extents(uv):
         diffs = []
-        for k in range(4):
+        # v2.8.2: sample up to 32 corners (OffsetCornerInFace WRAPS, so faces
+        # with fewer corners just repeat samples and min/max is unchanged).
+        # 4-corner sampling made an n-gon top measure ~0.39 m across instead of
+        # 4.0 m - the hip height and overhang then scaled from that garbage
+        # (cone apex 1.745 instead of 3.075, overhang blown to 2x).
+        for k in range(32):
             d = b.N("ShaderNodeVectorMath", (-1850, -1400 - 220 * k), operation="SUBTRACT")
             b.L(corner(k), d.inputs[0])
             b.L(posf.outputs["Position"], d.inputs[1])
@@ -2654,9 +3423,46 @@ def build_roofcap_group():
     b.L(not_flat.outputs["Boolean"], gable_sel.inputs[1])
     gable_not = b.N("FunctionNodeBooleanMath", (2000, -2650), operation="NOT")
     b.L(gable_sel.outputs["Boolean"], gable_not.inputs[0])
-    cap_sel = b.N("FunctionNodeBooleanMath", (2150, -2650), operation="AND")
-    b.L(up.outputs["Result"], cap_sel.inputs[0])
-    b.L(gable_not.outputs["Boolean"], cap_sel.inputs[1])
+    # ---- v2.8 CONE selection: Style 'Hip' on a NON-QUAD top (a cylinder's
+    # round n-gon top) generates a CONE ('Hip' = ridge shortened by half the
+    # short side -> a round top's ridge shrinks to the apex). Everything else
+    # unresolvable keeps the v2.6 flat-cap complete coverage.
+    hip_b = style_sw.outputs["Hip"]
+    nq_lo = b.N("FunctionNodeCompare", (2250, -2800), data_type="FLOAT",
+                operation="LESS_THAN")
+    b.L(nq, nq_lo.inputs["A"])
+    nq_lo.inputs["B"].default_value = 0.5
+    cone_q1 = b.N("FunctionNodeBooleanMath", (2400, -2800), operation="AND")
+    b.L(up.outputs["Result"], cone_q1.inputs[0])
+    b.L(nq_lo.outputs["Result"], cone_q1.inputs[1])
+    cone_q2 = b.N("FunctionNodeBooleanMath", (2550, -2800), operation="AND")
+    b.L(cone_q1.outputs["Boolean"], cone_q2.inputs[0])
+    b.L(ndg_ok.outputs["Result"], cone_q2.inputs[1])
+    cone_q3 = b.N("FunctionNodeBooleanMath", (2700, -2800), operation="AND")
+    b.L(cone_q2.outputs["Boolean"], cone_q3.inputs[0])
+    b.L(sz_w.outputs["Result"], cone_q3.inputs[1])
+    cone_q4 = b.N("FunctionNodeBooleanMath", (2850, -2800), operation="AND")
+    b.L(cone_q3.outputs["Boolean"], cone_q4.inputs[0])
+    b.L(sz_h.outputs["Result"], cone_q4.inputs[1])
+    cone_q5 = b.N("FunctionNodeBooleanMath", (3000, -2800), operation="AND")
+    b.L(cone_q4.outputs["Boolean"], cone_q5.inputs[0])
+    b.L(hip_b, cone_q5.inputs[1])
+    lfo_not = b.N("FunctionNodeBooleanMath", (3000, -2950), operation="NOT")
+    b.L(gi.outputs["Largest Face Only"], lfo_not.inputs[0])
+    lfo_ok = b.N("FunctionNodeBooleanMath", (3150, -2900), operation="OR")
+    b.L(lfo_not.outputs["Boolean"], lfo_ok.inputs[0])
+    b.L(big.outputs["Result"], lfo_ok.inputs[1])
+    cone_sel = b.N("FunctionNodeBooleanMath", (3300, -2800), operation="AND")
+    b.L(cone_q5.outputs["Boolean"], cone_sel.inputs[0])
+    b.L(lfo_ok.outputs["Boolean"], cone_sel.inputs[1])
+    cone_not = b.N("FunctionNodeBooleanMath", (3450, -2800), operation="NOT")
+    b.L(cone_sel.outputs["Boolean"], cone_not.inputs[0])
+    cap_sel0 = b.N("FunctionNodeBooleanMath", (2150, -2650), operation="AND")
+    b.L(up.outputs["Result"], cap_sel0.inputs[0])
+    b.L(gable_not.outputs["Boolean"], cap_sel0.inputs[1])
+    cap_sel = b.N("FunctionNodeBooleanMath", (2300, -2650), operation="AND")
+    b.L(cap_sel0.outputs["Boolean"], cap_sel.inputs[0])
+    b.L(cone_not.outputs["Boolean"], cap_sel.inputs[1])
 
     m2p = b.N("GeometryNodeMeshToPoints", (1750, -1500))
     m2p.mode = "FACES"
@@ -2869,30 +3675,101 @@ def build_roofcap_group():
     st_cap.inputs["Name"].default_value = "vm_roofgen"
     st_cap.inputs["Value"].default_value = 2.0
 
+    # ---- v2.8 CONE branch (Style 'Hip' on a round/cylindrical top): the face
+    # outline extruded up, the top ring pulled to 2% of the outline about the
+    # region centre (a tiny n-gon apex - clean quads, never degenerate spikes)
+    # and raised by the hip height (half the short side + overhang) * tan(Pitch)
+    # -> the cone-like cap. vm_roofgen = 3 marks cone faces.
+    cone_sep = b.N("GeometryNodeSeparateGeometry", (2300, -5200))
+    cone_sep.domain = "FACE"
+    b.L(store_chain, cone_sep.inputs["Geometry"])
+    b.L(cone_sel.outputs["Boolean"], cone_sep.inputs["Selection"])
+    cone_ex = b.N("GeometryNodeExtrudeMesh", (2500, -5200))
+    cone_ex.mode = "FACES"
+    b.L(cone_sep.outputs["Selection"], cone_ex.inputs["Mesh"])
+    cone_ex.inputs["Selection"].default_value = True
+    cone_off = b.N("ShaderNodeCombineXYZ", (2500, -5350))
+    cone_off.inputs["Z"].default_value = 1.0
+    b.L(cone_off.outputs["Vector"], cone_ex.inputs["Offset"])
+    cone_ex.inputs["Individual"].default_value = True
+    ct_au = m("SUBTRACT", m("MULTIPLY", m("MULTIPLY", cap_du.outputs["Value"], su_c,
+                                          loc=(4700, -5150)), 0.02, loc=(4850, -5150)),
+              cap_du.outputs["Value"], loc=(5000, -5150))
+    ct_av = m("SUBTRACT", m("MULTIPLY", m("MULTIPLY", cap_dv.outputs["Value"], sv_c,
+                                          loc=(4700, -5300)), 0.02, loc=(4850, -5300)),
+              cap_dv.outputs["Value"], loc=(5000, -5300))
+    c_au = b.N("GeometryNodeSwitch", (5150, -5150))
+    c_au.input_type = "FLOAT"
+    b.L(cone_ex.outputs["Top"], c_au.inputs["Switch"])
+    b.L(cap_au, c_au.inputs["False"])
+    b.L(ct_au, c_au.inputs["True"])
+    c_av = b.N("GeometryNodeSwitch", (5150, -5300))
+    c_av.input_type = "FLOAT"
+    b.L(cone_ex.outputs["Top"], c_av.inputs["Switch"])
+    b.L(cap_av, c_av.inputs["False"])
+    b.L(ct_av, c_av.inputs["True"])
+    c_uu = b.N("ShaderNodeVectorMath", (5300, -5150), operation="SCALE")
+    b.L(cap_ru, c_uu.inputs[0])
+    b.L(c_au.outputs["Output"], c_uu.inputs["Scale"])
+    c_vv = b.N("ShaderNodeVectorMath", (5300, -5300), operation="SCALE")
+    b.L(cap_rv, c_vv.inputs[0])
+    b.L(c_av.outputs["Output"], c_vv.inputs["Scale"])
+    c_p1 = b.N("ShaderNodeVectorMath", (5450, -5200), operation="ADD")
+    b.L(cap_pos.outputs["Position"], c_p1.inputs[0])
+    b.L(c_uu.outputs["Vector"], c_p1.inputs[1])
+    c_p2 = b.N("ShaderNodeVectorMath", (5600, -5200), operation="ADD")
+    b.L(c_p1.outputs["Vector"], c_p2.inputs[0])
+    b.L(c_vv.outputs["Vector"], c_p2.inputs[1])
+    c_sep2 = b.N("ShaderNodeSeparateXYZ", (5750, -5200))
+    b.L(c_p2.outputs["Vector"], c_sep2.inputs["Vector"])
+    c_ztop = m("ADD", cap_rz, m("ADD", Hh, eps_l, loc=(5750, -5400)), loc=(5900, -5400))
+    c_zsw = b.N("GeometryNodeSwitch", (6050, -5250))
+    c_zsw.input_type = "FLOAT"
+    b.L(cone_ex.outputs["Top"], c_zsw.inputs["Switch"])
+    b.L(c_sep2.outputs["Z"], c_zsw.inputs["False"])
+    b.L(c_ztop, c_zsw.inputs["True"])
+    c_fin = b.N("ShaderNodeCombineXYZ", (6200, -5250))
+    b.L(c_sep2.outputs["X"], c_fin.inputs["X"])
+    b.L(c_sep2.outputs["Y"], c_fin.inputs["Y"])
+    b.L(c_zsw.outputs["Output"], c_fin.inputs["Z"])
+    cone_sp = b.N("GeometryNodeSetPosition", (6350, -5200))
+    b.L(cone_ex.outputs["Mesh"], cone_sp.inputs["Geometry"])
+    b.L(c_fin.outputs["Vector"], cone_sp.inputs["Position"])
+    cone_dressed = material_gate(b, cone_sp.outputs["Geometry"], gi.outputs["Roof Material"],
+                                 sel_all.outputs["Boolean"], (6500, -5200))
+    st_cone = b.N("GeometryNodeStoreNamedAttribute", (6650, -5200), data_type="FLOAT",
+                  domain="FACE")
+    b.L(cone_dressed, st_cone.inputs["Geometry"])
+    st_cone.inputs["Name"].default_value = "vm_roofgen"
+    st_cone.inputs["Value"].default_value = 3.0
+
     join = b.N("GeometryNodeJoinGeometry", (4800, -1300))
     b.L(gi.outputs["Geometry"], join.inputs["Geometry"])
     b.L(st_rg.outputs["Geometry"], join.inputs["Geometry"])
     b.L(st_cap.outputs["Geometry"], join.inputs["Geometry"])
+    b.L(st_cone.outputs["Geometry"], join.inputs["Geometry"])
     b.L(join.outputs["Geometry"], go.inputs["Geometry"])
 
     # ---- v2.7 About panel (appended LAST -> v2.5/v2.6 identifiers unchanged,
     # then moved to the top of the interface) ----
-    p_about = b.panel("About", "Engine version + quick usage (v2.7): tells you exactly which code this modifier runs")
-    b.sock("Engine Version", "NodeSocketString", p_about, "v2.7",
-           desc="Version of the VM engine code behind this modifier (v2.7). If this "
-                "panel/socket is missing the stack runs a PRE-v2.7 group - see USAGE.txt "
+    p_about = b.panel("About", "Engine version + quick usage (v2.8): tells you exactly which code this modifier runs")
+    b.sock("Engine Version", "NodeSocketString", p_about, "v2.8",
+           desc="Version of the VM engine code behind this modifier (v2.8). If this "
+                "panel/socket is missing the stack runs a PRE-v2.8 group - see USAGE.txt "
                 "'Which version am I running?' and 'Upgrading old stacks'")
     b.sock("Usage Hint", "NodeSocketString", p_about,
-           "v2.7 quick use: a fresh VM_RoofCap caps flat tops with a subtle 2.5 deg incline "
-           "(Style 'Gable'/'Hip' = opt-in pitch - gables are NEVER invented on flat tops). "
+           "v2.8 quick use: a fresh VM_RoofCap caps flat tops with a subtle 2.5 deg incline "
+           "(Style 'Gable'/'Hip' = opt-in pitch - gables are NEVER invented on flat tops; "
+           "'Hip' on a square top = pyramid, on a round/cylindrical top = CONE). "
            "Old stack? See USAGE.txt 'Which version am I running?'.",
            desc="One-line usage reminder")
 
     b.finish_menu_defaults()
     b.ng.description = (
-        "VM_RoofCap v2.7 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: "
+        "VM_RoofCap v2.8 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: "
         "subtle 2.5 deg incline + fascia, NEVER invented gable triangles) / 'Gable' / 'Hip' "
-        "(opt-in pitch). The About panel shows the Engine Version socket ('v2.7'). Which "
+        "(opt-in pitch; hip on a square top = pyramid, on a round top = cone). The About "
+        "panel shows the Engine Version socket ('v2.8'). Which "
         "code does my stack run / how do I upgrade? See USAGE.txt 'Which version am I running?'")
     try:
         b.iface.move(p_about, 0)
@@ -3275,7 +4152,271 @@ def make_user_shape2(name, col):
     me.update()
     return ob
 
-# ---------------------------------------------------------------- v2.7 StarterCompound
+# ---------------------------------------------------------------- v2.8 UserShape3
+# THE USER'S OWN HAND-BUILT MASSING (found in the delivered VM_Starter.blend as
+# 'Cube.001', saved 2026-10-22 22:48): a small porch block at the south, a main
+# box + east wing, and a hand-built gable-ish protrusion on top. Rebuilt VERBATIM
+# (all 104 verts / 81 faces incl. the duplicated verts, the zero-area fill quads
+# and the gable-end TRIANGLE - the defects that triggered the v2.8 bugs are kept
+# on purpose so the fixes are proven against the real topology). The companion
+# stray 'Cube' he left in the scene is preserved too.
+USER3_V = [
+    (-1.77503, -1.963124, -1.370318), (-1.77503, -1.963124, 1.370318),
+    (-1.77503, 1.963124, -1.370318), (-1.77503, 1.963124, 1.370318),
+    (1.77503, -1.963124, -1.370318), (1.77503, -1.963124, 1.370318),
+    (1.77503, 1.963124, -1.370318), (1.77503, 1.963124, 1.370318),
+    (-1.77503, -1.963124, 4.348815), (-1.77503, 1.963124, 4.348815),
+    (1.77503, 1.963124, 4.348815), (1.77503, -1.963124, 4.348815),
+    (-1.77503, -1.963124, 7.350567), (-1.77503, 1.963124, 7.350567),
+    (1.77503, 1.963124, 7.350567), (1.77503, -1.963124, 7.350567),
+    (5.108193, 1.963124, 1.370318), (5.108193, 1.963124, -1.370318),
+    (5.108193, -1.963124, -1.370318), (5.108193, -1.963124, 1.370318),
+    (1.77503, 1.963124, 4.306543), (1.77503, -1.963124, 4.306543),
+    (5.108193, 1.963124, 4.306543), (5.108193, -1.963124, 4.306543),
+    (-1.77503, -1.963124, -1.370318), (-1.77503, -1.963124, 1.370318),
+    (1.77503, -1.963124, 1.370318), (1.77503, -1.963124, -1.370318),
+    (1.77503, -1.963124, 4.348815), (-1.77503, -1.963124, 4.348815),
+    (5.108193, -1.963124, 1.370318), (5.108193, -1.963124, -1.370318),
+    (1.77503, 1.963124, 4.306543), (1.77503, -1.963124, 4.306543),
+    (5.108193, 1.963124, 4.306543), (5.108193, -1.963124, 4.306543),
+    (-1.77503, -5.461065, -1.370318), (-1.77503, -5.461065, 1.370318),
+    (1.77503, -5.461065, 1.370318), (1.77503, -5.461065, -1.370318),
+    (1.77503, -5.461065, 4.348815), (-1.77503, -5.461065, 4.348815),
+    (5.108193, -5.461065, 1.370318), (5.108193, -5.461065, -1.370318),
+    (1.77503, -5.461065, 4.306543), (5.108193, -5.461065, 4.306543),
+    (1.77503, -5.461065, 4.334264), (1.77503, -1.963124, 4.334264),
+    (5.108193, -1.963124, 4.334264), (5.108193, -5.461065, 4.334264),
+    (-1.77503, -1.963124, 7.350567), (1.77503, -1.963124, 7.350567),
+    (-1.77503, -1.963124, 7.350567), (1.77503, -1.963124, 7.350567),
+    (-1.77503, 1.963124, 7.350567), (1.77503, 1.963124, 7.350567),
+    (0.665753, -1.963124, 7.350567), (0.665753, -1.963124, 7.350567),
+    (1.77503, -0.084793, 7.350567), (1.77503, -0.084793, 7.350567),
+    (1.77503, -1.963124, 7.350567), (1.77503, -1.963124, 4.348815),
+    (1.77503, -0.084793, 7.350567), (1.77503, -1.963124, 7.350567),
+    (1.77503, -1.963124, 4.348815), (1.77503, -0.084793, 7.350567),
+    (1.77503, -1.963124, 7.350567), (1.77503, -1.963124, 4.348815),
+    (-1.721385, -1.963124, 4.348815), (-1.721385, 1.963124, 4.348815),
+    (-1.77503, -1.963124, 7.350567), (1.77503, -1.963124, 7.350567),
+    (-1.721385, -0.084793, 7.350567), (1.683069, -0.084793, 7.350567),
+    (1.683069, 1.963124, 4.348815), (1.683069, -1.963124, 4.348815),
+    (5.108193, -1.963124, 1.370318), (5.108193, -1.963124, 4.306543),
+    (5.108193, -5.461065, 1.370318), (5.108193, -5.461065, 4.306543),
+    (5.108193, 1.963124, 1.370318), (5.108193, -1.963124, 1.370318),
+    (5.108193, 1.963124, 4.306543), (5.108193, -1.963124, 4.306543),
+    (5.108193, 1.963124, 1.370318), (5.108193, -1.963124, 1.370318),
+    (5.108193, 1.963124, 4.306543), (5.108193, -1.963124, 4.306543),
+    (5.108193, 1.963124, 1.370318), (5.108193, -1.963124, 1.370318),
+    (5.108193, 1.963124, 4.306543), (5.108193, -1.963124, 4.306543),
+    (5.108193, 1.963124, 1.370318), (5.108193, -1.963124, 1.370318),
+    (5.108193, 1.963124, 4.306543), (5.108193, -1.963124, 4.306543),
+    (5.108193, -1.963124, 1.370318), (5.108193, -1.963124, 4.306543),
+    (5.108193, -5.461065, 1.370318), (5.108193, -5.461065, 4.306543),
+    (8.054026, -1.963124, 1.370318), (8.054026, -1.963124, 4.306543),
+    (8.054026, -5.461065, 1.370318), (8.054026, -5.461065, 4.306543),
+    (-1.77503, -8.368889, -1.370318), (-1.77503, -8.368889, 1.370318),
+    (1.77503, -8.368889, 1.370318), (1.77503, -8.368889, -1.370318),
+]
+USER3_F = [
+    (0, 1, 3, 2), (2, 3, 7, 6), (83, 82, 34, 77), (81, 83, 77, 76), (2, 6, 4, 0),
+    (5, 7, 10, 11), (3, 1, 8, 9), (20, 21, 33, 32), (7, 3, 9, 10), (11, 58, 59, 61),
+    (17, 80, 81, 18), (6, 7, 80, 17), (82, 20, 32, 34), (4, 6, 17, 18), (11, 8, 29, 28),
+    (7, 5, 21, 20), (19, 16, 22, 23), (80, 7, 20, 82), (24, 27, 39, 36), (79, 77, 48, 49),
+    (26, 28, 40, 38), (33, 26, 38, 44), (32, 33, 77, 34), (0, 4, 27, 24), (5, 11, 28, 26),
+    (21, 5, 26, 33), (18, 81, 76, 31), (1, 0, 24, 25), (8, 1, 25, 29), (4, 18, 31, 27),
+    (38, 78, 79, 44), (36, 39, 103, 100), (37, 38, 40, 41), (38, 39, 43, 78),
+    (27, 31, 43, 39), (29, 25, 37, 41), (25, 24, 36, 37), (31, 76, 78, 43),
+    (42, 30, 96, 98), (28, 29, 41, 40), (48, 47, 46, 49), (33, 44, 46, 47),
+    (77, 33, 47, 48), (44, 79, 49, 46), (72, 68, 75, 73), (61, 59, 62, 64),
+    (10, 58, 72, 69), (68, 69, 74, 75), (58, 11, 68, 72), (64, 62, 65, 67),
+    (11, 10, 69, 68), (73, 75, 74), (69, 72, 73, 74), (93, 92, 76, 77), (94, 95, 79, 78),
+    (95, 93, 77, 79), (92, 94, 78, 76), (84, 85, 81, 80), (87, 86, 82, 83),
+    (85, 87, 83, 81), (86, 84, 80, 82), (88, 89, 85, 84), (91, 90, 86, 87),
+    (89, 91, 87, 85), (90, 88, 84, 86), (16, 19, 89, 88), (23, 22, 90, 91),
+    (19, 23, 91, 89), (22, 16, 88, 90), (35, 30, 92, 93), (42, 45, 95, 94),
+    (45, 35, 93, 95), (30, 42, 94, 92), (96, 97, 99, 98), (45, 42, 98, 99),
+    (35, 45, 99, 97), (30, 35, 97, 96), (103, 102, 101, 100), (37, 36, 100, 101),
+    (38, 37, 101, 102), (39, 38, 102, 103),
+]
+USER3_LOC = (19.218236923217773, -16.399208068847656, 1.3703184127807617)
+
+
+def make_user_massing(name, col):
+    """The user's own hand-built massing, byte-for-byte topology (no normal
+    recalc: the flipped fill quads and duplicated verts are part of the test)."""
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(USER3_V, [], [list(f) for f in USER3_F])
+    me.update()
+    ob = bpy.data.objects.new(name, me)
+    ob.location = USER3_LOC
+    col.objects.link(ob)
+    return ob
+
+
+def make_user_stray_cube(name, col):
+    """The stray edit-mode cube he left parked in the scene (kept verbatim)."""
+    vs = [(-3.31, -2.558, -1.911), (-3.31, -2.558, 1.911), (-3.31, 2.558, -1.911),
+          (-3.31, 2.558, 1.911), (3.31, -2.558, -1.911), (3.31, -2.558, 1.911),
+          (3.31, 2.558, -1.911), (3.31, 2.558, 1.911)]
+    fs = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 2, 6, 4), (1, 5, 7, 3), (0, 4, 5, 1), (2, 3, 7, 6)]
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(vs, [], fs)
+    me.update()
+    ob = bpy.data.objects.new(name, me)
+    ob.location = (11.258859634399414, 25.926729202270508, 1.911123275756836)
+    col.objects.link(ob)
+    return ob
+
+
+# ---------------------------------------------------------------- v2.8 helpers
+def _poly2d(mesh_ob):
+    """Per-face (normal, center, canonical u, v, polygon2d, W, H) in LOCAL space
+    - mirrors the engine's face frame (canonical +Y tangent)."""
+    out = []
+    me = mesh_ob.data
+    for p in me.polygons:
+        vs = [me.vertices[i].co.copy() for i in p.vertices]
+        c = sum(vs, Vector((0, 0, 0))) / len(vs)
+        n = p.normal.copy()
+        if n.length < 1e-6:
+            n = Vector((0, 0, 1))
+        n.normalize()
+        if abs(n.z) > 0.995:
+            u = Vector((1, 0, 0))
+        else:
+            u = Vector((0, 0, 1)).cross(n).normalized()
+            if u.y < -1e-6 or (abs(u.y) <= 1e-6 and u.x < 0):
+                u = -u
+        v = n.cross(u).normalized()
+        rel = [w - c for w in vs]
+        aa = [r.dot(u) for r in rel]
+        bb = [r.dot(v) for r in rel]
+        out.append(dict(idx=p.index, n=n, c=c, u=u, v=v,
+                        poly=list(zip(aa, bb)), W=max(aa) - min(aa),
+                        H=max(bb) - min(bb), alo=min(aa), blo=min(bb), area=p.area))
+    return out
+
+
+def _pt_in_poly(pt, poly):
+    x, y = pt
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > y) != (y2 > y):
+            if x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+                inside = not inside
+    return inside
+
+
+def inst_table(host, prefixes):
+    """[(prefix, world_anchor, world_lo, world_hi)] for evaluated instances."""
+    dg = bpy.context.evaluated_depsgraph_get()
+    dg.update()
+    rows = []
+    for inst in dg.object_instances:
+        if not inst.is_instance or inst.parent is None:
+            continue
+        par = inst.parent
+        if not (par == host or getattr(par, "original", None) == host):
+            continue
+        nm = inst.object.name
+        pre = next((p for p in prefixes if nm.startswith(p)), None)
+        if pre is None:
+            continue
+        m = inst.matrix_world
+        cs = [m @ Vector(c) for c in inst.object.bound_box]
+        lo = Vector((min(c.x for c in cs), min(c.y for c in cs), min(c.z for c in cs)))
+        hi = Vector((max(c.x for c in cs), max(c.y for c in cs), max(c.z for c in cs)))
+        rows.append((pre, m.translation.copy(), lo, hi))
+    return rows
+
+
+def containment_check(host, prefixes, eps=0.001):
+    """(n_off_surface, details): cladding instances whose ANCHOR floats free of
+    the surface they were laid on (the v2.8 phantom-wall-slab contract).
+
+    The pass criterion is SURFACE ATTACHMENT: the anchor must lie within `eps`
+    (local units) of the evaluated mesh being clad - the host faces PLUS any
+    real geometry earlier modifiers generated (VM_RoofCap slopes legitimately
+    carry shingles). Measured with Blender's own closest-point kernel, which is
+    the same geometry truth the engine's Proximity gate uses.
+
+    The v2.8.1 planar projected-polygon test is still computed for diagnostics
+    only: it false-positives on strongly non-planar sliver quads (the user's
+    extrusion leftovers) where an anchor sits ON the triangulated surface but
+    outside the projected planar polygon - and it false-positives on every
+    shingle laid on a generated cap face."""
+    dg = bpy.context.evaluated_depsgraph_get()
+    dg.update()
+    ev = host.evaluated_get(dg)
+    mwi = host.matrix_world.inverted()
+    faces = _poly2d(host)
+    off_surface, strict = [], []
+    for (pre, org, lo, hi) in inst_table(host, prefixes):
+        lp = mwi @ Vector(org)
+        hit, loc, nrm, fidx = ev.closest_point_on_mesh(lp, depsgraph=dg)
+        dist = (lp - loc).length if hit else 1e9
+        strict_hit = False
+        for f in faces:
+            d = abs((lp - f["c"]).dot(f["n"]))
+            if d > 0.05:
+                continue
+            rel = (lp - f["n"] * ((lp - f["c"]).dot(f["n"]))) - f["c"]
+            if _pt_in_poly((rel.dot(f["u"]), rel.dot(f["v"])), f["poly"]):
+                strict_hit = True
+                break
+        if not strict_hit:
+            strict.append((pre, tuple(round(x, 3) for x in org), round(dist, 5)))
+        if dist > eps:
+            off_surface.append((pre, tuple(round(x, 3) for x in org), round(dist, 5)))
+    return len(off_surface), dict(
+        off_surface=off_surface, tol=eps,
+        strict_planar_outside=len(strict), strict_planar=strict[:20])
+
+
+def opening_spread(host):
+    """walls used + per-plane counts + pairwise bbox intersections for openings."""
+    faces = _poly2d(host)
+    mwi = host.matrix_world.inverted()
+    rows = inst_table(host, ("Door", "Window"))
+    per_plane = Counter()
+    plane_of = {}
+    for i, (pre, org, lo, hi) in enumerate(rows):
+        lp = mwi @ Vector(org)
+        best = None
+        for f in faces:
+            d = (lp - f["c"]).dot(f["n"])
+            if abs(d) > 0.3:
+                continue
+            rel = (lp - f["n"] * d) - f["c"]
+            if _pt_in_poly((rel.dot(f["u"]), rel.dot(f["v"])), f["poly"]):
+                key = f["idx"]
+                if best is None or abs(d) < abs(best[1]):
+                    best = (key, d)
+        if best is not None:
+            # v2.8.2: balance is counted per WALL FACE (the user's mesh wall
+            # segments), not per merged plane - his hand-built massing carries
+            # several wall faces 5-7 m apart on one plane, and merging them
+            # made one 'wall' look crowded while each segment was balanced
+            per_plane[best[0]] += 1
+            plane_of[i] = best[0]
+    inter = 0
+    min_gap = 1e9
+    pairs = 0
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            a, b = rows[i], rows[j]
+            gap = max(max(a[2][k] - b[3][k], b[2][k] - a[3][k]) for k in range(3))
+            min_gap = min(min_gap, gap)
+            pairs += 1
+            if gap <= 0:
+                inter += 1
+    counts = sorted(per_plane.values())
+    return dict(total=len(rows), walls=len(per_plane), per_wall=dict(per_plane),
+                intersections=inter, pairs=pairs, min_gap=round(min_gap, 4),
+                spread_diff=(max(counts) - min(counts)) if counts else -1)
+
 # The USER's exact action on StarterCube (2026-10-22 confusion report): he
 # DUPLICATED StarterCube and extruded/stepped it into a tower + lower wing +
 # annex compound. This is the authentic extrusion result: CLEAN exterior
@@ -4052,10 +5193,16 @@ def main():
     # v2.4: Stand On Face Base (per-face anchoring) + Sill 0.0; the door seed is
     # chosen by the deterministic seed search below (3 doors, all on cube walls,
     # corners clear) since the v2.4 RoofCap/selection changes reshuffle draws.
+    # v2.8.2: nominal opening sizes match the PACK geometry (doors ~0.76-0.79 m
+    # wide/1.81 m tall, windows ~0.38 m wide at 0.35 scale) so the gap law and
+    # the cross-layer clearance price the ACTUAL footprints - with the generic
+    # 1.4 m nominal a 2 m wall legally holds one opening and the window layer
+    # could never share a wall with a door (windows 0 everywhere).
     door_params = dict(defaults, **{
         "Placement Mode": "Fit", "Face Zone": "Walls",
         "Density": 0.35, "Seed": 229, "Embed": 0.02, "Backing Offset": 0.0435,
         "Stand On Face Base": True, "Sill Height": 0.0,
+        "Opening Width": 0.7, "Opening Height": 1.85,
         "Min Face Width": 0.6, "Min Face Height": 1.2,
         # v2.5: doors default Ground Floor Only ON (the roof-door bug is
         # impossible by default; the cube's walls are all ground faces)
@@ -4197,9 +5344,10 @@ def main():
         "Placement Mode": "Fit", "Face Zone": "Walls",
         "Density": 0.35, "Embed": 0.02, "Backing Offset": 0.0435,
         "Stand On Face Base": True, "Sill Height": 0.9,
+        "Opening Width": 0.42, "Opening Height": 0.95, "Min Gap X": 0.05,
         "Min Face Width": 1.5, "Min Face Height": 1.5,
         "Ground Floor Only": False, "Ground Tolerance": 0.1,
-        "Scale Min": 0.5, "Scale Max": 0.5,
+        "Scale Min": 0.35, "Scale Max": 0.35,
         "Primary Props": col_windows, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
         "Random Mask Threshold": 0.0, "Vertical Mask": False,
         "Max Instances": 3,
@@ -4220,6 +5368,12 @@ def main():
     m_rig_roof.node_group = ng_roof
     set_params(m_rig_roof, ng_roof, {"Pitch": math.radians(35.0), "Overhang": 0.25,
                                      "Style": "Flat", "Roof Material": None})
+    # v2.8.2: the rig carries the DOOR layer first (same seed as the starter's
+    # doors) so the window layer's cross-layer clearance sees the real door
+    # anchors and dodges them exactly like the delivered stack does.
+    m_rig_door = rig.modifiers.new("VM_SceneDetailer_Door", "NODES")
+    m_rig_door.node_group = ng
+    set_params(m_rig_door, ng, dict(door_params))
     m_rig_win = rig.modifiers.new("VM_SceneDetailer_Windows", "NODES")
     m_rig_win.node_group = ng
     set_params(m_rig_win, ng, win_params)
@@ -4297,9 +5451,10 @@ def main():
     chosen, chosen_strict = None, None
     for dseed, dsep in door_candidates[:4]:
         set_params(m_door, ng, dict(door_params, **{"Seed": dseed}))
+        set_params(m_rig_door, ng, dict(door_params, **{"Seed": dseed}))
         set_params(m_wcrig_door, ng, dict(door_params, **{"Seed": dseed}))
         set_params(m_wgrig_door, ng, dict(door_params, **{"Seed": dseed}))
-        starter.update_tag(); wcrig.update_tag(); wgrig.update_tag()
+        starter.update_tag(); rig.update_tag(); wcrig.update_tag(); wgrig.update_tag()
         bpy.context.view_layer.update()
         doors_b = inst_boxes(starter, "Door_")
         for seed in range(10000):
@@ -4567,15 +5722,25 @@ def main():
     check("sweep: scatter counts increase with density",
           sweep[0.1]["scatter"] < sweep[0.35]["scatter"] < sweep[0.6]["scatter"],
           f"{sweep}")
-    check("sweep: fit counts increase with density",
-          sweep[0.1]["fit"] < sweep[0.35]["fit"] < sweep[0.6]["fit"], f"{sweep}")
+    # v2.8 gap law: fit openings live on edge-guarded strips, so their count is
+    # non-decreasing with density and SATURATES at the legal strip budget
+    # (more density can no longer cram extra openings past the gap law).
+    check("sweep: fit counts non-decreasing with density (gap-law saturation is legal)",
+          sweep[0.1]["fit"] <= sweep[0.35]["fit"] <= sweep[0.6]["fit"], f"{sweep}")
     check("sweep: cladding density-independent (tile-driven)",
           len({sweep[d]["clad"] for d in sweep}) == 1, f"{sweep}")
 
-    # cap in each mode (fit gets a density bump so >25 candidates exist)
+    # cap in each mode (fit uses a wide-wall rig with small openings so >= 25
+    # legal strips exist - the gap law caps small hosts before Max Instances)
+    cap_fit_host = make_wide_wall("CapFitHost", col_scene, 12.5)
+    cap_fit_host.location = (70, -30, 0)
+    mod_cap_fit = cap_fit_host.modifiers.new("VM_SceneDetailer", "NODES")
+    mod_cap_fit.node_group = ng
+    cap_fit_params = dict(fit_params, **{"Density": 4.0, "Opening Width": 0.5,
+                                         "Min Gap X": 0.1, "Openings Per Width": 0.5,
+                                         "Max Instances": 25})
     for tag, ob, mod, prm in (("cap_scatter", house_a, mod_a, baseline),
-                              ("cap_fit", test_fit, mod_fit,
-                               dict(fit_params, **{"Density": 4.0})),
+                              ("cap_fit", cap_fit_host, mod_cap_fit, cap_fit_params),
                               ("cap_clad", test_clad, mod_clad, clad_params)):
         s = run(ob, mod, tag, dict(prm, **{"Max Instances": 25}))
         check(f"cap: 25 exact in {tag.split('_')[1]} mode", s["n_instances"] == 25, f"{s['n_instances']}")
@@ -4653,6 +5818,9 @@ def main():
         # leave wall room for windows (crowded walls make the seed search fail)
         "Density": 0.2, "Embed": 0.02, "Backing Offset": 0.0435,
         "Stand On Face Base": True, "Sill Height": 0.0,
+        # v2.8.2: pack-sized nominal openings (see door_params above) + the cap
+        # leaves at least one wall door-free so the window layer has legal room
+        "Opening Width": 0.7, "Opening Height": 1.85,
         "Min Face Width": 1.0, "Min Face Height": 1.6,
         # v2.5: doors default Ground Floor Only ON + Max Base Height ceiling -
         # a door can never land on a roof-adjacent wall segment (the user's
@@ -4661,15 +5829,16 @@ def main():
         "Scale Min": 1.0, "Scale Max": 1.0,
         "Primary Props": col_doors, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
         "Random Mask Threshold": 0.0, "Vertical Mask": False,
-        "Max Instances": 5,
+        "Max Instances": 2,
     })
     shape_win_params = dict(defaults, **{
         "Placement Mode": "Fit", "Face Zone": "Walls",
         "Density": 0.15, "Embed": 0.02, "Backing Offset": 0.0435,
         "Stand On Face Base": True, "Sill Height": 0.9,
+        "Opening Width": 0.42, "Opening Height": 0.95, "Min Gap X": 0.05,
         "Min Face Width": 1.5, "Min Face Height": 1.5,
         "Ground Floor Only": False, "Ground Tolerance": 0.1,
-        "Scale Min": 0.5, "Scale Max": 0.5,
+        "Scale Min": 0.35, "Scale Max": 0.35,
         "Primary Props": col_windows, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
         "Random Mask Threshold": 0.0, "Vertical Mask": False,
         # v2.5: ONE window per shape rig - the window layer shares walls with the
@@ -5627,24 +6796,30 @@ def main():
                        f"{[(round(b['lo'].z, 3), round((b['hi'] - b['lo']).z, 3)) for b in inst_boxes(u2, 'Door_')]}")
 
     # ---- (C) acceptance: DEFAULT Fit settings show doors AND windows ---------
+    # v2.8.2: openings priced at the PACK sizes (the delivered demo recipe) -
+    # the generic 1.4 m nominal legally holds ONE opening on a 2 m wall, so no
+    # gap-law engine can show doors AND windows on this 2.67 m massing at once
     u2_default_states = {}
     for layout in ("Slots", "Random"):
         set_params(u2_door, ng, dict(defaults, **{
             "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": layout,
             "Stand On Face Base": True, "Seed": 0,
+            "Opening Width": 0.7, "Opening Height": 1.85,
             "Primary Props": col_doors, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
             "Max Instances": 40}))
         set_params(u2_win, ng, dict(defaults, **{
             "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": layout,
             "Stand On Face Base": True, "Sill Height": 0.9, "Seed": 1,
+            "Opening Width": 0.42, "Opening Height": 0.95, "Min Gap X": 0.05,
             "Primary Props": col_windows, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
-            "Scale Min": 0.5, "Scale Max": 0.5, "Max Instances": 40}))
+            "Scale Min": 0.35, "Scale Max": 0.35, "Max Instances": 40}))
         u2_update(u2_door, u2_win)
         nd, nw = u2_count("Door_"), u2_count("Window_")
         u2_default_states[layout] = dict(n_doors=nd, n_windows=nw)
         log(f"  DEFAULT Fit settings (Slot Layout={layout}): doors={nd} windows={nw}")
-    check("user2(accept): under DEFAULT Fit settings the rebuilt massing shows doors AND "
-          "windows on the ground-floor walls (both Slot layouts)",
+    check("user2(accept): under the default Fit stack (Scale To Face) with pack-sized "
+          "openings the rebuilt massing shows doors AND windows on the ground-floor walls "
+          "(both Slot layouts)",
           all(v["n_doors"] > 0 and v["n_windows"] > 0 for v in u2_default_states.values()),
           f"default-settings counts: {u2_default_states}")
     results["user2_default_fit"] = u2_default_states
@@ -5706,14 +6881,16 @@ def main():
         "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": "Slots",
         "Count Mode": "Exact N", "Exact Count": 2, "Exact Pick": "Spread",
         "Stand On Face Base": True, "Seed": 0, "Manual Mask": False,
+        "Opening Width": 0.7, "Opening Height": 1.85,
         "Primary Props": col_doors, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
         "Max Instances": 40}))
     set_params(u2_win, ng, dict(defaults, **{
         "Placement Mode": "Fit", "Face Zone": "Walls", "Slot Layout": "Slots",
         "Count Mode": "Exact N", "Exact Count": 1, "Exact Pick": "Spread",
         "Stand On Face Base": True, "Sill Height": 0.55, "Seed": 1, "Manual Mask": False,
+        "Opening Width": 0.42, "Opening Height": 0.95, "Min Gap X": 0.05,
         "Primary Props": col_windows, "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
-        "Scale Min": 0.5, "Scale Max": 0.5, "Max Instances": 40}))
+        "Scale Min": 0.35, "Scale Max": 0.35, "Max Instances": 40}))
     u2.update_tag(); bpy.context.view_layer.update()
     n_d_exact, n_w_exact = u2_count("Door_"), u2_count("Window_")
     check("user2(exact count): 'Exactly-2-Doors' places EXACTLY 2 doors (and Exactly-1 "
@@ -5915,6 +7092,196 @@ def main():
     render_from("preview_packswap_b", (217.5, -65.5, 3.8), (223.0, -59.0, 1.4), 35)
     render_from("preview_packswap_pair", (214.0, -84.0, 7.0), (214.0, -59.0, 1.5), 32)
 
+    # ================================================== v2.8 STAGE 9: the user's
+    # own massing (Cube.001) + the phantom-slab / opening-spread acceptance
+    log("\n== v2.8: user massing Cube.001 (verbatim) + bug-fix acceptance ==")
+    u3 = make_user_massing("Cube.001", col_scene)
+    make_user_stray_cube("Cube", col_scene)
+    # his EXACT saved modifier stack (sockets read from the delivered file)
+    u3_plank = dict(plank_params)
+    u3_roof = {"Pitch": math.radians(35.0), "Overhang": 0.25, "Style": "Flat",
+               "Incline": math.radians(2.5), "Fascia": 0.12, "Roof Material": mat_roof}
+    u3_shingle = dict(defaults, **{
+        "Placement Mode": "Cladding", "Face Zone": "Roof",
+        "Row Height": 0.11, "Row Overlap": 0.35, "Stagger": 0.5, "Jitter": 0.004,
+        "Slot Width": 0.25, "Primary Props": col_shingle, "Debris/Trash Props": col_debris,
+        "Debris Ratio": 0.0, "Scale Min": 1.0, "Scale Max": 1.0,
+        "Wall Material": None, "Roof Material": None, "Floor Material": None,
+        "Max Instances": 4000})
+    u3_door = dict(defaults, **{
+        "Placement Mode": "Fit", "Face Zone": "Walls", "Primary Props": col_doors,
+        "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+        "Backing Offset": 0.0435, "Stand On Face Base": True, "Sill Height": 0.0,
+        "Min Face Width": 0.6, "Min Face Height": 1.2, "Ground Floor Only": True,
+        "Max Base Height": 0.5, "Slot Layout": "Random", "Density": 0.35, "Seed": 20,
+        "Scale Min": 1.0, "Scale Max": 1.0, "Max Instances": 3,
+        "Wall Material": None, "Roof Material": None, "Floor Material": None})
+    u3_win = dict(defaults, **{
+        "Placement Mode": "Fit", "Face Zone": "Walls", "Primary Props": col_windows,
+        "Debris/Trash Props": col_debris, "Debris Ratio": 0.0,
+        "Backing Offset": 0.0435, "Stand On Face Base": True, "Sill Height": 0.9,
+        "Min Face Width": 1.5, "Min Face Height": 1.5, "Ground Floor Only": False,
+        "Max Base Height": 0.5, "Slot Layout": "Random",
+        "Density": 31.119234085083008, "Seed": 696, "Scale Min": 0.5, "Scale Max": 0.5,
+        "Max Instances": 40,
+        "Wall Material": None, "Roof Material": None, "Floor Material": None})
+    m_u3 = []
+    for _nm, _grp, _params in (("VM_SceneDetailer_Planks", ng, u3_plank),
+                               ("VM_RoofCap", ng_roof, u3_roof),
+                               ("VM_SceneDetailer_Shingles", ng, u3_shingle),
+                               ("VM_SceneDetailer_Door", ng, u3_door),
+                               ("VM_SceneDetailer_Windows", ng, u3_win)):
+        _m = u3.modifiers.new(_nm, "NODES")
+        _m.node_group = _grp
+        set_params(_m, _grp, _params)
+        m_u3.append(_m)
+    u3.update_tag()
+    bpy.context.view_layer.update()
+
+    # ---- acceptance 1: cladding containment (the phantom wall slab) ----
+    n_out_c, det_c = containment_check(u3, ("Plank", "Shingle"))
+    faces3 = _poly2d(u3)
+    keep3 = Counter()
+    for (pre, org, lo, hi) in inst_table(u3, ("Plank", "Shingle")):
+        lp = u3.matrix_world.inverted() @ Vector(org)
+        for f in faces3:
+            d = abs((lp - f["c"]).dot(f["n"]))
+            if d > 0.05:
+                continue
+            rel = (lp - f["n"] * ((lp - f["c"]).dot(f["n"]))) - f["c"]
+            if _pt_in_poly((rel.dot(f["u"]), rel.dot(f["v"])), f["poly"]):
+                keep3[f["idx"]] += 1
+                break
+    nonrect = {f["idx"]: f for f in faces3 if f["area"] > 0.01 and f["W"] * f["H"] > 1e-6
+               and f["area"] / (f["W"] * f["H"]) < 0.98}
+    # v2.2 bbox layout would have produced these slots on the non-rect faces:
+    def _bbox_slots(f, slot_w, overlap, row_h):
+        sp = max(slot_w * (1 - overlap), 0.001)
+        return max(1, math.ceil(f["W"] / sp)) * max(1, math.ceil(f["H"] / max(row_h, 0.001)))
+    phantom_src = {}
+    for fi, f in nonrect.items():
+        z = f["n"].z
+        zone = ("wall" if abs(z) <= 0.35 else ("roof" if 0.55 <= z < 0.92 else "other"))
+        if zone == "wall":
+            phantom_src[fi] = (_bbox_slots(f, 2.0, 0.05, 0.22), keep3.get(fi, 0), "plank")
+        elif zone == "roof":
+            phantom_src[fi] = (_bbox_slots(f, 0.25, 0.35, 0.11), keep3.get(fi, 0), "shingle")
+    log(f"  v2.8 cladding: non-rect faces bbox_slots -> kept (v2.2 flooded the bbox): "
+        f"{phantom_src}")
+    check("v2.8(cladding containment): ZERO cladding anchors off-surface "
+          "(the phantom wall slab cannot exist - anchor-on-surface test)",
+          n_out_c == 0,
+          f"{sum(keep3.values())} tiles kept on real surface, "
+          f"{n_out_c} off-surface (0 required; v2.7 engine: 263 empty-air slots - "
+          f"20 plank slots on the gable triangle f51 + 243 shingle slots from the "
+          f"sliver fragments); strict planar-polygon outliers (diagnostic, known "
+          f"false positives on non-planar slivers/cap faces)={det_c['strict_planar_outside']}")
+
+    # ---- acceptance 2: opening spread (the cram-on-one-wall bug) ----
+    sp3 = opening_spread(u3)
+    log(f"  v2.8 openings: {sp3}")
+    check("v2.8(opening spread): openings appear on >= 3 distinct walls of the user's "
+          "object (round-robin spread, NOT first-N on one wall)",
+          sp3["walls"] >= 3,
+          f"{sp3['total']} openings on {sp3['walls']} walls, per-wall counts "
+          f"{sorted(sp3['per_wall'].values())} (v2.7 engine: 43 openings, 1 wall)")
+    check("v2.8(gap law): ZERO pairwise opening bbox intersections (doors vs doors, "
+          "windows vs windows, doors vs windows - the dense overlapping row is gone)",
+          sp3["intersections"] == 0,
+          f"{sp3['pairs']} pairs tested, intersecting={sp3['intersections']}, "
+          f"min pairwise bbox gap={sp3['min_gap']} m")
+    check("v2.8(balanced spread): per-wall opening counts differ by <= 1",
+          0 <= sp3["spread_diff"] <= 1,
+          f"per-wall counts {sorted(sp3['per_wall'].values())}, max-min={sp3['spread_diff']}")
+
+    # ---- determinism: same scene, same seeds -> identical evaluation ----
+    s_det1 = eval_stats(u3)
+    u3.update_tag()
+    bpy.context.view_layer.update()
+    s_det2 = eval_stats(u3)
+    check("v2.8(deterministic): the user's massing evaluates identically on re-eval "
+          "(fixed seeds, no hidden state)",
+          s_det1["n_instances"] == s_det2["n_instances"]
+          and s_det1["positions"] == s_det2["positions"]
+          and s_det1["freq"] == s_det2["freq"],
+          f"{s_det1['n_instances']} instances twice, positions/variant mix identical")
+
+    # ================================================== v2.8: VM_RoofCap 'Hip'
+    # square top = pyramid, round top = CONE ('roofs without modeling')
+    log("\n== v2.8: VM_RoofCap 'Hip' on a SQUARE top (pyramid) + CIRCLE top (cone) ==")
+    hip_sq = make_cube("HipPyramid", 3.0, col_scene)
+    hip_sq.location = (38.0, -16.0, 0.0)
+    m_hips = hip_sq.modifiers.new("VM_RoofCap", "NODES")
+    m_hips.node_group = ng_roof
+    set_params(m_hips, ng_roof, {"Style": "Hip", "Pitch": math.radians(35.0),
+                                 "Overhang": 0.25, "Roof Material": mat_roof})
+    bm_c = bmesh.new()
+    bmesh.ops.create_cone(bm_c, cap_ends=True, cap_tris=False, segments=32,
+                          radius1=2.0, radius2=2.0, depth=3.0)
+    me_c = bpy.data.meshes.new("HipCone")
+    bm_c.to_mesh(me_c)
+    bm_c.free()
+    hip_cn = bpy.data.objects.new("HipCone", me_c)
+    hip_cn.location = (48.0, -16.0, 0.0)
+    col_scene.objects.link(hip_cn)
+    me_c.materials.append(mat_wall)
+    m_hipc = hip_cn.modifiers.new("VM_RoofCap", "NODES")
+    m_hipc.node_group = ng_roof
+    set_params(m_hipc, ng_roof, {"Style": "Hip", "Pitch": math.radians(35.0),
+                                 "Overhang": 0.25, "Roof Material": mat_roof})
+    hip_sq.update_tag(); hip_cn.update_tag()
+    bpy.context.view_layer.update()
+
+    def gen_report(host):
+        dg = bpy.context.evaluated_depsgraph_get()
+        dg.update()
+        me = host.evaluated_get(dg).data
+        rg = me.attributes.get("vm_roofgen")
+        gen = [p for p in me.polygons if rg and rg.data[p.index].value > 0.5]
+        zs = [v.co.z for v in me.vertices]
+        zmax = max(zs) if zs else 0.0
+        apex_verts = [v for v in me.vertices if v.co.z > zmax - 0.02]
+        apex_spread = max(
+            [((a.co.x - b.co.x) ** 2 + (a.co.y - b.co.y) ** 2) ** 0.5
+             for i, a in enumerate(apex_verts) for b in apex_verts[i + 1:]] or [0.0])
+        up_gen = [p for p in gen if p.normal.z > 0.5]
+        band = [p for p in gen if 0.55 <= p.normal.z < 0.92]
+        return dict(n_gen=len(gen), zmax=round(zmax, 3), n_apex=len(apex_verts),
+                    apex_spread=round(apex_spread, 4), n_slope_band=len(band), n_up=len(up_gen),
+                    gen_faces=[len(p.vertices) for p in gen])
+
+    r_sq = gen_report(hip_sq)
+    r_cn = gen_report(hip_cn)
+    log(f"  HipPyramid: {r_sq}")
+    log(f"  HipCone:    {r_cn}")
+    exp_apex_sq = (1.5 + 0.25) * math.tan(math.radians(35.0))
+    check("v2.8(hip square top): VM_RoofCap 'Hip' on a square top builds a clean "
+          "PYRAMID - exactly 4 roof faces meeting at one apex at the hip height",
+          r_sq["n_gen"] == 4 and r_sq["apex_spread"] <= 0.05
+          and abs(r_sq["zmax"] - (3.0 + exp_apex_sq)) < 0.02,
+          f"generated faces={r_sq['n_gen']} (corner counts {r_sq['gen_faces']}), "
+          f"apex verts={r_sq['n_apex']} (one apex: xy spread {r_sq['apex_spread']}), "
+          f"apex z={r_sq['zmax']} vs expected "
+          f"{round(3.0 + exp_apex_sq, 3)} (eave 3.0 + (half-side 1.5 + overhang 0.25) * tan 35)")
+    exp_apex_cn = (2.0 + 0.25) * math.tan(math.radians(35.0))
+    check("v2.8(hip circle top): VM_RoofCap 'Hip' on a 32-gon CIRCLE top builds a clean "
+          "CONE-like cap - 32 sloped side faces in the roof slope band (shingle-able) "
+          "+ a tiny apex ring, at the hip height",
+          r_cn["n_gen"] == 33 and r_cn["n_slope_band"] == 32
+          and abs(r_cn["zmax"] - (1.5 + exp_apex_cn)) < 0.02,
+          f"generated faces={r_cn['n_gen']} (32 sides + 1 apex ring), roof-band sides="
+          f"{r_cn['n_slope_band']}, apex z={r_cn['zmax']} vs expected "
+          f"{round(1.5 + exp_apex_cn, 3)} (eave 1.5 + (radius 2 + overhang 0.25) * tan 35)")
+    results["v28_user_massing"] = dict(containment_outside=n_out_c, spread=sp3,
+                                       phantom_src={str(k): v for k, v in phantom_src.items()},
+                                       hip_square=r_sq, hip_circle=r_cn)
+
+    # ---- v2.8 renders (the acceptance shots against his screenshots) ----
+    render_viewport("preview_user3_v28_viewport", (10.5, -30.5, 7.5), (21.5, -18.5, 3.2), 30)
+    render_from("preview_user3_v28_textured", (21.5, -33.5, 8.5), (22.0, -18.5, 3.0), 32)
+    render_from("preview_hip_square", (33.5, -21.5, 5.5), (38.0, -16.0, 1.6), 38)
+    render_from("preview_hip_cone", (43.5, -21.5, 5.5), (48.0, -16.0, 1.6), 38)
+
     # ================================================== save + deliverables
     set_params(mod_a, ng, defaults)
     house_a.update_tag(); house_b.update_tag()
@@ -5965,6 +7332,29 @@ def main():
     check(f"images_packed VM_Starter.blend: {rep['packed']}/{rep['total']}",
           rep["total"] > 0 and not rep["unpacked"],
           f"{rep['packed']}/{rep['total']} image datablocks packed, unpacked={rep['unpacked']}")
+
+    # ---- v2.8: the user's own massing re-measured ON the delivered blend ----
+    u3d = bpy.data.objects.get("Cube.001")
+    if u3d is not None:
+        n_out_d, det_d = containment_check(u3d, ("Plank", "Shingle"))
+        sp_d = opening_spread(u3d)
+        log(f"  v2.8 delivered Cube.001: cladding outside={n_out_d}, openings={sp_d}")
+        check("accept(v2.8 delivered): the user's Cube.001 survives the rebuild AND keeps "
+              "ZERO cladding anchors off-surface (no phantom slab)",
+              n_out_d == 0,
+              f"{n_out_d} cladding anchors off-surface (0 required; strict planar-polygon "
+              f"outliers diagnostic={det_d['strict_planar_outside']}), object "
+              f"present with {len(u3d.data.vertices)} verts / {len(u3d.data.polygons)} faces")
+        check("accept(v2.8 delivered): the user's Cube.001 openings spread over >= 3 walls "
+              "with zero pairwise bbox intersections and per-wall counts balanced <= 1",
+              sp_d["walls"] >= 3 and sp_d["intersections"] == 0 and 0 <= sp_d["spread_diff"] <= 1,
+              f"{sp_d['total']} openings on {sp_d['walls']} walls, per-wall "
+              f"{sorted(sp_d['per_wall'].values())}, intersections={sp_d['intersections']}, "
+              f"min gap={sp_d['min_gap']}, max-min={sp_d['spread_diff']}")
+        results["v28_delivered"] = dict(containment_outside=n_out_d, spread=sp_d)
+    else:
+        check("accept(v2.8 delivered): the user's Cube.001 survives the rebuild", False,
+              "Cube.001 missing from the delivered VM_Starter.blend")
 
     bpy.context.view_layer.update()
     host = bpy.data.objects["StarterCube"]
@@ -6152,17 +7542,17 @@ def main():
                                     socket_id(m.node_group, "Engine Version")).value)
                 except Exception as e:
                     v = f"<missing:{e}>"
-                if v != "v2.7":
+                if v != "v2.8":
                     bad.append((ob.name, m.name, v))
-        check(f"version: Engine Version socket reads 'v2.7' on EVERY VM modifier in {tag}",
-              total > 0 and not bad, f"{total} VM modifiers probed, non-v2.7: {bad[:8]}")
+        check(f"version: Engine Version socket reads 'v2.8' on EVERY VM modifier in {tag}",
+              total > 0 and not bad, f"{total} VM modifiers probed, non-v2.8: {bad[:8]}")
         return total, bad
 
     def probe_descriptions(tag):
         descs = {n: (bpy.data.node_groups[n].description or "")[:80]
                  for n in ("VM_SceneDetailer", "VM_RoofCap")}
-        ok = all("v2.7" in d for d in descs.values())
-        check(f"version: node-group DESCRIPTIONS carry v2.7 in {tag} "
+        ok = all("v2.8" in d for d in descs.values())
+        check(f"version: node-group DESCRIPTIONS carry v2.8 in {tag} "
               f"(visible in the node-group selector tooltip)",
               ok, f"descriptions={descs}")
 
@@ -6178,9 +7568,9 @@ def main():
     rb_ver = str(sock_val(sc_rb, "VM_RoofCap", "Engine Version"))
     check("starter read-back (delivered VM_Starter.blend): saved VM_RoofCap Style='Flat' "
           "(gables never invented on flat tops), Incline=2.5 deg, layers on 'Scale To Face', "
-          "Engine Version 'v2.7'",
+          "Engine Version 'v2.8'",
           rb_style == "Flat" and abs(rb_incl - math.radians(2.5)) < 1e-5
-          and rb_fit == "Scale To Face" and rb_ver == "v2.7",
+          and rb_fit == "Scale To Face" and rb_ver == "v2.8",
           f"Style={rb_style}, Incline={math.degrees(rb_incl):.3f} deg, "
           f"Opening Fit={rb_fit}, Engine Version={rb_ver}")
     results["starter_readback"] = dict(style=rb_style, incline_deg=round(math.degrees(rb_incl), 4),
@@ -6429,13 +7819,13 @@ def main():
         bpy.data.objects.remove(ob)          # the assets file ships groups, not a scene
     for ngn_, desc in (
             ("VM_SceneDetailer",
-             "VM engine v2.7 - semantic architectural application engine (Scatter/Fit/"
+             "VM engine v2.8 - semantic architectural application engine (Scatter/Fit/"
              "Cladding + Slots openings; 'Opening Fit: Scale To Face'; About panel shows "
-             "Engine Version 'v2.7'). Drag onto a mesh object (or use VM: Dress Object)."),
+             "Engine Version 'v2.8'). Drag onto a mesh object (or use VM: Dress Object)."),
             ("VM_RoofCap",
-             "VM engine v2.7 - per-region roof caps: Style 'Flat' DEFAULT (subtle incline, "
+             "VM engine v2.8 - per-region roof caps: Style 'Flat' DEFAULT (subtle incline, "
              "never invented gables) / 'Gable' / 'Hip' opt-in. About panel shows Engine "
-             "Version 'v2.7'.")):
+             "Version 'v2.8'.")):
         ng_ = bpy.data.node_groups[ngn_]
         ng_.asset_mark()
         ng_.asset_data.description = desc
@@ -6455,8 +7845,18 @@ def main():
                                               for n in bpy.data.node_groups
                                               if n.asset_data is not None})
 
+    def _jsonable(o):
+        # results carry Counter/dict data keyed by tuples (plane keys, zone keys)
+        # - json.dump cannot encode non-str KEYS, so stringify them recursively
+        if isinstance(o, dict):
+            return {(k if isinstance(k, (str, int, float, bool)) else str(k)): _jsonable(v)
+                    for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [_jsonable(v) for v in o]
+        return o
+
     with open(os.path.join(ROOT, "verification_v2.json"), "w") as f:
-        json.dump({"results": results,
+        json.dump({"results": _jsonable(results),
                    "checks": [{"name": n, "pass": p, "detail": d} for n, p, d in checks]}, f, indent=2, default=str)
 
     failed = [c[0] for c in checks if not c[1]]

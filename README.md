@@ -39,10 +39,10 @@ mirror; sources here are canonical).
 ## Versioning
 
 Every version bump = a git tag + a GitHub release on this repo. Current:
-**v2.7** (Flat default + gables opt-in, Engine Version labels, packaged UX:
-Dress Object / Copy-Paste setup / presets / Asset Browser bundle. v2.6 =
-openings fit any wall + manual/exact placement; earlier: v2.5 slot math,
-v2.4 shape robustness, v2.3 pack adapter, v2.2 engine v2 base).
+**v2.8** (cladding confined to real faces, openings spread across walls,
+Hip cone on round tops; v2.7 = Flat default + packaged UX; earlier: v2.6
+openings/manual placement, v2.5 slot math, v2.4 shape robustness, v2.3 pack
+adapter, v2.2 engine v2 base). Roadmap tickets live in GitHub Issues (#1-#5).
 
 ## Roadmap
 

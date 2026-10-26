@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.7) - BOTH node groups marked as BLENDER ASSETS for the
+  VM_Assets.blend (v2.8) - BOTH node groups marked as BLENDER ASSETS for the
     Asset Browser: add this file ONCE to Blender's asset libraries (see
     'ZERO-SETUP UX' below) and drag the engine onto any object in any file
-  VM_Tools_Addon.py (v2.7) - one-click helpers: 'VM: Dress Object' (full
-    default v2.7 stack on selected objects), 'VM: Copy/Paste Engine Setup'
+  VM_Tools_Addon.py (v2.8) - one-click helpers: 'VM: Dress Object' (full
+    default v2.8 stack on selected objects), 'VM: Copy/Paste Engine Setup'
     (copy the whole VM_* modifier stack, incl. collection references, between
     objects) and 'VM: Save/Load Preset <name>' (JSON setups that travel
     across .blend files). Install as an add-on (see 'ZERO-SETUP UX' below)
@@ -32,13 +32,57 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (223 checks: the original 197 kept
-    green + 26 v2.7 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (232 checks: the original 197 kept
+    green + 35 v2.7/v2.8 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
 
+v2.8 (2026-10-23) - the user's own-massing bug report, fixed at the engine level
+--------------------------------------------------------------------------------
+Two placement bugs he hit on his hand-built massing ('Cube.001' - kept in
+VM_Starter.blend exactly as he left it):
+  * PHANTOM WALL SLAB (a whole plank/shingle quad standing tilted above the
+    roofline): the v2.2 cladding course layout fills the face BOUNDING BOX,
+    so non-rectangular faces (his gable-end TRIANGLE + thin sliver fragments
+    at the roofline) flooded tiles into empty air (measured: 20 plank slots
+    on the triangle + 243 shingle slots from two slivers). v2.8: every
+    cladding slot passes a POINT-IN-FACE containment test (exact proximity
+    distance to the host mesh) - tiles are only ever placed INSIDE a real
+    face polygon. Measured on his object: 0 anchors off-surface (was 263
+    empty-air slots).
+  * OPENINGS CRAMMED ONTO ONE WALL (a dense overlapping row): the Max
+    Instances cap kept the FIRST N candidates in point order, so the first
+    wall swallowed every opening (his doors: 3/3 and windows: 40/40 on one
+    wall) and the 'Random' layout had no gap law at all (297 intersecting
+    pairs). v2.8: openings snap onto the wall's OPENING GRID (one per wall
+    plane and column, gap law kept in BOTH layouts), the cap spends its
+    budget ROUND-ROBIN (one opening per qualifying wall before any wall gets
+    a second), and every layer marks its openings so LATER layers can never
+    overlap them (doors vs windows included). Measured on his object with
+    his EXACT saved sockets: 13 openings spread over 5 wall faces, 0
+    intersections, per-wall counts balanced (max-min 1). v2.8.2 additionally:
+    the opening grid fills each wall EVENLY (a 1.6 m tower wall gets its door
+    centred, not edge-rejected), the cross-layer clearance prices the actual
+    pack footprints so doors and windows can share a wall without overlap, and
+    VM_RoofCap 'Hip' heights come from the full outline extent (cone apex at
+    eave + (radius + overhang) * tan pitch).
+Also new: VM_RoofCap 'Hip' builds a CONE on round/cylindrical tops (see
+'ROOFS WITHOUT MODELING') - the answer to "how do I make a cone roof".
+
 SCENE CONTENTS - WHAT TO LOOK AT, WHAT TO IGNORE
 ------------------------------------------------
+* LOOK AT (v2.8): "Cube.001" (x=19, y=-16) - the USER's own hand-built
+  massing (porch block + main box + east wing + hand-built gable-ish
+  protrusion), rebuilt VERBATIM from his saved file (104 verts / 81 faces,
+  duplicate verts and fill quads included) and dressed with HIS exact saved
+  five-layer stack. This is the v2.8 acceptance object: the phantom slab is
+  gone (cladding confined to the face polygons) and the doors/windows spread
+  over the walls without overlapping (preview_user3_v28_viewport.png /
+  preview_user3_v28_textured.png). His stray parked "Cube" (x=11, y=26) is
+  preserved too.
+* LOOK AT (v2.8): "HipPyramid" (x=38, y=-16) + "HipCone" (x=48, y=-16) -
+  VM_RoofCap 'Hip' on a square top (pyramid) and on a 32-gon cylinder top
+  (cone), preview_hip_square.png / preview_hip_cone.png.
 * LOOK AT: "StarterCube" + "StarterGround" (near x=0, y=-40) - the v2
   worked example described below. The preview_starter_house.png render is
   exactly this. v2.7: StarterCube is the canonical CURRENT-DEFAULTS demo -
@@ -105,11 +149,11 @@ Add Modifier > VM_SceneDetailer + VM_RoofCap on a fresh cube, touch NOTHING:
 This exact path is rendered in preview_default_path.png and verified by the
 checks 'default path: ...' in verification_v2.json.
 
-WHICH VERSION AM I RUNNING? (v2.7)
+WHICH VERSION AM I RUNNING? (v2.8)
 ----------------------------------
 The engine version is now VISIBLE on every modifier:
   1. Select the dressed object and open any VM modifier. The FIRST panel is
-     'About' with an 'Engine Version' string socket - it reads 'v2.7' on this
+     'About' with an 'Engine Version' string socket - it reads 'v2.8' on this
      release. The 'Usage Hint' socket under it is a one-line reminder.
   2. Hover the node group in the modifier's node-group selector: the tooltip
      shows the group DESCRIPTION, which also carries the version.
@@ -172,10 +216,10 @@ INSTALL ONCE:
   * Asset library: Blender > Edit > Preferences > File Paths > Asset
     Libraries > add THIS FOLDER (or point at VM_Assets.blend's folder). The
     Asset Browser then shows 'VM_SceneDetailer' and 'VM_RoofCap' (both carry
-    the v2.7 description) - drag either onto any object in ANY file.
+    the v2.8 description) - drag either onto any object in ANY file.
 
 OPERATORS (VM Tools panel):
-  * VM: Dress Object       - one click = the FULL default v2.7 stack on all
+  * VM: Dress Object       - one click = the FULL default v2.8 stack on all
     selected meshes (wall cladding, VM_RoofCap 'Flat', roof cladding, doors,
     windows - the StarterCube recipe with current defaults). Collections are
     intentionally left EMPTY: assigning the variant collections in the Assets
@@ -468,7 +512,9 @@ Style      Flat (DEFAULT since v2.7) = NEAR-FLAT CAP over every flat top -
            which is why it is now the default: gables only on request);
            Gable = ridge runs the full length of the region's LONG axis;
            Hip = ridge shortened by half the short side (on a square footprint
-           this becomes a pyramid). Both are OPT-IN pitch since v2.7.
+           this becomes a pyramid; since v2.8 on a ROUND/cylindrical top it
+           becomes a CONE - see 'ROOFS WITHOUT MODELING' below). Both are
+           OPT-IN pitch since v2.7.
 Incline    (v2.6, Flat style) subtle cap incline along the region's long
            axis - a world ANGLE, default 2.5 deg (the roof reads flat but
            drains). Measured on UserShape2: exactly 2.5 deg per cap.
@@ -493,6 +539,44 @@ now means 'no gable', never 'no roof'; the report's 'uncovered' list must stay
 empty (verified on UserShape2 and the whole shape matrix).
 Generated faces carry the 'vm_roofgen' face attribute: 1 = gable/hip faces,
 2 = flat-cap faces - Fit never anchors doors/windows on either.
+
+ROOFS WITHOUT MODELING (v2.8)
+-----------------------------
+You never need to model a roof by hand - pick the STYLE that matches your
+top face and VM_RoofCap builds it:
+  * Square / rectangular top + Style 'Hip'  ->  a PYRAMID (ridge shrinks to
+    the apex on a square footprint; on an oblong top a normal hip roof).
+  * Round / cylindrical top (a cylinder's n-gon cap) + Style 'Hip'  ->  a
+    CONE-like cap (the v2.8 cone path: the outline rises to a tiny apex ring
+    at the hip height, so the sides land in the roof slope band and shingles
+    clad them like any pitched roof).
+  * Ridge roof (oblong top, ridge along the long axis)  ->  Style 'Gable'.
+  * Flat-topped / stepped designs  ->  Style 'Flat' (the default; subtle
+    2.5 deg incline + fascia, never invented gable triangles).
+For a mathematically TRUE cone (perfectly circular rim) you can also model a
+cylinder and cap it by hand - but the engine's cone path is the zero-modeling
+route and is what the Hip style gives you on any round top. Verified in this
+build on two demo objects in VM_Starter.blend: 'HipPyramid' (square top) and
+'HipCone' (32-gon cylinder top) - see preview_hip_square.png /
+preview_hip_cone.png and the v2.8 checks in verification_v2.json.
+
+MESH-QUALITY CAVEAT (v2.8, read this if you hand-model massing):
+the engine now HANDLES messy topology instead of tripping on it, but clean
+input still dresses best. Specifically:
+  * Cladding on non-rectangular faces (triangles, trapezoids, thin sliver
+    fragments left by boolean/extrude leftovers) is now CONFINED to the real
+    face polygon - tiles whose slot would fall outside the face are dropped
+    (previously the v2.2 course layout filled the face BOUNDING BOX and the
+    overflow stood in empty air as a phantom slab). Partial cladding on a
+    non-rect face is intended behavior.
+  * Duplicate coincident faces (the same wall modeled twice with opposite
+    windings) share ONE opening grid since v2.8 (they used to mirror each
+    other's columns and collide) - but cladding still tiles both copies;
+    delete the duplicate face for a clean result.
+  * Flipped/inverted normals are tolerated (tiles straddle the wall plane),
+    but a face wound inside-out is still a modeling defect - Mesh > Normals >
+    Recalculate Outside is the real fix.
+  * Zero-area fill quads are ignored (no zone, no cladding, no openings).
 
 v2.4 PER-REGION BEHAVIOR: every qualifying up-facing QUAD top face (>= Min
 Roof Face Size) is treated as its own roof region and gets its own gable/hip

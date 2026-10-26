@@ -1421,24 +1421,20 @@
       "distinct_yaws": 56
     },
     "doors_seed_search": {
-      "seed": 20,
-      "seeds_tried": 164,
+      "seed": 0,
+      "seeds_tried": 3,
       "candidates": [
         {
-          "seed": 20,
-          "min_sep": 0.86644
+          "seed": 0,
+          "min_sep": 1.4425
         },
         {
-          "seed": 38,
-          "min_sep": 1.38554
+          "seed": 1,
+          "min_sep": 1.44238
         },
         {
-          "seed": 108,
-          "min_sep": 1.60129
-        },
-        {
-          "seed": 163,
-          "min_sep": 1.7685
+          "seed": 2,
+          "min_sep": 1.43188
         }
       ],
       "hosts": [
@@ -1448,17 +1444,17 @@
       ]
     },
     "windows_seed_search": {
-      "seed": 687,
-      "seeds_tried": 10000,
+      "seed": 0,
+      "seeds_tried": 1,
       "fallback": {
-        "door": 20,
-        "seed": 687,
-        "visible": 2,
-        "min_gap": 0.01153
+        "door": 0,
+        "seed": 0,
+        "visible": 1,
+        "min_gap": 0.0129
       },
       "full_stack_ok": true,
-      "full_stack_visible": 2,
-      "full_stack_min_gap": 0.01153
+      "full_stack_visible": 1,
+      "full_stack_min_gap": 0.0129
     },
     "gable_showcase": {
       "roof": {
@@ -1492,7 +1488,7 @@
       "n_windows": 3,
       "doors": [
         {
-          "name": "Door_04",
+          "name": "Door_03",
           "exterior": true,
           "face_base": 0.0,
           "base_z": 0.0,
@@ -1518,11 +1514,11 @@
       ],
       "windows": [
         {
-          "name": "Window_01",
+          "name": "Window_02",
           "exterior": true,
           "face_base": 0.0,
           "base_z": 0.9,
-          "height": 0.9,
+          "height": 0.63,
           "face_h": 2.2
         },
         {
@@ -1530,15 +1526,15 @@
           "exterior": true,
           "face_base": 0.0,
           "base_z": 0.9,
-          "height": 0.9631,
+          "height": 0.6742,
           "face_h": 2.2
         },
         {
-          "name": "Window_02",
+          "name": "Window_01",
           "exterior": true,
           "face_base": 0.0,
           "base_z": 0.9,
-          "height": 0.9,
+          "height": 0.63,
           "face_h": 2.2
         }
       ],
@@ -1582,16 +1578,15 @@
     },
     "starter_house": {
       "n_instances": 86,
-      "instance_verts": 3196,
+      "instance_verts": 3408,
       "host_verts": 8,
-      "total_verts": 3204,
+      "total_verts": 3416,
       "freq": {
-        "Window_01": 1,
-        "Window_03": 1,
         "Window_02": 1,
-        "Door_04": 1,
+        "Window_03": 1,
+        "Window_01": 1,
+        "Door_03": 2,
         "Door_02": 1,
-        "Door_03": 1,
         "Plank_02": 27,
         "Plank_03": 24,
         "Plank_01": 29
@@ -1600,30 +1595,28 @@
       "distinct_yaws": 4
     },
     "fit_walls_density0.6": {
-      "n_instances": 10,
-      "instance_verts": 2682,
+      "n_instances": 4,
+      "instance_verts": 1486,
       "host_verts": 8,
-      "total_verts": 2690,
+      "total_verts": 1494,
       "freq": {
-        "Door_03": 3,
+        "Door_03": 2,
         "Door_05": 1,
-        "Door_02": 4,
-        "Door_04": 1,
-        "Door_01": 1
+        "Door_02": 1
       },
       "distinct_scales": 1,
       "distinct_yaws": 4
     },
     "fit_zone_counts": {
-      "on_wall": 10,
+      "on_wall": 4,
       "on_top": 0,
       "on_bottom": 0,
       "off": 0,
       "per_wall": {
-        "y-": 2,
-        "y+": 3,
-        "x-": 3,
-        "x+": 2
+        "y-": 1,
+        "y+": 1,
+        "x-": 1,
+        "x+": 1
       },
       "z_range": [
         0.0,
@@ -1631,12 +1624,6 @@
       ]
     },
     "fit_embed_depths": [
-      0.03,
-      0.03,
-      0.03,
-      0.03,
-      0.03,
-      0.03,
       0.03,
       0.03,
       0.03,
@@ -1663,8 +1650,8 @@
       "off": 224,
       "per_wall": {},
       "z_range": [
-        2.055,
-        2.825
+        2.059,
+        2.82
       ]
     },
     "zone_roof_band": {
@@ -1826,15 +1813,14 @@
       "distinct_yaws": 141
     },
     "sweep_fit_0.35": {
-      "n_instances": 6,
-      "instance_verts": 2210,
+      "n_instances": 4,
+      "instance_verts": 1486,
       "host_verts": 8,
-      "total_verts": 2218,
+      "total_verts": 1494,
       "freq": {
-        "Door_03": 3,
+        "Door_03": 2,
         "Door_05": 1,
-        "Door_02": 1,
-        "Door_04": 1
+        "Door_02": 1
       },
       "distinct_scales": 1,
       "distinct_yaws": 4
@@ -1873,16 +1859,14 @@
       "distinct_yaws": 210
     },
     "sweep_fit_0.6": {
-      "n_instances": 10,
-      "instance_verts": 2682,
+      "n_instances": 4,
+      "instance_verts": 1486,
       "host_verts": 8,
-      "total_verts": 2690,
+      "total_verts": 1494,
       "freq": {
-        "Door_03": 3,
+        "Door_03": 2,
         "Door_05": 1,
-        "Door_02": 4,
-        "Door_04": 1,
-        "Door_01": 1
+        "Door_02": 1
       },
       "distinct_scales": 1,
       "distinct_yaws": 4
@@ -1909,12 +1893,12 @@
       },
       "0.35": {
         "scatter": 180,
-        "fit": 6,
+        "fit": 4,
         "clad": 520
       },
       "0.6": {
         "scatter": 309,
-        "fit": 10,
+        "fit": 4,
         "clad": 520
       }
     },
@@ -1948,7 +1932,7 @@
         "Door_01": 1
       },
       "distinct_scales": 1,
-      "distinct_yaws": 2
+      "distinct_yaws": 4
     },
     "cap_clad": {
       "n_instances": 25,
@@ -2038,15 +2022,15 @@
     "shape_matrix": {
       "CompoundTest": {
         "desc": "L-shaped stepped compound: tall block + lower wing, concave inner corner, two flat tops",
-        "door_seed": 1,
+        "door_seed": 0,
         "win_seed": 0,
         "seeds_tried": {
-          "door": 2,
+          "door": 1,
           "window": 1
         },
         "fallbacks": {
           "door": {
-            "seed": 1,
+            "seed": 0,
             "score": 1.0
           },
           "window": {
@@ -2056,7 +2040,7 @@
         },
         "doors": [
           {
-            "name": "Door_01",
+            "name": "Door_03",
             "face": 2,
             "face_base": 0.0,
             "base_z": 0.0,
@@ -2069,39 +2053,6 @@
           {
             "name": "Door_02",
             "face": 4,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 2.0,
-            "face_h": 3.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_03",
-            "face": 4,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 2.0,
-            "face_h": 3.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_04",
-            "face": 5,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 2.0,
-            "face_h": 3.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_03",
-            "face": 5,
             "face_base": 0.0,
             "base_z": 0.0,
             "delta": 0.0,
@@ -2124,7 +2075,7 @@
             "ok": true
           }
         ],
-        "n_doors": 5,
+        "n_doors": 2,
         "n_windows": 1,
         "n_planks": 145,
         "n_shingles": 888,
@@ -7327,29 +7278,29 @@
             0.15
           ]
         ],
-        "min_gap": 0.30216
+        "min_gap": 0.09978
       },
       "CompoundScaled": {
         "desc": "same compound NON-UNIFORMLY scaled (x1.6 wider/taller), object scale left as-is",
-        "door_seed": 1,
-        "win_seed": 0,
+        "door_seed": 0,
+        "win_seed": 1,
         "seeds_tried": {
-          "door": 2,
-          "window": 1
+          "door": 1,
+          "window": 2
         },
         "fallbacks": {
           "door": {
-            "seed": 1,
+            "seed": 0,
             "score": 1.0
           },
           "window": {
-            "seed": 0,
+            "seed": 1,
             "score": 1.0
           }
         },
         "doors": [
           {
-            "name": "Door_01",
+            "name": "Door_03",
             "face": 2,
             "face_base": 0.0,
             "base_z": 0.0,
@@ -7361,55 +7312,9 @@
           },
           {
             "name": "Door_02",
-            "face": 4,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 2.0,
-            "face_h": 5.12,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_03",
-            "face": 4,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 2.0,
-            "face_h": 5.12,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_04",
-            "face": 5,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 3.2,
-            "face_h": 5.12,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_03",
-            "face": 5,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 3.2,
-            "face_h": 5.12,
-            "back": 0.0235,
-            "ok": true
-          }
-        ],
-        "windows": [
-          {
-            "name": "Window_02",
             "face": 3,
             "face_base": 0.0,
-            "base_z": 0.9,
+            "base_z": 0.0,
             "delta": 0.0,
             "face_w": 4.8,
             "face_h": 1.92,
@@ -7417,7 +7322,20 @@
             "ok": true
           }
         ],
-        "n_doors": 5,
+        "windows": [
+          {
+            "name": "Window_01",
+            "face": 2,
+            "face_base": 0.0,
+            "base_z": 0.9,
+            "delta": 0.0,
+            "face_w": 3.2,
+            "face_h": 5.12,
+            "back": 0.0235,
+            "ok": true
+          }
+        ],
+        "n_doors": 2,
         "n_windows": 1,
         "n_planks": 246,
         "n_shingles": 1304,
@@ -15205,52 +15123,30 @@
             0.1519
           ]
         ],
-        "min_gap": 0.34898
+        "min_gap": 0.48524
       },
       "TowerWing": {
         "desc": "tower + lower wing + two unresolved roof regions (triangle top, 0.3m quad top)",
-        "door_seed": 4,
-        "win_seed": 15,
+        "door_seed": 0,
+        "win_seed": 2,
         "seeds_tried": {
-          "door": 5,
-          "window": 16
+          "door": 1,
+          "window": 3
         },
         "fallbacks": {
           "door": {
-            "seed": 4,
+            "seed": 0,
             "score": 1.0
           },
           "window": {
-            "seed": 15,
+            "seed": 2,
             "score": 1.0
           }
         },
         "doors": [
           {
-            "name": "Door_04",
-            "face": 2,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 1.6,
-            "face_h": 3.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_04",
-            "face": 2,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 1.6,
-            "face_h": 3.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
             "name": "Door_03",
-            "face": 5,
+            "face": 2,
             "face_base": 0.0,
             "base_z": 0.0,
             "delta": 0.0,
@@ -15261,7 +15157,7 @@
           },
           {
             "name": "Door_02",
-            "face": 5,
+            "face": 4,
             "face_base": 0.0,
             "base_z": 0.0,
             "delta": 0.0,
@@ -15273,18 +15169,18 @@
         ],
         "windows": [
           {
-            "name": "Window_02",
-            "face": 4,
+            "name": "Window_01",
+            "face": 5,
             "face_base": 0.0,
             "base_z": 0.9,
-            "delta": -0.0,
+            "delta": 0.0,
             "face_w": 1.6,
             "face_h": 3.2,
             "back": 0.0235,
             "ok": true
           }
         ],
-        "n_doors": 4,
+        "n_doors": 2,
         "n_windows": 1,
         "n_planks": 121,
         "n_shingles": 752,
@@ -19709,29 +19605,29 @@
             0.15
           ]
         ],
-        "min_gap": 0.18804
+        "min_gap": 0.45948
       },
       "Warehouse": {
         "desc": "wide low warehouse box: one huge flat top -> one long gable",
-        "door_seed": 6,
-        "win_seed": 2,
+        "door_seed": 0,
+        "win_seed": 0,
         "seeds_tried": {
-          "door": 7,
-          "window": 3
+          "door": 1,
+          "window": 1
         },
         "fallbacks": {
           "door": {
-            "seed": 6,
+            "seed": 0,
             "score": 1.0
           },
           "window": {
-            "seed": 2,
+            "seed": 0,
             "score": 1.0
           }
         },
         "doors": [
           {
-            "name": "Door_05",
+            "name": "Door_03",
             "face": 2,
             "face_base": 0.0,
             "base_z": 0.0,
@@ -19742,45 +19638,12 @@
             "ok": true
           },
           {
-            "name": "Door_05",
-            "face": 2,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 6.0,
-            "face_h": 2.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_03",
+            "name": "Door_02",
             "face": 3,
             "face_base": 0.0,
             "base_z": 0.0,
             "delta": 0.0,
             "face_w": 6.0,
-            "face_h": 2.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_04",
-            "face": 3,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 6.0,
-            "face_h": 2.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_03",
-            "face": 4,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 3.5,
             "face_h": 2.2,
             "back": 0.0235,
             "ok": true
@@ -19788,7 +19651,7 @@
         ],
         "windows": [
           {
-            "name": "Window_01",
+            "name": "Window_02",
             "face": 2,
             "face_base": 0.0,
             "base_z": 0.9,
@@ -19799,7 +19662,7 @@
             "ok": true
           }
         ],
-        "n_doors": 5,
+        "n_doors": 2,
         "n_windows": 1,
         "n_planks": 120,
         "n_shingles": 1840,
@@ -29631,12 +29494,12 @@
             0.15
           ]
         ],
-        "min_gap": 0.27411
+        "min_gap": 3.47821
       }
     },
     "max_base_height_override": {
-      "seed": 5,
-      "seeds_tried": 6,
+      "seed": 90,
+      "seeds_tried": 91,
       "upper_doors": [
         [
           "Door_03",
@@ -29738,10 +29601,10 @@
         "extrude_z": 0.6
       },
       "before_seeds": {
-        "door": 1,
+        "door": 0,
         "win": 0,
         "door_fb": {
-          "seed": 1,
+          "seed": 0,
           "score": 1.0
         },
         "win_fb": {
@@ -29750,19 +29613,19 @@
         }
       },
       "after_seeds": {
-        "door": 10,
-        "win": 2,
+        "door": 0,
+        "win": 1,
         "door_fb": {
-          "seed": 10,
+          "seed": 0,
           "score": 1.0
         },
         "win_fb": {
-          "seed": 2,
+          "seed": 1,
           "score": 1.0
         }
       },
       "before": {
-        "n_doors": 5,
+        "n_doors": 2,
         "n_windows": 1,
         "n_planks": 145,
         "n_shingles": 888,
@@ -29770,7 +29633,7 @@
         "expected_shingles": 888,
         "doors": [
           {
-            "name": "Door_01",
+            "name": "Door_03",
             "face": 2,
             "face_base": 0.0,
             "base_z": 0.0,
@@ -29783,39 +29646,6 @@
           {
             "name": "Door_02",
             "face": 4,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 2.0,
-            "face_h": 3.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_03",
-            "face": 4,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 2.0,
-            "face_h": 3.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_04",
-            "face": 5,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 2.0,
-            "face_h": 3.2,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_03",
-            "face": 5,
             "face_base": 0.0,
             "base_z": 0.0,
             "delta": 0.0,
@@ -29854,7 +29684,7 @@
         }
       },
       "after": {
-        "n_doors": 5,
+        "n_doors": 2,
         "n_windows": 1,
         "n_planks": 240,
         "n_shingles": 1236,
@@ -29862,7 +29692,7 @@
         "expected_shingles": 1236,
         "doors": [
           {
-            "name": "Door_01",
+            "name": "Door_03",
             "face": 2,
             "face_base": 0.0,
             "base_z": 0.0,
@@ -29874,39 +29704,6 @@
           },
           {
             "name": "Door_02",
-            "face": 2,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 3.0,
-            "face_h": 4.48,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_04",
-            "face": 3,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 4.5,
-            "face_h": 1.68,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_02",
-            "face": 3,
-            "face_base": 0.0,
-            "base_z": 0.0,
-            "delta": 0.0,
-            "face_w": 4.5,
-            "face_h": 1.68,
-            "back": 0.0235,
-            "ok": true
-          },
-          {
-            "name": "Door_01",
             "face": 4,
             "face_base": 0.0,
             "base_z": 0.0,
@@ -29958,7 +29755,7 @@
           ]
         }
       },
-      "door_seed": 1,
+      "door_seed": 0,
       "win_seed": 0
     },
     "world_space": {
@@ -29973,7 +29770,7 @@
           "shingles": 1304,
           "expected_planks": 246,
           "expected_shingles": 1304,
-          "doors": 5,
+          "doors": 2,
           "windows": 1
         },
         "CompoundTest": {
@@ -29983,7 +29780,7 @@
         "CompoundWorldRef": {
           "planks": 246,
           "shingles": 1304,
-          "doors": 5,
+          "doors": 2,
           "windows": 1
         }
       },
@@ -30215,12 +30012,12 @@
     },
     "bug_fix": {
       "before": {
-        "seed": 0,
-        "seeds_tried": 1,
-        "n_doors": 6,
+        "seed": 5,
+        "seeds_tried": 6,
+        "n_doors": 5,
         "roof_adjacent": [
           [
-            "Door_05",
+            "Door_04",
             1.9,
             1.9
           ]
@@ -30247,8 +30044,8 @@
           "3": 34,
           "4": 18,
           "5": 16,
-          "6": 27,
-          "7": 27,
+          "6": 21,
+          "7": 21,
           "8": 12,
           "11": 20,
           "14": 17,
@@ -30257,7 +30054,7 @@
         }
       },
       "after": {
-        "n_doors": 6,
+        "n_doors": 4,
         "roof_adjacent": [],
         "flipped": [
           13
@@ -30281,8 +30078,8 @@
           "3": 34,
           "4": 18,
           "5": 16,
-          "6": 27,
-          "7": 27,
+          "6": 21,
+          "7": 21,
           "8": 12,
           "11": 20,
           "14": 17,
@@ -30309,17 +30106,17 @@
         "door_slots": [
           [
             -0.023,
-            1.017,
+            0.983,
+            0.0
+          ],
+          [
+            1.482,
+            2.023,
             0.0
           ],
           [
             1.494,
             -0.023,
-            0.0
-          ],
-          [
-            4.518,
-            2.023,
             0.0
           ],
           [
@@ -30330,24 +30127,24 @@
         ],
         "win_slots": [
           [
-            1.482,
-            2.023,
-            3.3
-          ],
-          [
-            1.517,
-            2.023,
-            0.9
-          ],
-          [
             4.482,
             -0.023,
             3.3
           ],
           [
+            4.483,
+            2.023,
+            0.9
+          ],
+          [
             4.494,
             -0.023,
             0.9
+          ],
+          [
+            4.518,
+            2.023,
+            3.3
           ]
         ]
       },
@@ -30369,17 +30166,17 @@
         "door_slots": [
           [
             -0.023,
-            1.017,
+            0.983,
+            0.0
+          ],
+          [
+            1.482,
+            2.023,
             0.0
           ],
           [
             1.494,
             -0.023,
-            0.0
-          ],
-          [
-            4.518,
-            2.023,
             0.0
           ],
           [
@@ -30390,24 +30187,24 @@
         ],
         "win_slots": [
           [
-            1.482,
-            2.023,
-            3.3
-          ],
-          [
-            1.517,
-            2.023,
-            0.9
-          ],
-          [
             4.482,
             -0.023,
             3.3
           ],
           [
+            4.483,
+            2.023,
+            0.9
+          ],
+          [
             4.494,
             -0.023,
             0.9
+          ],
+          [
+            4.518,
+            2.023,
+            3.3
           ]
         ]
       },
@@ -30861,12 +30658,12 @@
     },
     "user2_default_fit": {
       "Slots": {
-        "n_doors": 8,
-        "n_windows": 4
+        "n_doors": 6,
+        "n_windows": 1
       },
       "Random": {
-        "n_doors": 6,
-        "n_windows": 4
+        "n_doors": 4,
+        "n_windows": 3
       }
     },
     "user2_manual": {
@@ -30890,11 +30687,11 @@
       "door_slots": [
         [
           0.02,
-          1.331,
+          1.336,
           0.0
         ],
         [
-          2.011,
+          1.989,
           1.98,
           0.0
         ]
@@ -30952,6 +30749,122 @@
       "caps": 0,
       "uncovered": []
     },
+    "v28_user_massing": {
+      "containment_outside": 0,
+      "spread": {
+        "total": 9,
+        "walls": 4,
+        "per_wall": {
+          "0": 1,
+          "10": 2,
+          "33": 2,
+          "78": 2
+        },
+        "intersections": 0,
+        "pairs": 36,
+        "min_gap": 0.9283,
+        "spread_diff": 1
+      },
+      "phantom_src": {
+        "31": [
+          4365,
+          4,
+          "shingle"
+        ],
+        "51": [
+          42,
+          21,
+          "plank"
+        ],
+        "54": [
+          56,
+          105,
+          "plank"
+        ],
+        "56": [
+          56,
+          35,
+          "plank"
+        ],
+        "70": [
+          56,
+          0,
+          "plank"
+        ],
+        "72": [
+          56,
+          0,
+          "plank"
+        ],
+        "78": [
+          156,
+          77,
+          "plank"
+        ],
+        "80": [
+          104,
+          12,
+          "plank"
+        ]
+      },
+      "hip_square": {
+        "n_gen": 4,
+        "zmax": 4.227,
+        "n_apex": 4,
+        "apex_spread": 0.0,
+        "n_slope_band": 4,
+        "n_up": 4,
+        "gen_faces": [
+          4,
+          4,
+          4,
+          4
+        ]
+      },
+      "hip_circle": {
+        "n_gen": 33,
+        "zmax": 3.071,
+        "n_apex": 32,
+        "apex_spread": 0.09,
+        "n_slope_band": 32,
+        "n_up": 33,
+        "gen_faces": [
+          32,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ]
+      }
+    },
     "images_packed": {
       "VM_Starter.blend": {
         "total": 88,
@@ -30969,45 +30882,62 @@
         "unpacked": []
       }
     },
+    "v28_delivered": {
+      "containment_outside": 0,
+      "spread": {
+        "total": 9,
+        "walls": 4,
+        "per_wall": {
+          "0": 1,
+          "10": 2,
+          "33": 2,
+          "78": 2
+        },
+        "intersections": 0,
+        "pairs": 36,
+        "min_gap": 0.9283,
+        "spread_diff": 1
+      }
+    },
     "acceptance_windows": {
       "per_window": [
         {
-          "name": "Window_01",
-          "wall": "x-",
+          "name": "Window_02",
+          "wall": "y-",
           "base_z": 0.9,
-          "top_z": 1.8,
+          "top_z": 1.53,
           "back_dist": 0.0235,
-          "front_dist": 0.08385,
-          "plank_outer": 0.01238,
-          "proud": 0.07147
+          "front_dist": 0.06574,
+          "plank_outer": 0.0106,
+          "proud": 0.05514
         },
         {
           "name": "Window_03",
-          "wall": "x-",
+          "wall": "y+",
           "base_z": 0.9,
-          "top_z": 1.8631,
+          "top_z": 1.5742,
           "back_dist": 0.0235,
-          "front_dist": 0.13076,
-          "plank_outer": 0.01238,
-          "proud": 0.11838
+          "front_dist": 0.09858,
+          "plank_outer": 0.0106,
+          "proud": 0.08798
         },
         {
-          "name": "Window_02",
+          "name": "Window_01",
           "wall": "x+",
           "base_z": 0.9,
-          "top_z": 1.8,
+          "top_z": 1.53,
           "back_dist": 0.0235,
-          "front_dist": 0.08385,
-          "plank_outer": 0.01203,
-          "proud": 0.07182
+          "front_dist": 0.06574,
+          "plank_outer": 0.0106,
+          "proud": 0.05514
         }
       ],
       "pairs": 12,
       "intersecting": 0,
-      "min_pairwise_gap": 0.17842,
+      "min_pairwise_gap": 0.02162,
       "plank_pairs": 240,
       "plank_intersecting": 0,
-      "plank_min_gap": 0.01153,
+      "plank_min_gap": 0.0129,
       "modifier": {
         "backing_offset": 0.04349999874830246,
         "embed": 0.019999999552965164
@@ -31028,33 +30958,33 @@
     "acceptance_doors": {
       "per_door": [
         {
-          "name": "Door_04",
+          "name": "Door_03",
           "wall": "y-",
           "back_dist": 0.0235,
           "front_dist": 0.10916,
-          "plank_outer": 0.01255,
-          "proud": 0.09661
+          "plank_outer": 0.0106,
+          "proud": 0.09856
         },
         {
           "name": "Door_02",
-          "wall": "y-",
-          "back_dist": 0.0235,
-          "front_dist": 0.10916,
-          "plank_outer": 0.01255,
-          "proud": 0.09661
-        },
-        {
-          "name": "Door_03",
           "wall": "y+",
           "back_dist": 0.0235,
           "front_dist": 0.10916,
-          "plank_outer": 0.01258,
-          "proud": 0.09658
+          "plank_outer": 0.0106,
+          "proud": 0.09856
+        },
+        {
+          "name": "Door_03",
+          "wall": "x+",
+          "back_dist": 0.0235,
+          "front_dist": 0.10916,
+          "plank_outer": 0.0106,
+          "proud": 0.09856
         }
       ],
       "pairs": 240,
       "intersecting": 0,
-      "min_pairwise_gap": 0.01095,
+      "min_pairwise_gap": 0.0129,
       "planks_thickness": 0.02,
       "modifier": {
         "backing_offset": 0.04349999874830246,
@@ -31077,27 +31007,25 @@
       "variant_spread": 0.0,
       "variant_variance": 0.0,
       "live_back_dist": {
-        "Door_04": 0.0235,
-        "Door_02": 0.0235,
         "Door_03": 0.0235,
-        "Door_05": -0.03,
-        "Door_01": -0.03
+        "Door_02": 0.0235,
+        "Door_05": -0.03
       },
-      "testfit_instances": 10,
-      "testfit_variants": 5
+      "testfit_instances": 4,
+      "testfit_variants": 3
     },
     "starter_readback": {
       "style": "Flat",
       "incline_deg": 2.5,
       "opening_fit": "Scale To Face",
-      "engine_version": "v2.7"
+      "engine_version": "v2.8"
     },
     "starter_compound_readback": {
       "n_doors": 3,
       "n_windows": 3,
       "doors": [
         {
-          "name": "Door_04",
+          "name": "Door_03",
           "exterior": true,
           "face_base": 0.0,
           "base_z": 0.0,
@@ -31123,11 +31051,11 @@
       ],
       "windows": [
         {
-          "name": "Window_01",
+          "name": "Window_02",
           "exterior": true,
           "face_base": 0.0,
           "base_z": 0.9,
-          "height": 0.9,
+          "height": 0.63,
           "face_h": 2.2
         },
         {
@@ -31135,15 +31063,15 @@
           "exterior": true,
           "face_base": 0.0,
           "base_z": 0.9,
-          "height": 0.9631,
+          "height": 0.6742,
           "face_h": 2.2
         },
         {
-          "name": "Window_02",
+          "name": "Window_01",
           "exterior": true,
           "face_base": 0.0,
           "base_z": 0.9,
-          "height": 0.9,
+          "height": 0.63,
           "face_h": 2.2
         }
       ],
@@ -31214,15 +31142,15 @@
     },
     "version_probe": {
       "VM_Starter.blend": {
-        "total": 113,
+        "total": 122,
         "bad": []
       },
       "VM_SceneDetailer.blend": {
-        "total": 113,
+        "total": 122,
         "bad": []
       },
       "VM_RoofCap.blend": {
-        "total": 113,
+        "total": 122,
         "bad": []
       }
     },
@@ -31268,8 +31196,8 @@
       ],
       "path": "/home/kristo/harneloop-work/engine/VM_Assets.blend",
       "descriptions": {
-        "VM_RoofCap": "VM engine v2.7 - per-region roof caps: Style 'Flat' DEFAULT ",
-        "VM_SceneDetailer": "VM engine v2.7 - semantic architectural application engine ("
+        "VM_RoofCap": "VM engine v2.8 - per-region roof caps: Style 'Flat' DEFAULT ",
+        "VM_SceneDetailer": "VM engine v2.8 - semantic architectural application engine ("
       }
     }
   },
@@ -31342,7 +31270,7 @@
     {
       "name": "compound[StarterCompound]: doors AND windows on the EXTERIOR ground walls of the tower+wing+annex edit (the copied stack survives the user's exact action)",
       "pass": true,
-      "detail": "3 doors [('Door_04', 0.0, 0.0, True), ('Door_02', 0.0, 0.0, True), ('Door_03', 0.0, 0.0, True)], 3 windows [('Window_01', 0.9, 0.0, True), ('Window_03', 0.9, 0.0, True), ('Window_02', 0.9, 0.0, True)]"
+      "detail": "3 doors [('Door_03', 0.0, 0.0, True), ('Door_02', 0.0, 0.0, True), ('Door_03', 0.0, 0.0, True)], 3 windows [('Window_02', 0.9, 0.0, True), ('Window_03', 0.9, 0.0, True), ('Window_01', 0.9, 0.0, True)]"
     },
     {
       "name": "compound[StarterCompound]: ZERO gable triangles on the flat tops (saved Style 'Flat' rides along with the duplicate) + COMPLETE roof coverage",
@@ -31357,7 +31285,7 @@
     {
       "name": "fit: 100% instances on vertical faces",
       "pass": true,
-      "detail": "10/10 on walls, top=0, bottom=0, off=0"
+      "detail": "4/4 on walls, top=0, bottom=0, off=0"
     },
     {
       "name": "fit: 0 on top/bottom faces",
@@ -31372,7 +31300,7 @@
     {
       "name": "fit: embed 0.03 into wall surface",
       "pass": true,
-      "detail": "embed depths [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]"
+      "detail": "embed depths [0.03, 0.03, 0.03, 0.03]"
     },
     {
       "name": "zone: Roof slope-band cladding lands only on pitched faces (contract v2.4: flat tops are NOT roof)",
@@ -31422,22 +31350,22 @@
     {
       "name": "starter: doors on cube walls (no gable-end floaters), well separated",
       "pass": true,
-      "detail": "on_cube_walls=True (back plane at r=1.024), min separation=0.87m, pos=[(0.3957, -1.0235, 0.0), (-0.4707, -1.0235, 0.0), (-0.4356, 1.0235, 0.0)]"
+      "detail": "on_cube_walls=True (back plane at r=1.024), min separation=1.44m, pos=[(-0.0096, -1.0235, 0.0), (0.0139, 1.0235, 0.0), (1.0235, -0.0168, 0.0)]"
     },
     {
       "name": "sweep: scatter counts increase with density",
       "pass": true,
-      "detail": "{0.1: {'scatter': 53, 'fit': 2, 'clad': 520}, 0.35: {'scatter': 180, 'fit': 6, 'clad': 520}, 0.6: {'scatter': 309, 'fit': 10, 'clad': 520}}"
+      "detail": "{0.1: {'scatter': 53, 'fit': 2, 'clad': 520}, 0.35: {'scatter': 180, 'fit': 4, 'clad': 520}, 0.6: {'scatter': 309, 'fit': 4, 'clad': 520}}"
     },
     {
-      "name": "sweep: fit counts increase with density",
+      "name": "sweep: fit counts non-decreasing with density (gap-law saturation is legal)",
       "pass": true,
-      "detail": "{0.1: {'scatter': 53, 'fit': 2, 'clad': 520}, 0.35: {'scatter': 180, 'fit': 6, 'clad': 520}, 0.6: {'scatter': 309, 'fit': 10, 'clad': 520}}"
+      "detail": "{0.1: {'scatter': 53, 'fit': 2, 'clad': 520}, 0.35: {'scatter': 180, 'fit': 4, 'clad': 520}, 0.6: {'scatter': 309, 'fit': 4, 'clad': 520}}"
     },
     {
       "name": "sweep: cladding density-independent (tile-driven)",
       "pass": true,
-      "detail": "{0.1: {'scatter': 53, 'fit': 2, 'clad': 520}, 0.35: {'scatter': 180, 'fit': 6, 'clad': 520}, 0.6: {'scatter': 309, 'fit': 10, 'clad': 520}}"
+      "detail": "{0.1: {'scatter': 53, 'fit': 2, 'clad': 520}, 0.35: {'scatter': 180, 'fit': 4, 'clad': 520}, 0.6: {'scatter': 309, 'fit': 4, 'clad': 520}}"
     },
     {
       "name": "cap: 25 exact in scatter mode",
@@ -31512,7 +31440,7 @@
     {
       "name": "shape[CompoundTest]: every door base == its OWN face base + sill (per-face anchoring)",
       "pass": true,
-      "detail": "5 doors, deltas=[0.0, 0.0, 0.0, 0.0, 0.0], face bases=[0.0, 0.0, 0.0, 0.0, 0.0]"
+      "detail": "2 doors, deltas=[0.0, 0.0], face bases=[0.0, 0.0]"
     },
     {
       "name": "shape[CompoundTest]: every window base == its face base + 0.9 (sill height)",
@@ -31522,7 +31450,7 @@
     {
       "name": "shape[CompoundTest]: doors only on faces >= 1.0x1.6 (Min Face filters)",
       "pass": true,
-      "detail": "host faces used: [(2, 2.0, 3.2), (4, 2.0, 3.2), (4, 2.0, 3.2), (5, 2.0, 3.2), (5, 2.0, 3.2)]"
+      "detail": "host faces used: [(2, 2.0, 3.2), (4, 2.0, 3.2)]"
     },
     {
       "name": "shape[CompoundTest]: windows only on substantial walls >= 1.5x1.5",
@@ -31530,19 +31458,19 @@
       "detail": "host faces used: [(2, 2.0, 3.2)]"
     },
     {
-      "name": "shape[CompoundTest]: zero underground/detached parts (all 1039 instances at/above their face base)",
+      "name": "shape[CompoundTest]: zero underground/detached parts (all 1036 instances at/above their face base)",
       "pass": true,
       "detail": "buried=[]"
     },
     {
       "name": "shape[CompoundTest]: doors/windows flush on their walls (back plane measured on every instance)",
       "pass": true,
-      "detail": "back distances [0.0235, 0.0235, 0.0235, 0.0235, 0.0235, 0.0235]"
+      "detail": "back distances [0.0235, 0.0235, 0.0235]"
     },
     {
       "name": "shape[CompoundTest]: zero door/window bbox intersections",
       "pass": true,
-      "detail": "15 pairs, min gap=0.30216, bad=[]"
+      "detail": "3 pairs, min gap=0.09978, bad=[]"
     },
     {
       "name": "shape[CompoundTest]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
@@ -31577,7 +31505,7 @@
     {
       "name": "shape[CompoundScaled]: every door base == its OWN face base + sill (per-face anchoring)",
       "pass": true,
-      "detail": "5 doors, deltas=[0.0, 0.0, 0.0, 0.0, 0.0], face bases=[0.0, 0.0, 0.0, 0.0, 0.0]"
+      "detail": "2 doors, deltas=[0.0, 0.0], face bases=[0.0, 0.0]"
     },
     {
       "name": "shape[CompoundScaled]: every window base == its face base + 0.9 (sill height)",
@@ -31587,27 +31515,27 @@
     {
       "name": "shape[CompoundScaled]: doors only on faces >= 1.0x1.6 (Min Face filters)",
       "pass": true,
-      "detail": "host faces used: [(2, 3.2, 5.12), (4, 2.0, 5.12), (4, 2.0, 5.12), (5, 3.2, 5.12), (5, 3.2, 5.12)]"
+      "detail": "host faces used: [(2, 3.2, 5.12), (3, 4.8, 1.92)]"
     },
     {
       "name": "shape[CompoundScaled]: windows only on substantial walls >= 1.5x1.5",
       "pass": true,
-      "detail": "host faces used: [(3, 4.8, 1.92)]"
+      "detail": "host faces used: [(2, 3.2, 5.12)]"
     },
     {
-      "name": "shape[CompoundScaled]: zero underground/detached parts (all 1556 instances at/above their face base)",
+      "name": "shape[CompoundScaled]: zero underground/detached parts (all 1553 instances at/above their face base)",
       "pass": true,
       "detail": "buried=[]"
     },
     {
       "name": "shape[CompoundScaled]: doors/windows flush on their walls (back plane measured on every instance)",
       "pass": true,
-      "detail": "back distances [0.0235, 0.0235, 0.0235, 0.0235, 0.0235, 0.0235]"
+      "detail": "back distances [0.0235, 0.0235, 0.0235]"
     },
     {
       "name": "shape[CompoundScaled]: zero door/window bbox intersections",
       "pass": true,
-      "detail": "15 pairs, min gap=0.34898, bad=[]"
+      "detail": "3 pairs, min gap=0.48524, bad=[]"
     },
     {
       "name": "shape[CompoundScaled]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
@@ -31642,37 +31570,37 @@
     {
       "name": "shape[TowerWing]: every door base == its OWN face base + sill (per-face anchoring)",
       "pass": true,
-      "detail": "4 doors, deltas=[0.0, 0.0, 0.0, 0.0], face bases=[0.0, 0.0, 0.0, 0.0]"
+      "detail": "2 doors, deltas=[0.0, 0.0], face bases=[0.0, 0.0]"
     },
     {
       "name": "shape[TowerWing]: every window base == its face base + 0.9 (sill height)",
       "pass": true,
-      "detail": "1 windows, deltas=[-0.0], face bases=[0.0]"
+      "detail": "1 windows, deltas=[0.0], face bases=[0.0]"
     },
     {
       "name": "shape[TowerWing]: doors only on faces >= 1.0x1.6 (Min Face filters)",
       "pass": true,
-      "detail": "host faces used: [(2, 1.6, 3.2), (2, 1.6, 3.2), (5, 1.6, 3.2), (5, 1.6, 3.2)]"
+      "detail": "host faces used: [(2, 1.6, 3.2), (4, 1.6, 3.2)]"
     },
     {
       "name": "shape[TowerWing]: windows only on substantial walls >= 1.5x1.5",
       "pass": true,
-      "detail": "host faces used: [(4, 1.6, 3.2)]"
+      "detail": "host faces used: [(5, 1.6, 3.2)]"
     },
     {
-      "name": "shape[TowerWing]: zero underground/detached parts (all 878 instances at/above their face base)",
+      "name": "shape[TowerWing]: zero underground/detached parts (all 876 instances at/above their face base)",
       "pass": true,
       "detail": "buried=[]"
     },
     {
       "name": "shape[TowerWing]: doors/windows flush on their walls (back plane measured on every instance)",
       "pass": true,
-      "detail": "back distances [0.0235, 0.0235, 0.0235, 0.0235, 0.0235]"
+      "detail": "back distances [0.0235, 0.0235, 0.0235]"
     },
     {
       "name": "shape[TowerWing]: zero door/window bbox intersections",
       "pass": true,
-      "detail": "10 pairs, min gap=0.18804, bad=[]"
+      "detail": "3 pairs, min gap=0.45948, bad=[]"
     },
     {
       "name": "shape[TowerWing]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
@@ -31707,7 +31635,7 @@
     {
       "name": "shape[Warehouse]: every door base == its OWN face base + sill (per-face anchoring)",
       "pass": true,
-      "detail": "5 doors, deltas=[0.0, 0.0, 0.0, 0.0, 0.0], face bases=[0.0, 0.0, 0.0, 0.0, 0.0]"
+      "detail": "2 doors, deltas=[0.0, 0.0], face bases=[0.0, 0.0]"
     },
     {
       "name": "shape[Warehouse]: every window base == its face base + 0.9 (sill height)",
@@ -31717,7 +31645,7 @@
     {
       "name": "shape[Warehouse]: doors only on faces >= 1.0x1.6 (Min Face filters)",
       "pass": true,
-      "detail": "host faces used: [(2, 6.0, 2.2), (2, 6.0, 2.2), (3, 6.0, 2.2), (3, 6.0, 2.2), (4, 3.5, 2.2)]"
+      "detail": "host faces used: [(2, 6.0, 2.2), (3, 6.0, 2.2)]"
     },
     {
       "name": "shape[Warehouse]: windows only on substantial walls >= 1.5x1.5",
@@ -31725,19 +31653,19 @@
       "detail": "host faces used: [(2, 6.0, 2.2)]"
     },
     {
-      "name": "shape[Warehouse]: zero underground/detached parts (all 1966 instances at/above their face base)",
+      "name": "shape[Warehouse]: zero underground/detached parts (all 1963 instances at/above their face base)",
       "pass": true,
       "detail": "buried=[]"
     },
     {
       "name": "shape[Warehouse]: doors/windows flush on their walls (back plane measured on every instance)",
       "pass": true,
-      "detail": "back distances [0.0235, 0.0235, 0.0235, 0.0235, 0.0235, 0.0235]"
+      "detail": "back distances [0.0235, 0.0235, 0.0235]"
     },
     {
       "name": "shape[Warehouse]: zero door/window bbox intersections",
       "pass": true,
-      "detail": "15 pairs, min gap=0.27411, bad=[]"
+      "detail": "3 pairs, min gap=3.47821, bad=[]"
     },
     {
       "name": "shape[Warehouse]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
@@ -31772,22 +31700,22 @@
     {
       "name": "accept(A): DEFAULT door rules (Ground Floor Only ON + Max Base Height 0.5): zero doors on raised/roof-adjacent faces - the user's roof-door case is IMPOSSIBLE by default",
       "pass": true,
-      "detail": "ground-wall doors=[(2, 0.0), (4, 0.0), (4, 0.0), (5, 0.0), (5, 0.0)], raised/roof-adjacent doors=[]"
+      "detail": "ground-wall doors=[(2, 0.0), (4, 0.0)], raised/roof-adjacent doors=[]"
     },
     {
       "name": "accept(A): doors on ground walls stand at z=0 (none dragged by the step, none underground)",
       "pass": true,
-      "detail": "ground-wall door rows: [{'name': 'Door_01', 'face': 2, 'face_base': 0.0, 'base_z': 0.0, 'delta': 0.0, 'face_w': 2.0, 'face_h': 3.2, 'back': 0.0235, 'ok': True}, {'name': 'Door_02', 'face': 4, 'face_base': 0.0, 'base_z': 0.0, 'delta': 0.0, 'face_w': 2.0, 'face_h': 3.2, 'back': 0.0235, 'ok': True}, {'name': 'Door_03', 'face': 4, 'face_base': 0.0, 'base_z': 0.0, 'delta': 0.0, 'face_w': 2.0, 'face_h': 3.2, 'back': 0.0235, 'ok': True}, {'name': 'Door_04', 'face': 5, 'face_base': 0.0, 'base_z': 0.0, 'delta': 0.0, 'face_w': 2.0, 'face_h': 3.2, 'back': 0.0235, 'ok': True}, {'name': 'Door_03', 'face': 5, 'face_base': 0.0, 'base_z': 0.0, 'delta': 0.0, 'face_w': 2.0, 'face_h': 3.2, 'back': 0.0235, 'ok': True}]"
+      "detail": "ground-wall door rows: [{'name': 'Door_03', 'face': 2, 'face_base': 0.0, 'base_z': 0.0, 'delta': 0.0, 'face_w': 2.0, 'face_h': 3.2, 'back': 0.0235, 'ok': True}, {'name': 'Door_02', 'face': 4, 'face_base': 0.0, 'base_z': 0.0, 'delta': 0.0, 'face_w': 2.0, 'face_h': 3.2, 'back': 0.0235, 'ok': True}]"
     },
     {
       "name": "fit: Max Base Height ALONE (Ground Floor Only OFF) still blocks every roof-adjacent face - no opening above zmin + Max Base Height",
       "pass": true,
-      "detail": "5 doors with GFO OFF + Max Base Height 0.5; raised-face doors=[]"
+      "detail": "2 doors with GFO OFF + Max Base Height 0.5; raised-face doors=[]"
     },
     {
       "name": "fit: Max Base Height override allows EXPLICIT upper doors, each standing on its OWN face base (v2.4 per-face anchoring preserved for the override case)",
       "pass": true,
-      "detail": "override upper doors (name, base_z, face_base)=[('Door_03', 1.2, 1.2)], seed=5 after 6 candidates"
+      "detail": "override upper doors (name, base_z, face_base)=[('Door_03', 1.2, 1.2)], seed=90 after 91 candidates"
     },
     {
       "name": "roofcap: Largest Face Only caps just the biggest top (2 regions -> 1 roof, clean)",
@@ -31802,7 +31730,7 @@
     {
       "name": "shape[ReflowTest-before-edit]: every door base == its OWN face base + sill (per-face anchoring)",
       "pass": true,
-      "detail": "5 doors, deltas=[0.0, 0.0, 0.0, 0.0, 0.0], face bases=[0.0, 0.0, 0.0, 0.0, 0.0]"
+      "detail": "2 doors, deltas=[0.0, 0.0], face bases=[0.0, 0.0]"
     },
     {
       "name": "shape[ReflowTest-before-edit]: every window base == its face base + 0.9 (sill height)",
@@ -31812,7 +31740,7 @@
     {
       "name": "shape[ReflowTest-before-edit]: doors only on faces >= 1.0x1.6 (Min Face filters)",
       "pass": true,
-      "detail": "host faces used: [(2, 2.0, 3.2), (4, 2.0, 3.2), (4, 2.0, 3.2), (5, 2.0, 3.2), (5, 2.0, 3.2)]"
+      "detail": "host faces used: [(2, 2.0, 3.2), (4, 2.0, 3.2)]"
     },
     {
       "name": "shape[ReflowTest-before-edit]: windows only on substantial walls >= 1.5x1.5",
@@ -31820,19 +31748,19 @@
       "detail": "host faces used: [(2, 2.0, 3.2)]"
     },
     {
-      "name": "shape[ReflowTest-before-edit]: zero underground/detached parts (all 1039 instances at/above their face base)",
+      "name": "shape[ReflowTest-before-edit]: zero underground/detached parts (all 1036 instances at/above their face base)",
       "pass": true,
       "detail": "buried=[]"
     },
     {
       "name": "shape[ReflowTest-before-edit]: doors/windows flush on their walls (back plane measured on every instance)",
       "pass": true,
-      "detail": "back distances [0.0235, 0.0235, 0.0235, 0.0235, 0.0235, 0.0235]"
+      "detail": "back distances [0.0235, 0.0235, 0.0235]"
     },
     {
       "name": "shape[ReflowTest-before-edit]: zero door/window bbox intersections",
       "pass": true,
-      "detail": "15 pairs, min gap=0.30216, bad=[]"
+      "detail": "3 pairs, min gap=0.09978, bad=[]"
     },
     {
       "name": "shape[ReflowTest-before-edit]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
@@ -31867,7 +31795,7 @@
     {
       "name": "shape[ReflowTest-after-edit]: every door base == its OWN face base + sill (per-face anchoring)",
       "pass": true,
-      "detail": "5 doors, deltas=[0.0, 0.0, 0.0, 0.0, 0.0], face bases=[0.0, 0.0, 0.0, 0.0, 0.0]"
+      "detail": "2 doors, deltas=[0.0, 0.0], face bases=[0.0, 0.0]"
     },
     {
       "name": "shape[ReflowTest-after-edit]: every window base == its face base + 0.9 (sill height)",
@@ -31877,7 +31805,7 @@
     {
       "name": "shape[ReflowTest-after-edit]: doors only on faces >= 1.0x1.6 (Min Face filters)",
       "pass": true,
-      "detail": "host faces used: [(2, 3.0, 4.48), (2, 3.0, 4.48), (3, 4.5, 1.68), (3, 4.5, 1.68), (4, 2.0, 4.48)]"
+      "detail": "host faces used: [(2, 3.0, 4.48), (4, 2.0, 4.48)]"
     },
     {
       "name": "shape[ReflowTest-after-edit]: windows only on substantial walls >= 1.5x1.5",
@@ -31885,19 +31813,19 @@
       "detail": "host faces used: [(2, 3.0, 4.48)]"
     },
     {
-      "name": "shape[ReflowTest-after-edit]: zero underground/detached parts (all 1482 instances at/above their face base)",
+      "name": "shape[ReflowTest-after-edit]: zero underground/detached parts (all 1479 instances at/above their face base)",
       "pass": true,
       "detail": "buried=[]"
     },
     {
       "name": "shape[ReflowTest-after-edit]: doors/windows flush on their walls (back plane measured on every instance)",
       "pass": true,
-      "detail": "back distances [0.0235, 0.0235, 0.0235, 0.0235, 0.0235, 0.0235]"
+      "detail": "back distances [0.0235, 0.0235, 0.0235]"
     },
     {
       "name": "shape[ReflowTest-after-edit]: zero door/window bbox intersections",
       "pass": true,
-      "detail": "15 pairs, min gap=0.04307, bad=[]"
+      "detail": "3 pairs, min gap=0.73939, bad=[]"
     },
     {
       "name": "shape[ReflowTest-after-edit]: RoofCap emits exactly 4 clean faces per resolvable region (no garbage)",
@@ -31942,7 +31870,7 @@
     {
       "name": "reflow: parts re-anchored on the NEW faces after the edit (no underground/float artifacts)",
       "pass": true,
-      "detail": "door deltas after edit=[0.0, 0.0, 0.0, 0.0, 0.0], window deltas=[-0.0], buried=[]"
+      "detail": "door deltas after edit=[0.0, 0.0], window deltas=[-0.0], buried=[]"
     },
     {
       "name": "world-space: CompoundScaled tile counts follow the WORLD course formula (scaled building -> more tiles, tile size unchanged)",
@@ -31957,7 +31885,7 @@
     {
       "name": "world-space: CompoundScaled (object scale UNAPPLIED) == CompoundWorldRef (same shape scaled in EDIT mode): identical world tile layout and sills",
       "pass": true,
-      "detail": "counts planks/shingles CS=(246, 1304) vs WorldRef=(246, 1304); plank dims mismatches=0, shingle dims mismatches=0; sills CS=[0.9] WorldRef=[0.9] (doors/windows CS=(5, 1) vs WorldRef=(5, 1) - layout counts are Density-knob dependent, not part of the world-meter contract)"
+      "detail": "counts planks/shingles CS=(246, 1304) vs WorldRef=(246, 1304); plank dims mismatches=0, shingle dims mismatches=0; sills CS=[0.9] WorldRef=[0.9] (doors/windows CS=(2, 1) vs WorldRef=(2, 1) - layout counts are Density-knob dependent, not part of the world-meter contract)"
     },
     {
       "name": "world-space: CompoundScaled window sill = 0.9 WORLD meters above its face base (v2.4 defect: 0.9 x z-scale = 1.44 -> windows sat visually high)",
@@ -32147,17 +32075,17 @@
     {
       "name": "bugfix(roof-door): the user's exact tower+wing shape REPRODUCES with v2.5-pre rules (Ground Floor Only OFF, no ceiling) - a door stands on the wing roof via the roof-adjacent tower strip (base z == the strip's bottom edge == the roof surface)",
       "pass": true,
-      "detail": "6 doors with legacy rules; roof-adjacent (name, base_z, face_base)=[('Door_05', 1.9, 1.9)]"
+      "detail": "5 doors with legacy rules; roof-adjacent (name, base_z, face_base)=[('Door_04', 1.9, 1.9)]"
     },
     {
       "name": "bugfix(roof-door): with the v2.5 rules (Ground Floor Only ON + Max Base Height 0.5) the SAME shape gets zero roof-adjacent doors - the case is impossible",
       "pass": true,
-      "detail": "6 doors with the new rules; roof-adjacent doors=[]"
+      "detail": "4 doors with the new rules; roof-adjacent doors=[]"
     },
     {
       "name": "bugfix(black-triangle): root cause = cladding on a flipped-normal triangle fragment (extrusion fill): v2.5-pre tiles grew [0, th] from the wall plane -> on an inward-wound fragment they buried INSIDE the wall and z-fought its coplanar backs -> bare black triangle. v2.5 tiles STRADDLE the plane and cover every wall face whatever its winding",
       "pass": true,
-      "detail": "flipped fill faces before=[13] after=[13]; tile back-side crossing of the wall plane BEFORE max=-0.0 (never crosses -> z-fight -> black), AFTER min=0.0104 (straddles -> covered); tiles per face before={2: 34, 3: 34, 4: 18, 5: 16, 6: 27, 7: 27, 8: 12, 11: 20, 14: 17, 12: 17, 13: 14} after={2: 34, 3: 34, 4: 18, 5: 16, 6: 27, 7: 27, 8: 12, 11: 20, 14: 17, 12: 17, 13: 14}"
+      "detail": "flipped fill faces before=[13] after=[13]; tile back-side crossing of the wall plane BEFORE max=-0.0 (never crosses -> z-fight -> black), AFTER min=0.0104 (straddles -> covered); tiles per face before={2: 34, 3: 34, 4: 18, 5: 16, 6: 21, 7: 21, 8: 12, 11: 20, 14: 17, 12: 17, 13: 14} after={2: 34, 3: 34, 4: 18, 5: 16, 6: 21, 7: 21, 8: 12, 11: 20, 14: 17, 12: 17, 13: 14}"
     },
     {
       "name": "pack-swap: same base model, identical slot layout - ONLY the pack collection sockets are repointed (Windows: louvered shutters -> MedievalWindows); every instance origin identical between the two looks",
@@ -32182,12 +32110,12 @@
     {
       "name": "user2(fix): 'Scale To Face' puts doors back on the ground-floor walls of the SAME shape with the SAME v2.5 stack (openings auto-shrink to the 2.0 m walls)",
       "pass": true,
-      "detail": "6 doors (was 0); boxes=[(0.0, 1.124), (0.0, 1.124), (0.0, 1.124), (0.0, 1.124), (0.0, 1.124), (0.0, 1.124)]"
+      "detail": "5 doors (was 0); boxes=[(0.0, 1.124), (0.0, 1.124), (0.0, 1.124), (0.0, 1.124), (0.0, 1.124)]"
     },
     {
-      "name": "user2(accept): under DEFAULT Fit settings the rebuilt massing shows doors AND windows on the ground-floor walls (both Slot layouts)",
+      "name": "user2(accept): under the default Fit stack (Scale To Face) with pack-sized openings the rebuilt massing shows doors AND windows on the ground-floor walls (both Slot layouts)",
       "pass": true,
-      "detail": "default-settings counts: {'Slots': {'n_doors': 8, 'n_windows': 4}, 'Random': {'n_doors': 6, 'n_windows': 4}}"
+      "detail": "default-settings counts: {'Slots': {'n_doors': 6, 'n_windows': 1}, 'Random': {'n_doors': 4, 'n_windows': 3}}"
     },
     {
       "name": "user2(manual): openings land ONLY inside the painted vertex-group area (bbox containment on the painted wall), zero outside",
@@ -32215,44 +32143,89 @@
       "detail": "gable faces=20 expected=20, caps=0, uncovered=[]"
     },
     {
+      "name": "v2.8(cladding containment): ZERO cladding anchors off-surface (the phantom wall slab cannot exist - anchor-on-surface test)",
+      "pass": true,
+      "detail": "1716 tiles kept on real surface, 0 off-surface (0 required; v2.7 engine: 263 empty-air slots - 20 plank slots on the gable triangle f51 + 243 shingle slots from the sliver fragments); strict planar-polygon outliers (diagnostic, known false positives on non-planar slivers/cap faces)=17"
+    },
+    {
+      "name": "v2.8(opening spread): openings appear on >= 3 distinct walls of the user's object (round-robin spread, NOT first-N on one wall)",
+      "pass": true,
+      "detail": "9 openings on 4 walls, per-wall counts [1, 2, 2, 2] (v2.7 engine: 43 openings, 1 wall)"
+    },
+    {
+      "name": "v2.8(gap law): ZERO pairwise opening bbox intersections (doors vs doors, windows vs windows, doors vs windows - the dense overlapping row is gone)",
+      "pass": true,
+      "detail": "36 pairs tested, intersecting=0, min pairwise bbox gap=0.9283 m"
+    },
+    {
+      "name": "v2.8(balanced spread): per-wall opening counts differ by <= 1",
+      "pass": true,
+      "detail": "per-wall counts [1, 2, 2, 2], max-min=1"
+    },
+    {
+      "name": "v2.8(deterministic): the user's massing evaluates identically on re-eval (fixed seeds, no hidden state)",
+      "pass": true,
+      "detail": "1742 instances twice, positions/variant mix identical"
+    },
+    {
+      "name": "v2.8(hip square top): VM_RoofCap 'Hip' on a square top builds a clean PYRAMID - exactly 4 roof faces meeting at one apex at the hip height",
+      "pass": true,
+      "detail": "generated faces=4 (corner counts [4, 4, 4, 4]), apex verts=4 (one apex: xy spread 0.0), apex z=4.227 vs expected 4.225 (eave 3.0 + (half-side 1.5 + overhang 0.25) * tan 35)"
+    },
+    {
+      "name": "v2.8(hip circle top): VM_RoofCap 'Hip' on a 32-gon CIRCLE top builds a clean CONE-like cap - 32 sloped side faces in the roof slope band (shingle-able) + a tiny apex ring, at the hip height",
+      "pass": true,
+      "detail": "generated faces=33 (32 sides + 1 apex ring), roof-band sides=32, apex z=3.071 vs expected 3.075 (eave 1.5 + (radius 2 + overhang 0.25) * tan 35)"
+    },
+    {
       "name": "images_packed VM_Starter.blend: 88/88",
       "pass": true,
       "detail": "88/88 image datablocks packed, unpacked=[]"
     },
     {
+      "name": "accept(v2.8 delivered): the user's Cube.001 survives the rebuild AND keeps ZERO cladding anchors off-surface (no phantom slab)",
+      "pass": true,
+      "detail": "0 cladding anchors off-surface (0 required; strict planar-polygon outliers diagnostic=17), object present with 108 verts / 81 faces"
+    },
+    {
+      "name": "accept(v2.8 delivered): the user's Cube.001 openings spread over >= 3 walls with zero pairwise bbox intersections and per-wall counts balanced <= 1",
+      "pass": true,
+      "detail": "9 openings on 4 walls, per-wall [1, 2, 2, 2], intersections=0, min gap=0.9283, max-min=1"
+    },
+    {
       "name": "accept(a): door back plane = planks_thickness + small tolerance, front proud >= 0.005",
       "pass": true,
-      "detail": "back distances [0.0235, 0.0235, 0.0235] (target 0.02+0.005 +/- 0.005), proud [0.09661, 0.09661, 0.09658]"
+      "detail": "back distances [0.0235, 0.0235, 0.0235] (target 0.02+0.005 +/- 0.005), proud [0.09856, 0.09856, 0.09856]"
     },
     {
       "name": "accept(b): zero door/plank bbox intersection, min pairwise gap >= 0",
       "pass": true,
-      "detail": "240 door-plank world-bbox pairs, intersecting=0, min pairwise gap=0.01095 m"
+      "detail": "240 door-plank world-bbox pairs, intersecting=0, min pairwise gap=0.01290 m"
     },
     {
       "name": "windows: 2-3 fitted windows on the house",
       "pass": true,
-      "detail": "3 windows: ['Window_01', 'Window_03', 'Window_02']"
+      "detail": "3 windows: ['Window_02', 'Window_03', 'Window_01']"
     },
     {
       "name": "windows: same wall-contact contract as doors (back plane = planks_thickness + 0.005 +/- 0.005)",
       "pass": true,
-      "detail": "back distances [0.0235, 0.0235, 0.0235] (target 0.02+0.005 +/- 0.005), proud [0.07147, 0.11838, 0.07182]"
+      "detail": "back distances [0.0235, 0.0235, 0.0235] (target 0.02+0.005 +/- 0.005), proud [0.05514, 0.08798, 0.05514]"
     },
     {
       "name": "windows: zero window/door and window/window bbox intersection",
       "pass": true,
-      "detail": "12 window-door/window-window world-bbox pairs, intersecting=0, min pairwise gap=0.17842 m"
+      "detail": "12 window-door/window-window world-bbox pairs, intersecting=0, min pairwise gap=0.02162 m"
     },
     {
       "name": "windows: zero window/plank bbox intersection (like the door/plank check)",
       "pass": true,
-      "detail": "240 window-plank world-bbox pairs, intersecting=0, min pairwise gap=0.01153 m"
+      "detail": "240 window-plank world-bbox pairs, intersecting=0, min pairwise gap=0.01290 m"
     },
     {
       "name": "windows: bases at window height, tops below the wall top",
       "pass": true,
-      "detail": "bases [0.9, 0.9, 0.9], tops [1.8, 1.8631, 1.8]"
+      "detail": "bases [0.9, 0.9, 0.9], tops [1.53, 1.5742, 1.53]"
     },
     {
       "name": "windows: 0 back-plane variance across all window variants at one setting",
@@ -32270,14 +32243,14 @@
       "detail": "5 variants, per-variant back distances {'Door_01': 0.0235, 'Door_02': 0.0235, 'Door_03': 0.0235, 'Door_04': 0.0235, 'Door_05': 0.0235}, spread=0.000000 m, variance=0.00000000 m^2, y_min spread=0.000000 m"
     },
     {
-      "name": "starter read-back (delivered VM_Starter.blend): saved VM_RoofCap Style='Flat' (gables never invented on flat tops), Incline=2.5 deg, layers on 'Scale To Face', Engine Version 'v2.7'",
+      "name": "starter read-back (delivered VM_Starter.blend): saved VM_RoofCap Style='Flat' (gables never invented on flat tops), Incline=2.5 deg, layers on 'Scale To Face', Engine Version 'v2.8'",
       "pass": true,
-      "detail": "Style=Flat, Incline=2.500 deg, Opening Fit=Scale To Face, Engine Version=v2.7"
+      "detail": "Style=Flat, Incline=2.500 deg, Opening Fit=Scale To Face, Engine Version=v2.8"
     },
     {
       "name": "compound[delivered blend]: doors AND windows on the EXTERIOR ground walls of the tower+wing+annex edit (the copied stack survives the user's exact action)",
       "pass": true,
-      "detail": "3 doors [('Door_04', 0.0, 0.0, True), ('Door_02', 0.0, 0.0, True), ('Door_03', 0.0, 0.0, True)], 3 windows [('Window_01', 0.9, 0.0, True), ('Window_03', 0.9, 0.0, True), ('Window_02', 0.9, 0.0, True)]"
+      "detail": "3 doors [('Door_03', 0.0, 0.0, True), ('Door_02', 0.0, 0.0, True), ('Door_03', 0.0, 0.0, True)], 3 windows [('Window_02', 0.9, 0.0, True), ('Window_03', 0.9, 0.0, True), ('Window_01', 0.9, 0.0, True)]"
     },
     {
       "name": "compound[delivered blend]: ZERO gable triangles on the flat tops (saved Style 'Flat' rides along with the duplicate) + COMPLETE roof coverage",
@@ -32305,14 +32278,14 @@
       "detail": "3 doors, 3 windows"
     },
     {
-      "name": "version: Engine Version socket reads 'v2.7' on EVERY VM modifier in VM_Starter.blend",
+      "name": "version: Engine Version socket reads 'v2.8' on EVERY VM modifier in VM_Starter.blend",
       "pass": true,
-      "detail": "113 VM modifiers probed, non-v2.7: []"
+      "detail": "122 VM modifiers probed, non-v2.8: []"
     },
     {
-      "name": "version: node-group DESCRIPTIONS carry v2.7 in VM_Starter.blend (visible in the node-group selector tooltip)",
+      "name": "version: node-group DESCRIPTIONS carry v2.8 in VM_Starter.blend (visible in the node-group selector tooltip)",
       "pass": true,
-      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.7 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.7 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
+      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.8 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.8 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
     },
     {
       "name": "default path: fresh scene + fresh cube + Add Modifier (ZERO socket tweaks) -> openings present on the walls out of the box",
@@ -32345,14 +32318,14 @@
       "detail": "88/88 image datablocks packed, unpacked=[]"
     },
     {
-      "name": "version: Engine Version socket reads 'v2.7' on EVERY VM modifier in VM_SceneDetailer.blend",
+      "name": "version: Engine Version socket reads 'v2.8' on EVERY VM modifier in VM_SceneDetailer.blend",
       "pass": true,
-      "detail": "113 VM modifiers probed, non-v2.7: []"
+      "detail": "122 VM modifiers probed, non-v2.8: []"
     },
     {
-      "name": "version: node-group DESCRIPTIONS carry v2.7 in VM_SceneDetailer.blend (visible in the node-group selector tooltip)",
+      "name": "version: node-group DESCRIPTIONS carry v2.8 in VM_SceneDetailer.blend (visible in the node-group selector tooltip)",
       "pass": true,
-      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.7 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.7 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
+      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.8 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.8 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
     },
     {
       "name": "images_packed VM_RoofCap.blend: 88/88",
@@ -32360,14 +32333,14 @@
       "detail": "88/88 image datablocks packed, unpacked=[]"
     },
     {
-      "name": "version: Engine Version socket reads 'v2.7' on EVERY VM modifier in VM_RoofCap.blend",
+      "name": "version: Engine Version socket reads 'v2.8' on EVERY VM modifier in VM_RoofCap.blend",
       "pass": true,
-      "detail": "113 VM modifiers probed, non-v2.7: []"
+      "detail": "122 VM modifiers probed, non-v2.8: []"
     },
     {
-      "name": "version: node-group DESCRIPTIONS carry v2.7 in VM_RoofCap.blend (visible in the node-group selector tooltip)",
+      "name": "version: node-group DESCRIPTIONS carry v2.8 in VM_RoofCap.blend (visible in the node-group selector tooltip)",
       "pass": true,
-      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.7 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.7 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
+      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.8 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.8 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
     },
     {
       "name": "adapter: VM_Doors holds wall-flat slabs only (quarantined/props never mix in)",
