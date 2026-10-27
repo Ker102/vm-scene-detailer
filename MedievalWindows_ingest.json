@@ -1,6 +1,6 @@
 {
  "pack": "MedievalWindows",
- "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/MedievalWindows/scene.gltf",
+ "source": "C:\\Users\\krist/Documents/ViperMeshAssets\\props/windows/MedievalWindows/scene.gltf",
  "ingester": "pack_ingest.py (zero-config)",
  "objects_seen": 70,
  "meshes": 35,

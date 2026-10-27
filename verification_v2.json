@@ -41,7 +41,7 @@
             "reason": "non-flat (ajar): PCA thickness 0.1591 m > 1.05 x bbox depth 0.1476 m - the panel is swung/splayed inside its own bbox, a bbox-normalized wall fit leaves it hanging off the wall plane"
           }
         ],
-        "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/doors/WornWoodenDoorsPack/scene.gltf"
+        "source": "C:\\Users\\krist/Documents/ViperMeshAssets\\props/doors/WornWoodenDoorsPack/scene.gltf"
       },
       "WeatheredWoodenWindow": {
         "counts": {
@@ -63,7 +63,7 @@
           "WoodenWindowRight_WoodenWindow_MTL_0: cm-scale pack (max dim 180.0 units) auto-scaled 0.01"
         ],
         "quarantine": [],
-        "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/WeatheredWoodenWindow/scene.gltf"
+        "source": "C:\\Users\\krist/Documents/ViperMeshAssets\\props/windows/WeatheredWoodenWindow/scene.gltf"
       },
       "BrokenWindow01": {
         "counts": {
@@ -87,7 +87,7 @@
             "reason": "degenerate/zero-thickness sheet (min extent 0.0000 m < 0.004 m)"
           }
         ],
-        "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/BrokenWindow01/scene.gltf"
+        "source": "C:\\Users\\krist/Documents/ViperMeshAssets\\props/windows/BrokenWindow01/scene.gltf"
       },
       "BrokenWindow07": {
         "counts": {
@@ -111,7 +111,7 @@
             "reason": "degenerate/zero-thickness sheet (min extent 0.0000 m < 0.004 m)"
           }
         ],
-        "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/BrokenWindow07/scene.gltf"
+        "source": "C:\\Users\\krist/Documents/ViperMeshAssets\\props/windows/BrokenWindow07/scene.gltf"
       },
       "MedievalWindows": {
         "counts": {
@@ -237,7 +237,7 @@
             "reason": "multi-part leftover: 2 connected shells split into 2 loose clusters (gap > 2.5 mm) - not one part"
           }
         ],
-        "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/MedievalWindows/scene.gltf"
+        "source": "C:\\Users\\krist/Documents/ViperMeshAssets\\props/windows/MedievalWindows/scene.gltf"
       }
     },
     "v1_default": {
@@ -30012,12 +30012,12 @@
     },
     "bug_fix": {
       "before": {
-        "seed": 5,
-        "seeds_tried": 6,
+        "seed": 0,
+        "seeds_tried": 1,
         "n_doors": 5,
         "roof_adjacent": [
           [
-            "Door_04",
+            "Door_03",
             1.9,
             1.9
           ]
@@ -30042,19 +30042,17 @@
         "tiles_per_face": {
           "2": 34,
           "3": 34,
-          "4": 18,
           "5": 16,
           "6": 21,
           "7": 21,
           "8": 12,
           "11": 20,
           "14": 17,
-          "12": 17,
-          "13": 14
+          "12": 17
         }
       },
       "after": {
-        "n_doors": 4,
+        "n_doors": 3,
         "roof_adjacent": [],
         "flipped": [
           13
@@ -30076,15 +30074,13 @@
         "tiles_per_face": {
           "2": 34,
           "3": 34,
-          "4": 18,
           "5": 16,
           "6": 21,
           "7": 21,
           "8": 12,
           "11": 20,
           "14": 17,
-          "12": 17,
-          "13": 14
+          "12": 17
         }
       }
     },
@@ -30658,12 +30654,12 @@
     },
     "user2_default_fit": {
       "Slots": {
-        "n_doors": 6,
-        "n_windows": 1
+        "n_doors": 4,
+        "n_windows": 2
       },
       "Random": {
         "n_doors": 4,
-        "n_windows": 3
+        "n_windows": 2
       }
     },
     "user2_manual": {
@@ -30752,17 +30748,16 @@
     "v28_user_massing": {
       "containment_outside": 0,
       "spread": {
-        "total": 9,
-        "walls": 4,
+        "total": 8,
+        "walls": 3,
         "per_wall": {
-          "0": 1,
-          "10": 2,
+          "10": 1,
           "33": 2,
           "78": 2
         },
         "intersections": 0,
-        "pairs": 36,
-        "min_gap": 0.9283,
+        "pairs": 28,
+        "min_gap": 0.9393,
         "spread_diff": 1
       },
       "phantom_src": {
@@ -30778,12 +30773,12 @@
         ],
         "54": [
           56,
-          105,
+          84,
           "plank"
         ],
         "56": [
           56,
-          35,
+          28,
           "plank"
         ],
         "70": [
@@ -30798,7 +30793,7 @@
         ],
         "78": [
           156,
-          77,
+          78,
           "plank"
         ],
         "80": [
@@ -30865,6 +30860,26 @@
         ]
       }
     },
+    "v29_buried_faces": {
+      "buried": [
+        1,
+        6,
+        17
+      ],
+      "up_all": 3,
+      "up_exterior": 2,
+      "gen_total": 10,
+      "gen_inside": 0,
+      "in_main": {},
+      "in_annex": {
+        "Plank": 11
+      },
+      "totals": {
+        "Window": 3,
+        "Door": 3,
+        "Plank": 295
+      }
+    },
     "images_packed": {
       "VM_Starter.blend": {
         "total": 88,
@@ -30885,17 +30900,16 @@
     "v28_delivered": {
       "containment_outside": 0,
       "spread": {
-        "total": 9,
-        "walls": 4,
+        "total": 8,
+        "walls": 3,
         "per_wall": {
-          "0": 1,
-          "10": 2,
+          "10": 1,
           "33": 2,
           "78": 2
         },
         "intersections": 0,
-        "pairs": 36,
-        "min_gap": 0.9283,
+        "pairs": 28,
+        "min_gap": 0.9393,
         "spread_diff": 1
       }
     },
@@ -31018,7 +31032,7 @@
       "style": "Flat",
       "incline_deg": 2.5,
       "opening_fit": "Scale To Face",
-      "engine_version": "v2.8"
+      "engine_version": "v2.9"
     },
     "starter_compound_readback": {
       "n_doors": 3,
@@ -31142,15 +31156,15 @@
     },
     "version_probe": {
       "VM_Starter.blend": {
-        "total": 122,
+        "total": 127,
         "bad": []
       },
       "VM_SceneDetailer.blend": {
-        "total": 122,
+        "total": 127,
         "bad": []
       },
       "VM_RoofCap.blend": {
-        "total": 122,
+        "total": 127,
         "bad": []
       }
     },
@@ -31194,10 +31208,10 @@
         "VM_RoofCap",
         "VM_SceneDetailer"
       ],
-      "path": "/home/kristo/harneloop-work/engine/VM_Assets.blend",
+      "path": "C:\\Users\\krist\\Desktop\\main-projects\\Projects\\vm-scene-detailer\\build\\VM_Assets.blend",
       "descriptions": {
-        "VM_RoofCap": "VM engine v2.8 - per-region roof caps: Style 'Flat' DEFAULT ",
-        "VM_SceneDetailer": "VM engine v2.8 - semantic architectural application engine ("
+        "VM_RoofCap": "VM engine v2.9 - per-region roof caps: Style 'Flat' DEFAULT ",
+        "VM_SceneDetailer": "VM engine v2.9 - semantic architectural application engine ("
       }
     }
   },
@@ -32075,17 +32089,17 @@
     {
       "name": "bugfix(roof-door): the user's exact tower+wing shape REPRODUCES with v2.5-pre rules (Ground Floor Only OFF, no ceiling) - a door stands on the wing roof via the roof-adjacent tower strip (base z == the strip's bottom edge == the roof surface)",
       "pass": true,
-      "detail": "5 doors with legacy rules; roof-adjacent (name, base_z, face_base)=[('Door_04', 1.9, 1.9)]"
+      "detail": "5 doors with legacy rules; roof-adjacent (name, base_z, face_base)=[('Door_03', 1.9, 1.9)]"
     },
     {
       "name": "bugfix(roof-door): with the v2.5 rules (Ground Floor Only ON + Max Base Height 0.5) the SAME shape gets zero roof-adjacent doors - the case is impossible",
       "pass": true,
-      "detail": "4 doors with the new rules; roof-adjacent doors=[]"
+      "detail": "3 doors with the new rules; roof-adjacent doors=[]"
     },
     {
       "name": "bugfix(black-triangle): root cause = cladding on a flipped-normal triangle fragment (extrusion fill): v2.5-pre tiles grew [0, th] from the wall plane -> on an inward-wound fragment they buried INSIDE the wall and z-fought its coplanar backs -> bare black triangle. v2.5 tiles STRADDLE the plane and cover every wall face whatever its winding",
       "pass": true,
-      "detail": "flipped fill faces before=[13] after=[13]; tile back-side crossing of the wall plane BEFORE max=-0.0 (never crosses -> z-fight -> black), AFTER min=0.0104 (straddles -> covered); tiles per face before={2: 34, 3: 34, 4: 18, 5: 16, 6: 21, 7: 21, 8: 12, 11: 20, 14: 17, 12: 17, 13: 14} after={2: 34, 3: 34, 4: 18, 5: 16, 6: 21, 7: 21, 8: 12, 11: 20, 14: 17, 12: 17, 13: 14}"
+      "detail": "flipped fill faces before=[13] after=[13]; tile back-side crossing of the wall plane BEFORE max=-0.0 (never crosses -> z-fight -> black), AFTER min=0.0104 (straddles -> covered); tiles per face before={2: 34, 3: 34, 5: 16, 6: 21, 7: 21, 8: 12, 11: 20, 14: 17, 12: 17} after={2: 34, 3: 34, 5: 16, 6: 21, 7: 21, 8: 12, 11: 20, 14: 17, 12: 17}"
     },
     {
       "name": "pack-swap: same base model, identical slot layout - ONLY the pack collection sockets are repointed (Windows: louvered shutters -> MedievalWindows); every instance origin identical between the two looks",
@@ -32110,12 +32124,12 @@
     {
       "name": "user2(fix): 'Scale To Face' puts doors back on the ground-floor walls of the SAME shape with the SAME v2.5 stack (openings auto-shrink to the 2.0 m walls)",
       "pass": true,
-      "detail": "5 doors (was 0); boxes=[(0.0, 1.124), (0.0, 1.124), (0.0, 1.124), (0.0, 1.124), (0.0, 1.124)]"
+      "detail": "3 doors (was 0); boxes=[(0.0, 1.124), (0.0, 1.124), (0.0, 1.124)]"
     },
     {
       "name": "user2(accept): under the default Fit stack (Scale To Face) with pack-sized openings the rebuilt massing shows doors AND windows on the ground-floor walls (both Slot layouts)",
       "pass": true,
-      "detail": "default-settings counts: {'Slots': {'n_doors': 6, 'n_windows': 1}, 'Random': {'n_doors': 4, 'n_windows': 3}}"
+      "detail": "default-settings counts: {'Slots': {'n_doors': 4, 'n_windows': 2}, 'Random': {'n_doors': 4, 'n_windows': 2}}"
     },
     {
       "name": "user2(manual): openings land ONLY inside the painted vertex-group area (bbox containment on the painted wall), zero outside",
@@ -32145,27 +32159,27 @@
     {
       "name": "v2.8(cladding containment): ZERO cladding anchors off-surface (the phantom wall slab cannot exist - anchor-on-surface test)",
       "pass": true,
-      "detail": "1716 tiles kept on real surface, 0 off-surface (0 required; v2.7 engine: 263 empty-air slots - 20 plank slots on the gable triangle f51 + 243 shingle slots from the sliver fragments); strict planar-polygon outliers (diagnostic, known false positives on non-planar slivers/cap faces)=17"
+      "detail": "1518 tiles kept on real surface, 0 off-surface (0 required; v2.7 engine: 263 empty-air slots - 20 plank slots on the gable triangle f51 + 243 shingle slots from the sliver fragments); strict planar-polygon outliers (diagnostic, known false positives on non-planar slivers/cap faces)=7"
     },
     {
       "name": "v2.8(opening spread): openings appear on >= 3 distinct walls of the user's object (round-robin spread, NOT first-N on one wall)",
       "pass": true,
-      "detail": "9 openings on 4 walls, per-wall counts [1, 2, 2, 2] (v2.7 engine: 43 openings, 1 wall)"
+      "detail": "8 openings on 3 walls, per-wall counts [1, 2, 2] (v2.7 engine: 43 openings, 1 wall)"
     },
     {
       "name": "v2.8(gap law): ZERO pairwise opening bbox intersections (doors vs doors, windows vs windows, doors vs windows - the dense overlapping row is gone)",
       "pass": true,
-      "detail": "36 pairs tested, intersecting=0, min pairwise bbox gap=0.9283 m"
+      "detail": "28 pairs tested, intersecting=0, min pairwise bbox gap=0.9393 m"
     },
     {
       "name": "v2.8(balanced spread): per-wall opening counts differ by <= 1",
       "pass": true,
-      "detail": "per-wall counts [1, 2, 2, 2], max-min=1"
+      "detail": "per-wall counts [1, 2, 2], max-min=1"
     },
     {
       "name": "v2.8(deterministic): the user's massing evaluates identically on re-eval (fixed seeds, no hidden state)",
       "pass": true,
-      "detail": "1742 instances twice, positions/variant mix identical"
+      "detail": "1533 instances twice, positions/variant mix identical"
     },
     {
       "name": "v2.8(hip square top): VM_RoofCap 'Hip' on a square top builds a clean PYRAMID - exactly 4 roof faces meeting at one apex at the hip height",
@@ -32178,6 +32192,21 @@
       "detail": "generated faces=33 (32 sides + 1 apex ring), roof-band sides=32, apex z=3.071 vs expected 3.075 (eave 1.5 + (radius 2 + overhang 0.25) * tan 35)"
     },
     {
+      "name": "v2.9(buried floor detected): the stacked-storey seam faces and the annex's inner wall are classified BURIED (ray along the normal hits a back face)",
+      "pass": true,
+      "detail": "buried face idx=[1, 6, 17]; up-facing 3 -> exterior 2 (main top + annex top)"
+    },
+    {
+      "name": "v2.9(no roof inside the building): VM_RoofCap emits ZERO roof faces on the buried first-floor seam (the user's 'roof on a floor' bug)",
+      "pass": true,
+      "detail": "10 generated roof faces, 0 inside the main block (v2.8 engine capped the buried floor too), uncovered exterior tops=[]"
+    },
+    {
+      "name": "v2.9(no dressing inside the building): ZERO planks/shingles/doors/windows anchored deep inside the main block",
+      "pass": true,
+      "detail": "inside main: {}; totals {'Window': 3, 'Door': 3, 'Plank': 295}"
+    },
+    {
       "name": "images_packed VM_Starter.blend: 88/88",
       "pass": true,
       "detail": "88/88 image datablocks packed, unpacked=[]"
@@ -32185,12 +32214,12 @@
     {
       "name": "accept(v2.8 delivered): the user's Cube.001 survives the rebuild AND keeps ZERO cladding anchors off-surface (no phantom slab)",
       "pass": true,
-      "detail": "0 cladding anchors off-surface (0 required; strict planar-polygon outliers diagnostic=17), object present with 108 verts / 81 faces"
+      "detail": "0 cladding anchors off-surface (0 required; strict planar-polygon outliers diagnostic=7), object present with 108 verts / 81 faces"
     },
     {
       "name": "accept(v2.8 delivered): the user's Cube.001 openings spread over >= 3 walls with zero pairwise bbox intersections and per-wall counts balanced <= 1",
       "pass": true,
-      "detail": "9 openings on 4 walls, per-wall [1, 2, 2, 2], intersections=0, min gap=0.9283, max-min=1"
+      "detail": "8 openings on 3 walls, per-wall [1, 2, 2], intersections=0, min gap=0.9393, max-min=1"
     },
     {
       "name": "accept(a): door back plane = planks_thickness + small tolerance, front proud >= 0.005",
@@ -32243,9 +32272,9 @@
       "detail": "5 variants, per-variant back distances {'Door_01': 0.0235, 'Door_02': 0.0235, 'Door_03': 0.0235, 'Door_04': 0.0235, 'Door_05': 0.0235}, spread=0.000000 m, variance=0.00000000 m^2, y_min spread=0.000000 m"
     },
     {
-      "name": "starter read-back (delivered VM_Starter.blend): saved VM_RoofCap Style='Flat' (gables never invented on flat tops), Incline=2.5 deg, layers on 'Scale To Face', Engine Version 'v2.8'",
+      "name": "starter read-back (delivered VM_Starter.blend): saved VM_RoofCap Style='Flat' (gables never invented on flat tops), Incline=2.5 deg, layers on 'Scale To Face', Engine Version 'v2.9'",
       "pass": true,
-      "detail": "Style=Flat, Incline=2.500 deg, Opening Fit=Scale To Face, Engine Version=v2.8"
+      "detail": "Style=Flat, Incline=2.500 deg, Opening Fit=Scale To Face, Engine Version=v2.9"
     },
     {
       "name": "compound[delivered blend]: doors AND windows on the EXTERIOR ground walls of the tower+wing+annex edit (the copied stack survives the user's exact action)",
@@ -32278,14 +32307,14 @@
       "detail": "3 doors, 3 windows"
     },
     {
-      "name": "version: Engine Version socket reads 'v2.8' on EVERY VM modifier in VM_Starter.blend",
+      "name": "version: Engine Version socket reads 'v2.9' on EVERY VM modifier in VM_Starter.blend",
       "pass": true,
-      "detail": "122 VM modifiers probed, non-v2.8: []"
+      "detail": "127 VM modifiers probed, non-v2.9: []"
     },
     {
-      "name": "version: node-group DESCRIPTIONS carry v2.8 in VM_Starter.blend (visible in the node-group selector tooltip)",
+      "name": "version: node-group DESCRIPTIONS carry v2.9 in VM_Starter.blend (visible in the node-group selector tooltip)",
       "pass": true,
-      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.8 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.8 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
+      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.9 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.9 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
     },
     {
       "name": "default path: fresh scene + fresh cube + Add Modifier (ZERO socket tweaks) -> openings present on the walls out of the box",
@@ -32310,7 +32339,7 @@
     {
       "name": "addon(preset): 'VM: Save Preset' stores the full stack config + collection NAMES to ~/.config/vm_engine/presets/<name>.json",
       "pass": true,
-      "detail": "/home/kristo/.config/vm_engine/presets/acceptance_v27.json: exists=True, 5 modifiers, 278 sockets"
+      "detail": "C:\\Users\\krist\\.config\\vm_engine\\presets\\acceptance_v27.json: exists=True, 5 modifiers, 278 sockets"
     },
     {
       "name": "images_packed VM_SceneDetailer.blend: 88/88",
@@ -32318,14 +32347,14 @@
       "detail": "88/88 image datablocks packed, unpacked=[]"
     },
     {
-      "name": "version: Engine Version socket reads 'v2.8' on EVERY VM modifier in VM_SceneDetailer.blend",
+      "name": "version: Engine Version socket reads 'v2.9' on EVERY VM modifier in VM_SceneDetailer.blend",
       "pass": true,
-      "detail": "122 VM modifiers probed, non-v2.8: []"
+      "detail": "127 VM modifiers probed, non-v2.9: []"
     },
     {
-      "name": "version: node-group DESCRIPTIONS carry v2.8 in VM_SceneDetailer.blend (visible in the node-group selector tooltip)",
+      "name": "version: node-group DESCRIPTIONS carry v2.9 in VM_SceneDetailer.blend (visible in the node-group selector tooltip)",
       "pass": true,
-      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.8 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.8 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
+      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.9 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.9 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
     },
     {
       "name": "images_packed VM_RoofCap.blend: 88/88",
@@ -32333,14 +32362,14 @@
       "detail": "88/88 image datablocks packed, unpacked=[]"
     },
     {
-      "name": "version: Engine Version socket reads 'v2.8' on EVERY VM modifier in VM_RoofCap.blend",
+      "name": "version: Engine Version socket reads 'v2.9' on EVERY VM modifier in VM_RoofCap.blend",
       "pass": true,
-      "detail": "122 VM modifiers probed, non-v2.8: []"
+      "detail": "127 VM modifiers probed, non-v2.9: []"
     },
     {
-      "name": "version: node-group DESCRIPTIONS carry v2.8 in VM_RoofCap.blend (visible in the node-group selector tooltip)",
+      "name": "version: node-group DESCRIPTIONS carry v2.9 in VM_RoofCap.blend (visible in the node-group selector tooltip)",
       "pass": true,
-      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.8 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.8 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
+      "detail": "descriptions={'VM_SceneDetailer': 'VM_SceneDetailer v2.9 - semantic architectural application engine (Scatter/Fit/C', 'VM_RoofCap': \"VM_RoofCap v2.9 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: su\"}"
     },
     {
       "name": "adapter: VM_Doors holds wall-flat slabs only (quarantined/props never mix in)",

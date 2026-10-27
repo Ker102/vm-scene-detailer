@@ -1,6 +1,6 @@
 {
  "pack": "WornWoodenDoorsPack",
- "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/doors/WornWoodenDoorsPack/scene.gltf",
+ "source": "C:\\Users\\krist/Documents/ViperMeshAssets\\props/doors/WornWoodenDoorsPack/scene.gltf",
  "ingester": "pack_ingest.py (zero-config)",
  "objects_seen": 25,
  "meshes": 11,

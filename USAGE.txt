@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.8) - BOTH node groups marked as BLENDER ASSETS for the
+  VM_Assets.blend (v2.9) - BOTH node groups marked as BLENDER ASSETS for the
     Asset Browser: add this file ONCE to Blender's asset libraries (see
     'ZERO-SETUP UX' below) and drag the engine onto any object in any file
-  VM_Tools_Addon.py (v2.8) - one-click helpers: 'VM: Dress Object' (full
-    default v2.8 stack on selected objects), 'VM: Copy/Paste Engine Setup'
+  VM_Tools_Addon.py (v2.9) - one-click helpers: 'VM: Dress Object' (full
+    default v2.9 stack on selected objects), 'VM: Copy/Paste Engine Setup'
     (copy the whole VM_* modifier stack, incl. collection references, between
     objects) and 'VM: Save/Load Preset <name>' (JSON setups that travel
     across .blend files). Install as an add-on (see 'ZERO-SETUP UX' below)
@@ -32,10 +32,26 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (232 checks: the original 197 kept
-    green + 35 v2.7/v2.8 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (235 checks: the original 197 kept
+    green + 38 v2.7/v2.8/v2.9 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.9 (2026-10-27) - BURIED FACES: no roofs/dressing inside the building
+------------------------------------------------------------------------
+* Roof on a floor INSIDE the building (stacked storeys / overlapping annex in
+  one mesh): every face is now ray-tested along its normal; if the first hit is
+  a BACK face the face is buried (inside the solid) and is excluded from the
+  wall/roof/floor zones (VM_SceneDetailer) and from roof capping (VM_RoofCap).
+  Zero-area faces are excluded too (they produced stray roof strips).
+* Exact-N openings: slot occupancy across layers is now resolved BEFORE the
+  exact-count ranking, so 'Exact 1' no longer picks a slot that a door already
+  holds and then drops to 0 windows.
+* Acceptance object: 'BuriedFloorHouse' (x=60, y=-16) - two stacked boxes +
+  an overlapping annex in ONE mesh; preview_buried_floor_house.png.
+* Known limits: a coplanar top split into several faces still gets one incline
+  cap per face (overlapping caps); a wall only PARTLY overlapped by another
+  block still receives cladding on the hidden part (test is per face).
 
 v2.8 (2026-10-23) - the user's own-massing bug report, fixed at the engine level
 --------------------------------------------------------------------------------
@@ -219,7 +235,7 @@ INSTALL ONCE:
     the v2.8 description) - drag either onto any object in ANY file.
 
 OPERATORS (VM Tools panel):
-  * VM: Dress Object       - one click = the FULL default v2.8 stack on all
+  * VM: Dress Object       - one click = the FULL default v2.9 stack on all
     selected meshes (wall cladding, VM_RoofCap 'Flat', roof cladding, doors,
     windows - the StarterCube recipe with current defaults). Collections are
     intentionally left EMPTY: assigning the variant collections in the Assets

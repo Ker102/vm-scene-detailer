@@ -1,6 +1,6 @@
 {
  "pack": "BrokenWindow01",
- "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/BrokenWindow01/scene.gltf",
+ "source": "C:\\Users\\krist/Documents/ViperMeshAssets\\props/windows/BrokenWindow01/scene.gltf",
  "ingester": "pack_ingest.py (zero-config)",
  "objects_seen": 8,
  "meshes": 3,

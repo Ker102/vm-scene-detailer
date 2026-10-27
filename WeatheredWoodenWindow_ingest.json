@@ -1,6 +1,6 @@
 {
  "pack": "WeatheredWoodenWindow",
- "source": "/mnt/c/Users/krist/Documents/ViperMeshAssets/props/windows/WeatheredWoodenWindow/scene.gltf",
+ "source": "C:\\Users\\krist/Documents/ViperMeshAssets\\props/windows/WeatheredWoodenWindow/scene.gltf",
  "ingester": "pack_ingest.py (zero-config)",
  "objects_seen": 9,
  "meshes": 3,

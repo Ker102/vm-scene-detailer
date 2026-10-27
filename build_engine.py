@@ -194,20 +194,26 @@ v2.7 unambiguous behavior + zero-setup UX (2026-10-22, the user's confusion repo
   * VM_Assets.blend: both node groups marked as BLENDER ASSETS for the Asset
     Browser (drag the engine onto any object in any file).
 
-Deterministic (fixed seeds). Run:
-  cd /home/kristo/blender && ./blender-5.2.2-linux-x64/blender -b --python build_engine.py
+Deterministic (fixed seeds). Run (Windows or Linux, Blender 5.2.2):
+  blender -b --python build_engine.py
+Paths (env overrides): VM_ROOT = working dir (default ./build next to this
+script), VM_ASSET_SRC = asset library (default ~/Documents/ViperMeshAssets),
+VM_DELIVER = deliverable mirror (default ~/Downloads/blender-engine).
 """
 
 import bpy, bmesh, os, sys, shutil, math, json
 from collections import Counter
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pack_ingest
 
-ROOT = "/home/kristo/harneloop-work/engine"
-ASSET_SRC = "/mnt/c/Users/krist/Documents/ViperMeshAssets"
-DELIVER = "/mnt/c/Users/krist/Downloads/blender-engine"
+_HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.environ.get("VM_ROOT", os.path.join(_HERE, "build"))
+ASSET_SRC = os.environ.get("VM_ASSET_SRC", os.path.expanduser("~/Documents/ViperMeshAssets"))
+DELIVER = os.environ.get("VM_DELIVER", os.path.expanduser("~/Downloads/blender-engine"))
+os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
@@ -768,6 +774,103 @@ def material_gate(b, geo_in, mat_out, sel, loc):
     return sw.outputs["Output"]
 
 
+def exterior_face_field(b, target, loc):
+    """v2.9 face-domain field: False for faces buried INSIDE the host solid
+    and for zero-area (collapsed) faces.
+
+    Edit-mode modeling leaves hidden faces behind (an extruded top keeps its old
+    cap as an internal floor, overlapping boxes in one mesh bury each other's
+    tops/walls). Those faces are up-facing/vertical like real ones, so the zone
+    tests alone roofed and clad them INSIDE the building (the user's 'roof on a
+    floor' bug). Test: cast a ray from just off the face along its normal; when
+    the FIRST hit is the BACK of another face (hit normal agrees with the ray)
+    the face starts inside the solid. Open meshes / sky-facing tops never hit a
+    back face, so they stay exterior; a ledge under an overhang hits the
+    overhang's front (downward) face and stays exterior too."""
+    x, y = loc
+    pos = b.N("GeometryNodeInputPosition", (x, y))
+    nrm = b.N("GeometryNodeInputNormal", (x, y - 120))
+    off = b.N("ShaderNodeVectorMath", (x + 150, y - 60), operation="SCALE")
+    b.L(nrm.outputs["Normal"], off.inputs[0])
+    off.inputs["Scale"].default_value = 0.001
+    src = b.N("ShaderNodeVectorMath", (x + 300, y), operation="ADD")
+    b.L(pos.outputs["Position"], src.inputs[0])
+    b.L(off.outputs["Vector"], src.inputs[1])
+    rc = b.N("GeometryNodeRaycast", (x + 450, y))
+    b.L(target, rc.inputs["Target Geometry"])
+    b.L(src.outputs["Vector"], rc.inputs["Source Position"])
+    b.L(nrm.outputs["Normal"], rc.inputs["Ray Direction"])
+    rc.inputs["Ray Length"].default_value = 10000.0
+    dot = b.N("ShaderNodeVectorMath", (x + 650, y - 120), operation="DOT_PRODUCT")
+    b.L(rc.outputs["Hit Normal"], dot.inputs[0])
+    b.L(nrm.outputs["Normal"], dot.inputs[1])
+    back = b.N("FunctionNodeCompare", (x + 800, y - 120), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(dot.outputs["Value"], back.inputs["A"])
+    back.inputs["B"].default_value = 1e-4
+    inside = b.N("FunctionNodeBooleanMath", (x + 950, y), operation="AND")
+    b.L(rc.outputs["Is Hit"], inside.inputs[0])
+    b.L(back.outputs["Result"], inside.inputs[1])
+    # generated roof caps are OPEN sheets: the host top under a cap hits the
+    # cap's back and would read 'inside' - hits on vm_roofgen faces don't count
+    rg = b.N("GeometryNodeInputNamedAttribute", (x + 300, y - 300))
+    rg.data_type = "FLOAT"
+    rg.inputs["Name"].default_value = "vm_roofgen"
+    rc.data_type = "FLOAT"
+    b.L(rg.outputs["Attribute"], rc.inputs["Attribute"])
+    host_hit = b.N("FunctionNodeCompare", (x + 800, y - 300), data_type="FLOAT", operation="LESS_THAN")
+    b.L(rc.outputs["Attribute"], host_hit.inputs["A"])
+    host_hit.inputs["B"].default_value = 0.5
+    inside2 = b.N("FunctionNodeBooleanMath", (x + 1000, y - 150), operation="AND")
+    b.L(inside.outputs["Boolean"], inside2.inputs[0])
+    b.L(host_hit.outputs["Result"], inside2.inputs[1])
+    outside = b.N("FunctionNodeBooleanMath", (x + 1100, y), operation="NOT")
+    b.L(inside2.outputs["Boolean"], outside.inputs[0])
+    # zero-area faces (an extrude collapsed flat - the user's TestFit carries 12)
+    # report an arbitrary +Z normal but still MEASURE metres along their edge
+    # line: the flat-cap fallback turned one into a roof strip along a wall
+    area = b.N("GeometryNodeInputMeshFaceArea", (x + 800, y + 150))
+    real = b.N("FunctionNodeCompare", (x + 950, y + 150), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(area.outputs["Area"], real.inputs["A"])
+    real.inputs["B"].default_value = 1e-6
+    ext = b.N("FunctionNodeBooleanMath", (x + 1250, y), operation="AND")
+    b.L(outside.outputs["Boolean"], ext.inputs[0])
+    b.L(real.outputs["Result"], ext.inputs[1])
+    return ext.outputs["Boolean"]
+
+
+def store_exterior(b, geo, name, loc):
+    """Materialize exterior_face_field as a FACE float attribute (evaluation-
+    context contract: selections read it back as a plain named attribute).
+    Returns (geometry_out, bool_field_reading_it_back).
+
+    The store runs on the MESH component only: Store Named Attribute on the
+    whole input also reaches into earlier modifiers' instances and turns their
+    object references into anonymous geometry (every Plank/Door instance of a
+    stacked dress lost its identity - measured in the v2.9 bring-up)."""
+    sep = b.N("GeometryNodeSeparateComponents", (loc[0] - 200, loc[1]))
+    b.L(geo, sep.inputs["Geometry"])
+    mesh = sep.outputs["Mesh"]
+    ext = exterior_face_field(b, mesh, loc)
+    conv = b.N("ShaderNodeMath", (loc[0] + 1250, loc[1]), operation="ADD")
+    b.L(ext, conv.inputs[0])
+    conv.inputs[1].default_value = 0.0
+    st = b.N("GeometryNodeStoreNamedAttribute", (loc[0] + 1400, loc[1]), data_type="FLOAT", domain="FACE")
+    b.L(mesh, st.inputs["Geometry"])
+    st.inputs["Name"].default_value = name
+    b.L(conv.outputs["Value"], st.inputs["Value"])
+    join = b.N("GeometryNodeJoinGeometry", (loc[0] + 1600, loc[1]))
+    for out_name in ("Instances", "Curve", "Point Cloud"):
+        b.L(sep.outputs[out_name], join.inputs["Geometry"])
+    b.L(st.outputs["Geometry"], join.inputs["Geometry"])
+    rd = b.N("GeometryNodeInputNamedAttribute", (loc[0] + 1400, loc[1] - 200))
+    rd.data_type = "FLOAT"
+    rd.inputs["Name"].default_value = name
+    ok = b.N("FunctionNodeCompare", (loc[0] + 1550, loc[1] - 200), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(rd.outputs["Attribute"], ok.inputs["A"])
+    ok.inputs["B"].default_value = 0.5
+    return join.outputs["Geometry"], ok.outputs["Result"]
+
+
 def build_node_group():
     b = NGBuilder("VM_SceneDetailer")
     iface = b.iface
@@ -909,37 +1012,48 @@ def build_node_group():
     sx_g, sy_g, sz_g = ws["sx"], ws["sy"], ws["sz"]
     eff_u, eff_v, eff_n = ws["eff_u"], ws["eff_v"], ws["eff_n"]
     dens_f, geo_f = ws["area"], ws["geo"]
-    is_wall = b.N("FunctionNodeCompare", (-1250, 800), data_type="FLOAT", operation="LESS_EQUAL")
-    b.L(absz.outputs["Value"], is_wall.inputs["A"])
-    b.L(gi.outputs["Wall Slope"], is_wall.inputs["B"])
+    # v2.9: faces buried inside the solid belong to NO zone (no cladding,
+    # openings or zone material on hidden internal floors/walls)
+    host_geo, ext_ok = store_exterior(b, gi.outputs["Geometry"], "vm_ext", (-3400, 1300))
+
+    def zone_and(sock, loc):
+        n = b.N("FunctionNodeBooleanMath", loc, operation="AND")
+        b.L(sock, n.inputs[0])
+        b.L(ext_ok, n.inputs[1])
+        return n
+    is_wall_raw = b.N("FunctionNodeCompare", (-1250, 800), data_type="FLOAT", operation="LESS_EQUAL")
+    b.L(absz.outputs["Value"], is_wall_raw.inputs["A"])
+    b.L(gi.outputs["Wall Slope"], is_wall_raw.inputs["B"])
+    is_wall = zone_and(is_wall_raw.outputs["Result"], (-1150, 860))
     roof_lo = b.N("FunctionNodeCompare", (-1250, 650), data_type="FLOAT", operation="GREATER_EQUAL")
     b.L(nsep.outputs["Z"], roof_lo.inputs["A"])
     b.L(gi.outputs["Roof Slope Min"], roof_lo.inputs["B"])
     roof_hi = b.N("FunctionNodeCompare", (-1250, 580), data_type="FLOAT", operation="LESS_THAN")
     b.L(nsep.outputs["Z"], roof_hi.inputs["A"])
     b.L(gi.outputs["Roof Slope Max"], roof_hi.inputs["B"])
-    is_roof = b.N("FunctionNodeBooleanMath", (-1080, 620), operation="AND")
-    b.L(roof_lo.outputs["Result"], is_roof.inputs[0])
-    b.L(roof_hi.outputs["Result"], is_roof.inputs[1])
+    is_roof_raw = b.N("FunctionNodeBooleanMath", (-1080, 620), operation="AND")
+    b.L(roof_lo.outputs["Result"], is_roof_raw.inputs[0])
+    b.L(roof_hi.outputs["Result"], is_roof_raw.inputs[1])
+    is_roof = zone_and(is_roof_raw.outputs["Boolean"], (-1000, 620))
     floor_lo = b.N("FunctionNodeCompare", (-1250, 500), data_type="FLOAT", operation="LESS_EQUAL")
     b.L(nsep.outputs["Z"], floor_lo.inputs["A"])
     b.L(neg_rs.outputs["Value"], floor_lo.inputs["B"])
     floor_hi = b.N("FunctionNodeCompare", (-1250, 430), data_type="FLOAT", operation="GREATER_EQUAL")
     b.L(nsep.outputs["Z"], floor_hi.inputs["A"])
     b.L(gi.outputs["Roof Slope Max"], floor_hi.inputs["B"])
-    is_floor = b.N("FunctionNodeBooleanMath", (-1080, 470), operation="OR")
-    b.L(floor_lo.outputs["Result"], is_floor.inputs[0])
-    b.L(floor_hi.outputs["Result"], is_floor.inputs[1])
+    is_floor_raw = b.N("FunctionNodeBooleanMath", (-1080, 470), operation="OR")
+    b.L(floor_lo.outputs["Result"], is_floor_raw.inputs[0])
+    b.L(floor_hi.outputs["Result"], is_floor_raw.inputs[1])
+    is_floor = zone_and(is_floor_raw.outputs["Boolean"], (-1000, 470))
 
     zone_sel, _ = b.menu_switch(
         ["All", "Walls", "Roof", "Floor"], "BOOLEAN", gi.outputs["Face Zone"],
-        {"All": None, "Walls": is_wall.outputs["Result"], "Roof": is_roof.outputs["Boolean"],
+        {"All": ext_ok, "Walls": is_wall.outputs["Boolean"], "Roof": is_roof.outputs["Boolean"],
          "Floor": is_floor.outputs["Boolean"]}, loc=(-1050, 650))
-    b.ng.nodes[-1].inputs["All"].default_value = True
 
     # ---------------- base materials by zone (gated Set Material) ----------------
-    base1 = material_gate(b, gi.outputs["Geometry"], gi.outputs["Wall Material"],
-                          is_wall.outputs["Result"], (-800, 1100))
+    base1 = material_gate(b, host_geo, gi.outputs["Wall Material"],
+                          is_wall.outputs["Boolean"], (-800, 1100))
     base2 = material_gate(b, base1, gi.outputs["Roof Material"],
                           is_roof.outputs["Boolean"], (-500, 1100))
     base_out = material_gate(b, base2, gi.outputs["Floor Material"],
@@ -1910,12 +2024,18 @@ def build_node_group():
     keep_k3 = b.N("FunctionNodeBooleanMath", (5450, -2500), operation="AND")
     b.L(keep_k2.outputs["Boolean"], keep_k3.inputs[0])
     b.L(manual_gate.outputs["Boolean"], keep_k3.inputs[1])
+    # v2.9: cross-layer clearance BEFORE the Exact N rank (input 1 is linked
+    # once the earlier-layer anchor cloud exists - see slot_occ below). Ranking
+    # first and culling later let 'Exactly 1 window' pick a slot beside a door
+    # and then lose it: the layer ended with 0.
+    keep_k4 = b.N("FunctionNodeBooleanMath", (5550, -2500), operation="AND")
+    b.L(keep_k3.outputs["Boolean"], keep_k4.inputs[0])
 
     # ---- v2.6 Count Mode 'Exact N': EXACTLY 'Exact Count' openings per LAYER ----
     # Candidate order is deterministic (face order, then grid column/row order);
     # rank = running count of kept candidates (Accumulate Field, POINT domain).
     keep_ff = b.N("ShaderNodeMath", (5650, -2500), operation="ADD")
-    b.L(keep_k3.outputs["Boolean"], keep_ff.inputs[0])
+    b.L(keep_k4.outputs["Boolean"], keep_ff.inputs[0])
     keep_ff.inputs[1].default_value = 0.0
     acc_s = b.N("GeometryNodeAccumulateField", (5850, -2500), domain="POINT")
     b.L(keep_ff.outputs["Value"], acc_s.inputs["Value"])
@@ -1961,7 +2081,7 @@ def build_node_group():
     b.L(ex_not.outputs["Boolean"], exact_gate.inputs[0])
     b.L(ex_pick.outputs["Output"], exact_gate.inputs[1])
     keep_final = b.N("FunctionNodeBooleanMath", (7400, -2500), operation="AND")
-    b.L(keep_k3.outputs["Boolean"], keep_final.inputs[0])
+    b.L(keep_k4.outputs["Boolean"], keep_final.inputs[0])
     b.L(exact_gate.outputs["Boolean"], keep_final.inputs[1])
 
     not_keep_s = b.N("FunctionNodeBooleanMath", (3950, -2000), operation="NOT")
@@ -2706,6 +2826,35 @@ def build_node_group():
     and2d = b.N("FunctionNodeBooleanMath", (1250, -400), operation="AND")
     b.L(and2c.outputs["Boolean"], and2d.inputs[0])
     b.L(occ_gate.outputs["Boolean"], and2d.inputs[1])
+    # v2.9 slot_occ: the same horizontal-clearance rule evaluated on the SLOT
+    # candidates (their wall probe position mp_p3) so Exact N ranks only slots
+    # that will survive occ_gate above
+    so_prox = b.N("GeometryNodeProximity", (5100, -3500))
+    b.L(mark_join.outputs["Geometry"], so_prox.inputs["Geometry"])
+    b.L(mp_p3.outputs["Vector"], so_prox.inputs["Sample Position"])
+    so_d = b.N("ShaderNodeVectorMath", (5250, -3500), operation="SUBTRACT")
+    b.L(so_prox.outputs["Position"], so_d.inputs[0])
+    b.L(mp_p3.outputs["Vector"], so_d.inputs[1])
+    so_sep = b.N("ShaderNodeSeparateXYZ", (5400, -3500))
+    b.L(so_d.outputs["Vector"], so_sep.inputs["Vector"])
+    so_xy = b.N("ShaderNodeCombineXYZ", (5550, -3500))
+    b.L(so_sep.outputs["X"], so_xy.inputs["X"])
+    b.L(so_sep.outputs["Y"], so_xy.inputs["Y"])
+    so_len = b.N("ShaderNodeVectorMath", (5700, -3500), operation="LENGTH")
+    b.L(so_xy.outputs["Vector"], so_len.inputs[0])
+    so_far = b.N("FunctionNodeCompare", (5850, -3500), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(so_len.outputs["Value"], so_far.inputs["A"])
+    b.L(occ_thr.outputs["Value"], so_far.inputs["B"])
+    so_inv = b.N("FunctionNodeBooleanMath", (5850, -3650), operation="NOT")
+    b.L(so_prox.outputs["Is Valid"], so_inv.inputs[0])
+    so_ok = b.N("FunctionNodeBooleanMath", (6000, -3550), operation="OR")
+    b.L(so_inv.outputs["Boolean"], so_ok.inputs[0])
+    b.L(so_far.outputs["Result"], so_ok.inputs[1])
+    # slot candidates only exist on the Fit path - NO is_fit gate here: is_fit
+    # comes from the Placement Mode GEOMETRY switch whose Fit branch contains
+    # this slot stage, so linking it in makes a dependency cycle (measured:
+    # Blender drops the link and every opening layer goes empty)
+    b.L(_flag("occ", so_ok.outputs["Boolean"]), keep_k4.inputs[1])
     and2e = b.N("FunctionNodeBooleanMath", (1400, -400), operation="AND")
     b.L(and2d.outputs["Boolean"], and2e.inputs[0])
     b.L(ft_gate.outputs["Boolean"], and2e.inputs[1])
@@ -3064,13 +3213,13 @@ def build_node_group():
     # ---- v2.7 About panel: appended LAST so every v2.5/v2.6 socket IDENTIFIER
     # is unchanged (old stacks that re-point at this group keep their values),
     # then MOVED to the top of the interface ----
-    p_about = b.panel("About", "Engine version + quick usage (v2.8): tells you exactly which code this modifier runs")
-    b.sock("Engine Version", "NodeSocketString", p_about, "v2.8",
-           desc="Version of the VM engine code behind this modifier (v2.8). If this "
+    p_about = b.panel("About", "Engine version + quick usage (v2.9): tells you exactly which code this modifier runs")
+    b.sock("Engine Version", "NodeSocketString", p_about, "v2.9",
+           desc="Version of the VM engine code behind this modifier (v2.9). If this "
                 "panel/socket is missing the stack runs a PRE-v2.8 group - see USAGE.txt "
                 "'Which version am I running?' and 'Upgrading old stacks'")
     b.sock("Usage Hint", "NodeSocketString", p_about,
-           "v2.8 quick use: Fit+Slots puts doors/windows on walls (openings snap to the "
+           "v2.9 quick use: Fit+Slots puts doors/windows on walls (openings snap to the "
            "wall's opening grid - they SPREAD over all walls and never overlap, in Random "
            "AND Slots layouts); Cladding stays INSIDE every face (no phantom slabs on "
            "triangles/slivers); VM_RoofCap caps flat tops (Style 'Hip' on a square top = "
@@ -3080,10 +3229,10 @@ def build_node_group():
 
     b.finish_menu_defaults()
     b.ng.description = (
-        "VM_SceneDetailer v2.8 - semantic architectural application engine (Scatter/Fit/"
+        "VM_SceneDetailer v2.9 - semantic architectural application engine (Scatter/Fit/"
         "Cladding + HouseCraft Slots openings; openings spread round-robin over all walls "
         "with the gap law in BOTH layouts; cladding confined to real face polygons). The "
-        "About panel shows the Engine Version socket ('v2.8'). Which code does my stack "
+        "About panel shows the Engine Version socket ('v2.9'). Which code does my stack "
         "run / how do I upgrade? See USAGE.txt 'Which version am I running?'")
     try:
         b.iface.move(p_about, 0)   # render About first, identifiers unchanged
@@ -3303,7 +3452,9 @@ def build_roofcap_group():
     # ---- v2.4 evaluation-context contract (see VM_SceneDetailer): corner-sampled
     # fields must be materialized as face attributes before being used in a
     # selection context. Stores first, then the qualification reads them back.
-    store_chain = mesh_in
+    # v2.9: buried tops (an extruded floor's old cap, overlapped boxes) are
+    # never roof regions - see exterior_face_field
+    store_chain, r_ext = store_exterior(b, mesh_in, "vm_rexp", (-1000, -3400))
     for nm_, dt, src in (("vm_rc", "FLOAT_VECTOR", posf.outputs["Position"]),
                          ("vm_ru", "FLOAT_VECTOR", u_l),
                          ("vm_rv", "FLOAT_VECTOR", v_l.outputs["Vector"]),
@@ -3336,9 +3487,12 @@ def build_roofcap_group():
     nrh2 = named_face("vm_rh", 3)
 
     # ---------------- per-region qualification (reads the stored attributes) --
-    up = b.N("FunctionNodeCompare", (-2100, -650), data_type="FLOAT", operation="GREATER_EQUAL")
-    b.L(nsep.outputs["Z"], up.inputs["A"])
-    up.inputs["B"].default_value = 0.98
+    up_raw = b.N("FunctionNodeCompare", (-2100, -650), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(nsep.outputs["Z"], up_raw.inputs["A"])
+    up_raw.inputs["B"].default_value = 0.98
+    up = b.N("FunctionNodeBooleanMath", (-1950, -650), operation="AND")
+    b.L(up_raw.outputs["Result"], up.inputs[0])
+    b.L(r_ext, up.inputs[1])
     quad_ok = b.N("FunctionNodeCompare", (850, -1980), data_type="FLOAT", operation="GREATER_EQUAL")
     b.L(nq, quad_ok.inputs["A"])
     quad_ok.inputs["B"].default_value = 0.5
@@ -3368,7 +3522,7 @@ def build_roofcap_group():
     b.L(eff_rv_q, mrs_h.inputs[1])
     b.L(mrs_h.outputs["Value"], sz_h.inputs["B"])
     q1 = b.N("FunctionNodeBooleanMath", (1000, -1950), operation="AND")
-    b.L(up.outputs["Result"], q1.inputs[0])
+    b.L(up.outputs["Boolean"], q1.inputs[0])
     b.L(quad_ok.outputs["Result"], q1.inputs[1])
     q2 = b.N("FunctionNodeBooleanMath", (1150, -2000), operation="AND")
     b.L(q1.outputs["Boolean"], q2.inputs[0])
@@ -3433,7 +3587,7 @@ def build_roofcap_group():
     b.L(nq, nq_lo.inputs["A"])
     nq_lo.inputs["B"].default_value = 0.5
     cone_q1 = b.N("FunctionNodeBooleanMath", (2400, -2800), operation="AND")
-    b.L(up.outputs["Result"], cone_q1.inputs[0])
+    b.L(up.outputs["Boolean"], cone_q1.inputs[0])
     b.L(nq_lo.outputs["Result"], cone_q1.inputs[1])
     cone_q2 = b.N("FunctionNodeBooleanMath", (2550, -2800), operation="AND")
     b.L(cone_q1.outputs["Boolean"], cone_q2.inputs[0])
@@ -3458,7 +3612,7 @@ def build_roofcap_group():
     cone_not = b.N("FunctionNodeBooleanMath", (3450, -2800), operation="NOT")
     b.L(cone_sel.outputs["Boolean"], cone_not.inputs[0])
     cap_sel0 = b.N("FunctionNodeBooleanMath", (2150, -2650), operation="AND")
-    b.L(up.outputs["Result"], cap_sel0.inputs[0])
+    b.L(up.outputs["Boolean"], cap_sel0.inputs[0])
     b.L(gable_not.outputs["Boolean"], cap_sel0.inputs[1])
     cap_sel = b.N("FunctionNodeBooleanMath", (2300, -2650), operation="AND")
     b.L(cap_sel0.outputs["Boolean"], cap_sel.inputs[0])
@@ -3752,13 +3906,13 @@ def build_roofcap_group():
 
     # ---- v2.7 About panel (appended LAST -> v2.5/v2.6 identifiers unchanged,
     # then moved to the top of the interface) ----
-    p_about = b.panel("About", "Engine version + quick usage (v2.8): tells you exactly which code this modifier runs")
-    b.sock("Engine Version", "NodeSocketString", p_about, "v2.8",
-           desc="Version of the VM engine code behind this modifier (v2.8). If this "
+    p_about = b.panel("About", "Engine version + quick usage (v2.9): tells you exactly which code this modifier runs")
+    b.sock("Engine Version", "NodeSocketString", p_about, "v2.9",
+           desc="Version of the VM engine code behind this modifier (v2.9). If this "
                 "panel/socket is missing the stack runs a PRE-v2.8 group - see USAGE.txt "
                 "'Which version am I running?' and 'Upgrading old stacks'")
     b.sock("Usage Hint", "NodeSocketString", p_about,
-           "v2.8 quick use: a fresh VM_RoofCap caps flat tops with a subtle 2.5 deg incline "
+           "v2.9 quick use: a fresh VM_RoofCap caps flat tops with a subtle 2.5 deg incline "
            "(Style 'Gable'/'Hip' = opt-in pitch - gables are NEVER invented on flat tops; "
            "'Hip' on a square top = pyramid, on a round/cylindrical top = CONE). "
            "Old stack? See USAGE.txt 'Which version am I running?'.",
@@ -3766,10 +3920,10 @@ def build_roofcap_group():
 
     b.finish_menu_defaults()
     b.ng.description = (
-        "VM_RoofCap v2.8 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: "
+        "VM_RoofCap v2.9 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: "
         "subtle 2.5 deg incline + fascia, NEVER invented gable triangles) / 'Gable' / 'Hip' "
         "(opt-in pitch; hip on a square top = pyramid, on a round top = cone). The About "
-        "panel shows the Engine Version socket ('v2.8'). Which "
+        "panel shows the Engine Version socket ('v2.9'). Which "
         "code does my stack run / how do I upgrade? See USAGE.txt 'Which version am I running?'")
     try:
         b.iface.move(p_about, 0)
@@ -4546,11 +4700,17 @@ def face_table(host):
     bpy.context.view_layer.update()
     mw = host.matrix_world
     nmat = mw.to_3x3().inverted().transposed()
+    wverts = [mw @ Vector(v.co) for v in host.data.vertices]
+    bvh = BVHTree.FromPolygons(wverts, [tuple(p.vertices) for p in host.data.polygons])
     out = []
     for p in host.data.polygons:
-        vs = [mw @ Vector(host.data.vertices[i].co) for i in p.vertices]
+        vs = [wverts[i] for i in p.vertices]
         c = sum(vs, Vector((0, 0, 0))) / len(vs)
         n = (nmat @ Vector(p.normal)).normalized()
+        # v2.9 Python mirror of exterior_face_field: first hit along the normal
+        # is the BACK of another face -> the face is buried inside the solid
+        hit, hn, _, _ = bvh.ray_cast(c + n * 0.001, n, 10000.0)
+        buried = (hit is not None and hn.dot(n) > 1e-4) or p.area <= 1e-6
         if abs(n.z) > 0.995:
             u = Vector((1, 0, 0))
         else:
@@ -4561,7 +4721,7 @@ def face_table(host):
         out.append(dict(idx=p.index, n=n, c=c, u=u, v=v,
                         min_z=min(w.z for w in vs), max_z=max(w.z for w in vs),
                         w=max(aa) - min(aa), h=max(bb) - min(bb),
-                        quad=len(vs) == 4))
+                        quad=len(vs) == 4, buried=buried))
     return out
 
 
@@ -4609,7 +4769,7 @@ def roof_report(host, min_size=0.4, largest_only=False, overhang=0.25,
     'skipped' entry means 'no gable', not 'no roof' - coverage completeness is
     reported by 'uncovered' (must stay empty)."""
     faces = face_table(host)
-    up_faces = [f for f in faces if f["n"].z >= 0.98]
+    up_faces = [f for f in faces if f["n"].z >= 0.98 and not f["buried"]]
     qual, skipped = [], []
     for f in up_faces:
         if not f["quad"]:
@@ -4930,7 +5090,8 @@ def reflow_edit(host, scale=(1.5, 1.0, 1.4), extrude_z=0.6):
 # ---------------------------------------------------------------------------- main
 def main():
     import faulthandler, signal, time
-    faulthandler.register(signal.SIGUSR1)
+    if hasattr(signal, "SIGUSR1"):          # POSIX only (stack dump on demand)
+        faulthandler.register(signal.SIGUSR1)
     os.makedirs(STAGE, exist_ok=True)
     os.makedirs(os.path.join(ROOT, "renders"), exist_ok=True)
     os.makedirs(DELIVER, exist_ok=True)
@@ -7282,6 +7443,106 @@ def main():
     render_from("preview_hip_square", (33.5, -21.5, 5.5), (38.0, -16.0, 1.6), 38)
     render_from("preview_hip_cone", (43.5, -21.5, 5.5), (48.0, -16.0, 1.6), 38)
 
+    # ================================================== v2.9: BURIED FACES
+    # The user's 2026-10-26 screenshot: a two-storey house + corner annex,
+    # with a ROOF appearing on the first floor INSIDE the building. Modeled the
+    # common way: the upper storey is a duplicated box stacked on the lower one
+    # (leaves two coincident internal faces at the floor line) and the annex is
+    # a box pushed INTO the main block (its inner wall + part of its top are
+    # buried). Every face was zone-qualified by its normal alone -> the buried
+    # floor became a roof region and got a cap + shingles inside the house.
+    log("\n== v2.9: BURIED FACES (stacked storeys + overlapping annex in ONE mesh) ==")
+    MAIN = (-2.0, 2.0, -1.5, 1.5, 0.0, 5.2)       # lower + upper storey (floor at 2.6)
+    ANNEX = (1.5, 4.2, -1.5, -0.25, 0.0, 2.4)      # pushed 0.5 m into the main block
+
+    def _box(x0, x1, y0, y1, z0, z1):
+        vs = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+              (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
+        fs = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+        return vs, fs
+    bv, bf = [], []
+    for bx in ((-2.0, 2.0, -1.5, 1.5, 0.0, 2.6), (-2.0, 2.0, -1.5, 1.5, 2.6, 5.2), ANNEX):
+        vs, fs = _box(*bx)
+        o = len(bv)
+        bv += vs
+        bf += [tuple(i + o for i in f) for f in fs]
+    me_bf = bpy.data.meshes.new("BuriedFloorHouse")
+    me_bf.from_pydata(bv, [], bf)
+    me_bf.update()
+    me_bf.materials.append(mat_wall)
+    bfh = bpy.data.objects.new("BuriedFloorHouse", me_bf)
+    bfh.location = (60.0, -16.0, 0.0)
+    col_scene.objects.link(bfh)
+    for _nm, _grp, _params in (("VM_SceneDetailer_Planks", ng, u3_plank),
+                               ("VM_RoofCap", ng_roof, u3_roof),
+                               ("VM_SceneDetailer_Shingles", ng, u3_shingle),
+                               ("VM_SceneDetailer_Door", ng, u3_door),
+                               ("VM_SceneDetailer_Windows", ng, u3_win)):
+        _m = bfh.modifiers.new(_nm, "NODES")
+        _m.node_group = _grp
+        set_params(_m, _grp, _params)
+    bfh.update_tag()
+    bpy.context.view_layer.update()
+
+    bf_faces = face_table(bfh)
+    bf_up_all = [f for f in bf_faces if f["n"].z >= 0.98]
+    bf_buried = [f["idx"] for f in bf_faces if f["buried"]]
+    bf_up_ext = [f for f in bf_up_all if not f["buried"]]
+    log(f"  base mesh: {len(bf_faces)} faces, up-facing={len(bf_up_all)} "
+        f"(exterior {len(bf_up_ext)}), buried faces={bf_buried}")
+
+    # roof generated over the buried floor = generated faces whose centre sits
+    # deep inside the main block below its top (the visible bug)
+    dg = bpy.context.evaluated_depsgraph_get()
+    dg.update()
+    ev_me = bfh.evaluated_get(dg).data
+    rg = ev_me.attributes.get("vm_roofgen")
+    gen_inside, gen_total = 0, 0
+    for p in ev_me.polygons:
+        if not (rg and rg.data[p.index].value > 0.5):
+            continue
+        gen_total += 1
+        c = Vector(p.center)
+        # x < 1.0: the annex cap's own overhang + fascia legitimately reach
+        # x = 1.25 (annex west edge 1.5 - overhang 0.25)
+        if -1.8 < c.x < 1.0 and -1.3 < c.y < 1.3 and c.z < MAIN[5] - 0.1:
+            gen_inside += 1
+    rr_bf = roof_report(bfh, overhang=0.25, style="Flat")
+
+    def _deep_in(p, bx, m=0.05):
+        return (bx[0] + m < p.x < bx[1] - m and bx[2] + m < p.y < bx[3] - m
+                and bx[4] + m < p.z < bx[5] - m)
+    mwi_bf = bfh.matrix_world.inverted()
+    rows_bf = inst_table(bfh, ("Plank", "Shingle", "Door", "Window"))
+    in_main = Counter(pre for (pre, org, lo, hi) in rows_bf if _deep_in(mwi_bf @ Vector(org), MAIN))
+    in_annex = Counter(pre for (pre, org, lo, hi) in rows_bf if _deep_in(mwi_bf @ Vector(org), ANNEX))
+    per_pre = Counter(pre for (pre, _o, _l, _h) in rows_bf)
+    log(f"  instances: {dict(per_pre)}; anchored deep inside MAIN: {dict(in_main)}; "
+        f"inside ANNEX (partial-overlap diagnostic): {dict(in_annex)}")
+    log(f"  generated roof faces: {gen_total}, inside the main block below its top: {gen_inside}; "
+        f"roof_report caps={rr_bf['caps']} uncovered={rr_bf['uncovered']}")
+
+    check("v2.9(buried floor detected): the stacked-storey seam faces and the annex's "
+          "inner wall are classified BURIED (ray along the normal hits a back face)",
+          len(bf_buried) >= 3 and len(bf_up_ext) == 2,
+          f"buried face idx={bf_buried}; up-facing {len(bf_up_all)} -> exterior "
+          f"{len(bf_up_ext)} (main top + annex top)")
+    check("v2.9(no roof inside the building): VM_RoofCap emits ZERO roof faces on the "
+          "buried first-floor seam (the user's 'roof on a floor' bug)",
+          gen_inside == 0 and gen_total > 0 and not rr_bf["uncovered"],
+          f"{gen_total} generated roof faces, {gen_inside} inside the main block "
+          f"(v2.8 engine capped the buried floor too), uncovered exterior tops="
+          f"{rr_bf['uncovered']}")
+    check("v2.9(no dressing inside the building): ZERO planks/shingles/doors/windows "
+          "anchored deep inside the main block",
+          sum(in_main.values()) == 0 and per_pre.get("Plank", 0) > 0,
+          f"inside main: {dict(in_main)}; totals {dict(per_pre)}")
+    results["v29_buried_faces"] = dict(buried=bf_buried, up_all=len(bf_up_all),
+                                       up_exterior=len(bf_up_ext), gen_total=gen_total,
+                                       gen_inside=gen_inside, in_main=dict(in_main),
+                                       in_annex=dict(in_annex), totals=dict(per_pre))
+    render_from("preview_buried_floor_house", (54.5, -23.5, 6.5), (60.5, -16.0, 2.4), 32)
+
     # ================================================== save + deliverables
     set_params(mod_a, ng, defaults)
     house_a.update_tag(); house_b.update_tag()
@@ -7542,17 +7803,17 @@ def main():
                                     socket_id(m.node_group, "Engine Version")).value)
                 except Exception as e:
                     v = f"<missing:{e}>"
-                if v != "v2.8":
+                if v != "v2.9":
                     bad.append((ob.name, m.name, v))
-        check(f"version: Engine Version socket reads 'v2.8' on EVERY VM modifier in {tag}",
-              total > 0 and not bad, f"{total} VM modifiers probed, non-v2.8: {bad[:8]}")
+        check(f"version: Engine Version socket reads 'v2.9' on EVERY VM modifier in {tag}",
+              total > 0 and not bad, f"{total} VM modifiers probed, non-v2.9: {bad[:8]}")
         return total, bad
 
     def probe_descriptions(tag):
         descs = {n: (bpy.data.node_groups[n].description or "")[:80]
                  for n in ("VM_SceneDetailer", "VM_RoofCap")}
-        ok = all("v2.8" in d for d in descs.values())
-        check(f"version: node-group DESCRIPTIONS carry v2.8 in {tag} "
+        ok = all("v2.9" in d for d in descs.values())
+        check(f"version: node-group DESCRIPTIONS carry v2.9 in {tag} "
               f"(visible in the node-group selector tooltip)",
               ok, f"descriptions={descs}")
 
@@ -7568,9 +7829,9 @@ def main():
     rb_ver = str(sock_val(sc_rb, "VM_RoofCap", "Engine Version"))
     check("starter read-back (delivered VM_Starter.blend): saved VM_RoofCap Style='Flat' "
           "(gables never invented on flat tops), Incline=2.5 deg, layers on 'Scale To Face', "
-          "Engine Version 'v2.8'",
+          "Engine Version 'v2.9'",
           rb_style == "Flat" and abs(rb_incl - math.radians(2.5)) < 1e-5
-          and rb_fit == "Scale To Face" and rb_ver == "v2.8",
+          and rb_fit == "Scale To Face" and rb_ver == "v2.9",
           f"Style={rb_style}, Incline={math.degrees(rb_incl):.3f} deg, "
           f"Opening Fit={rb_fit}, Engine Version={rb_ver}")
     results["starter_readback"] = dict(style=rb_style, incline_deg=round(math.degrees(rb_incl), 4),
@@ -7819,13 +8080,13 @@ def main():
         bpy.data.objects.remove(ob)          # the assets file ships groups, not a scene
     for ngn_, desc in (
             ("VM_SceneDetailer",
-             "VM engine v2.8 - semantic architectural application engine (Scatter/Fit/"
+             "VM engine v2.9 - semantic architectural application engine (Scatter/Fit/"
              "Cladding + Slots openings; 'Opening Fit: Scale To Face'; About panel shows "
-             "Engine Version 'v2.8'). Drag onto a mesh object (or use VM: Dress Object)."),
+             "Engine Version 'v2.9'). Drag onto a mesh object (or use VM: Dress Object)."),
             ("VM_RoofCap",
-             "VM engine v2.8 - per-region roof caps: Style 'Flat' DEFAULT (subtle incline, "
+             "VM engine v2.9 - per-region roof caps: Style 'Flat' DEFAULT (subtle incline, "
              "never invented gables) / 'Gable' / 'Hip' opt-in. About panel shows Engine "
-             "Version 'v2.8'.")):
+             "Version 'v2.9'.")):
         ng_ = bpy.data.node_groups[ngn_]
         ng_.asset_mark()
         ng_.asset_data.description = desc
@@ -7865,8 +8126,11 @@ def main():
         log("!! FAILED: " + ", ".join(failed))
 
     # deliverables
+    os.makedirs(DELIVER, exist_ok=True)
     for f in ("build_engine.py", "pack_ingest.py", "USAGE.txt", "VM_Tools_Addon.py"):
-        shutil.copy2(os.path.join(ROOT, f), os.path.join(DELIVER, f))
+        src = os.path.join(_HERE, f)   # sources live next to this script, not in the build dir
+        if os.path.abspath(src) != os.path.abspath(os.path.join(DELIVER, f)):
+            shutil.copy2(src, os.path.join(DELIVER, f))
     for rep_name in sorted(os.listdir(ROOT)):
         if rep_name.endswith("_ingest.json"):
             shutil.copy2(os.path.join(ROOT, rep_name), os.path.join(DELIVER, rep_name))
