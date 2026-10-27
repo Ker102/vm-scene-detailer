@@ -871,6 +871,129 @@ def store_exterior(b, geo, name, loc):
     return join.outputs["Geometry"], ok.outputs["Result"]
 
 
+def region_frame(b, geo, loc):
+    """v2.9.1 coplanar REGIONS for the flat cap: every connected patch of cap
+    faces (Mesh Island - a top split into a grid, an L-shaped top modeled as
+    several quads) gets ONE shared frame, written over the per-face vm_rc/ru/
+    rv/rw/rh/rz attributes so the cap math downstream is unchanged:
+      axes    = the patch's LARGEST face's in-plane axes (ties: highest index),
+      extents = min/max of the patch's vertex projections on those axes,
+      long    = the longer extent (vm_ru/vm_rw), centre = extents' midpoints,
+      height  = mean face-centre z of the patch.
+    Identical values on every face of a patch make face->point interpolation
+    exact, so a non-individual extrusion yields ONE slab with ONE incline
+    plane (was: one tilted slab per face, overlapping into dark triangles).
+    Two-phase store (temp vm_g*/vm_t* names, then copy back) keeps every read
+    of the ORIGINAL per-face attributes ahead of the overwrite (evaluation-
+    context contract)."""
+    x, y = loc
+
+    def nattr(name, dt, dx, dy):
+        n = b.N("GeometryNodeInputNamedAttribute", (x + dx, y + dy))
+        n.data_type = dt
+        n.inputs["Name"].default_value = name
+        return n.outputs["Attribute"]
+
+    def store(g, name, dt, src, dx):
+        st = b.N("GeometryNodeStoreNamedAttribute", (x + dx, y), data_type=dt, domain="FACE")
+        b.L(g, st.inputs["Geometry"])
+        st.inputs["Name"].default_value = name
+        b.L(src, st.inputs["Value"])
+        return st.outputs["Geometry"]
+
+    def vm(op, a, c=None, dx=0, dy=0):
+        n = b.N("ShaderNodeVectorMath", (x + dx, y + dy), operation=op)
+        b.L(a, n.inputs[0])
+        if c is not None:
+            b.L(c, n.inputs[1])
+        return n
+
+    def fm(op, a, c, dx, dy):
+        n = b.N("ShaderNodeMath", (x + dx, y + dy), operation=op)
+        for i, s in enumerate((a, c)):
+            if hasattr(s, "bl_idname"):
+                b.L(s, n.inputs[i])
+            else:
+                n.inputs[i].default_value = s
+        return n.outputs["Value"]
+
+    def field_minmax(val, dt, domain, dx, dy):
+        n = b.N("GeometryNodeFieldMinAndMax", (x + dx, y + dy), data_type=dt, domain=domain)
+        b.L(val, n.inputs["Value"])
+        b.L(isl, n.inputs["Group ID"])
+        return n
+
+    isl = b.N("GeometryNodeInputMeshIsland", (x, y - 300)).outputs["Island Index"]
+    # ---- phase 1a: the patch's representative (largest) face -> region axes
+    area = b.N("GeometryNodeInputMeshFaceArea", (x, y - 450)).outputs["Area"]
+    amax = field_minmax(area, "FLOAT", "FACE", 150, -450)
+    is_rep = b.N("FunctionNodeCompare", (x + 300, y - 450), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(area, is_rep.inputs["A"])
+    b.L(fm("SUBTRACT", amax.outputs["Max"], 1e-9, 300, -600), is_rep.inputs["B"])
+    rep_idx = b.N("GeometryNodeSwitch", (x + 450, y - 450))
+    rep_idx.input_type = "INT"
+    b.L(is_rep.outputs["Result"], rep_idx.inputs["Switch"])
+    rep_idx.inputs["False"].default_value = -1
+    b.L(b.N("GeometryNodeInputIndex", (x + 300, y - 750)).outputs["Index"], rep_idx.inputs["True"])
+    rmax = field_minmax(rep_idx.outputs["Output"], "INT", "FACE", 600, -450)
+    g = geo
+    for k, (tmp, src) in enumerate((("vm_ga", "vm_ru"), ("vm_gb", "vm_rv"))):
+        fai = b.N("GeometryNodeFieldAtIndex", (x + 750, y - 450 - 150 * k), data_type="FLOAT_VECTOR", domain="FACE")
+        b.L(rmax.outputs["Max"], fai.inputs["Index"])
+        b.L(nattr(src, "FLOAT_VECTOR", 600, -650 - 150 * k), fai.inputs["Value"])
+        g = store(g, tmp, "FLOAT_VECTOR", fai.outputs["Value"], 900 + 150 * k)
+    # ---- phase 1b: patch extents along the region axes (vertex projections;
+    # the face->point read of vm_ga/vm_gb is exact: one value per patch)
+    pos = b.N("GeometryNodeInputPosition", (x + 1100, y - 300)).outputs["Position"]
+    ext = []
+    for k, ax in enumerate(("vm_ga", "vm_gb")):
+        d = vm("DOT_PRODUCT", pos, nattr(ax, "FLOAT_VECTOR", 1100, -450 - 150 * k), 1250, -450 - 150 * k)
+        ext.append(field_minmax(d.outputs["Value"], "FLOAT", "POINT", 1400, -450 - 150 * k))
+    for k, (nm_, sock) in enumerate((("vm_gal", ext[0].outputs["Min"]), ("vm_gah", ext[0].outputs["Max"]),
+                                     ("vm_gbl", ext[1].outputs["Min"]), ("vm_gbh", ext[1].outputs["Max"]))):
+        g = store(g, nm_, "FLOAT", sock, 1550 + 150 * k)
+    # ---- phase 1c: region frame from the stored extents -> temp names
+    ga = nattr("vm_ga", "FLOAT_VECTOR", 2150, -300)
+    gb = nattr("vm_gb", "FLOAT_VECTOR", 2150, -400)
+    gal, gah = nattr("vm_gal", "FLOAT", 2150, -500), nattr("vm_gah", "FLOAT", 2150, -550)
+    gbl, gbh = nattr("vm_gbl", "FLOAT", 2150, -600), nattr("vm_gbh", "FLOAT", 2150, -650)
+    wa = fm("SUBTRACT", gah, gal, 2300, -500)
+    hb = fm("SUBTRACT", gbh, gbl, 2300, -600)
+    long_a = b.N("FunctionNodeCompare", (x + 2450, y - 500), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(wa, long_a.inputs["A"])
+    b.L(hb, long_a.inputs["B"])
+    gu = b.N("GeometryNodeSwitch", (x + 2600, y - 300))
+    gu.input_type = "VECTOR"
+    b.L(long_a.outputs["Result"], gu.inputs["Switch"])
+    b.L(gb, gu.inputs["False"])
+    b.L(ga, gu.inputs["True"])
+    nrm = b.N("GeometryNodeInputNormal", (x + 2450, y - 750)).outputs["Normal"]
+    gv = vm("NORMALIZE", vm("CROSS_PRODUCT", nrm, gu.outputs["Output"], 2600, -750).outputs["Vector"],
+            dx=2750, dy=-750)
+    mid_a = fm("MULTIPLY", fm("ADD", gal, gah, 2300, -850), 0.5, 2450, -850)
+    mid_b = fm("MULTIPLY", fm("ADD", gbl, gbh, 2300, -950), 0.5, 2450, -950)
+    ca = vm("SCALE", ga, dx=2600, dy=-850)
+    b.L(mid_a, ca.inputs["Scale"])
+    cb = vm("SCALE", gb, dx=2600, dy=-950)
+    b.L(mid_b, cb.inputs["Scale"])
+    gc = vm("ADD", ca.outputs["Vector"], cb.outputs["Vector"], 2750, -900)
+    zavg = b.N("GeometryNodeFieldAverage", (x + 2600, y - 1100), data_type="FLOAT", domain="FACE")
+    b.L(nattr("vm_rz", "FLOAT", 2450, -1100), zavg.inputs["Value"])
+    b.L(isl, zavg.inputs["Group ID"])
+    temps = (("vm_tu", "FLOAT_VECTOR", gu.outputs["Output"], "vm_ru"),
+             ("vm_tv", "FLOAT_VECTOR", gv.outputs["Vector"], "vm_rv"),
+             ("vm_tw", "FLOAT", fm("MAXIMUM", wa, hb, 2450, -1250), "vm_rw"),
+             ("vm_th", "FLOAT", fm("MINIMUM", wa, hb, 2450, -1350), "vm_rh"),
+             ("vm_tc", "FLOAT_VECTOR", gc.outputs["Vector"], "vm_rc"),
+             ("vm_tz", "FLOAT", zavg.outputs["Mean"], "vm_rz"))
+    for k, (tmp, dt, src, _dst) in enumerate(temps):
+        g = store(g, tmp, dt, src, 2900 + 150 * k)
+    # ---- phase 2: copy the region frame over the per-face attributes
+    for k, (tmp, dt, _src, dst) in enumerate(temps):
+        g = store(g, dst, dt, nattr(tmp, dt, 3800 + 150 * k, -300), 3800 + 150 * k)
+    return g
+
+
 def build_node_group():
     b = NGBuilder("VM_SceneDetailer")
     iface = b.iface
@@ -3566,6 +3689,9 @@ def build_roofcap_group():
     # from the switch's per-item bool output; the value inputs are linked below.
     style_sw = b.N("GeometryNodeMenuSwitch", (1700, -2550))
     style_sw.data_type = "FLOAT"
+    # v2.9.1: a new Menu Switch starts with items 'A'/'B' - they leaked into
+    # the Style menu as two meaningless choices (found via the MCP input probe)
+    style_sw.enum_items.clear()
     for _it in ("Gable", "Hip", "Flat"):
         style_sw.enum_items.new(_it)
     b.L(gi.outputs["Style"], style_sw.inputs["Menu"])
@@ -3727,14 +3853,17 @@ def build_roofcap_group():
     cap_sep.domain = "FACE"
     b.L(store_chain, cap_sep.inputs["Geometry"])
     b.L(cap_sel.outputs["Boolean"], cap_sep.inputs["Selection"])
+    # v2.9.1: connected cap faces (a top split into several coplanar faces)
+    # share ONE region frame and extrude as ONE slab (see region_frame)
+    cap_reg = region_frame(b, cap_sep.outputs["Selection"], (2300, -6400))
     cap_ex = b.N("GeometryNodeExtrudeMesh", (2500, -3200))
     cap_ex.mode = "FACES"
-    b.L(cap_sep.outputs["Selection"], cap_ex.inputs["Mesh"])
+    b.L(cap_reg, cap_ex.inputs["Mesh"])
     cap_ex.inputs["Selection"].default_value = True
     cap_off = b.N("ShaderNodeCombineXYZ", (2500, -3350))
     cap_off.inputs["Z"].default_value = 1.0
     b.L(cap_off.outputs["Vector"], cap_ex.inputs["Offset"])
-    cap_ex.inputs["Individual"].default_value = True
+    cap_ex.inputs["Individual"].default_value = False
     cap_t = b.N("GeometryNodeInputNamedAttribute", (2300, -3500))
     cap_t.data_type = "FLOAT_VECTOR"
     cap_t.inputs["Name"].default_value = "vm_t"     # unused; kept for symmetry
@@ -7542,6 +7671,124 @@ def main():
                                        gen_inside=gen_inside, in_main=dict(in_main),
                                        in_annex=dict(in_annex), totals=dict(per_pre))
     render_from("preview_buried_floor_house", (54.5, -23.5, 6.5), (60.5, -16.0, 2.4), 32)
+
+    # ================================================== v2.9.1: SPLIT COPLANAR TOPS
+    # The user's TestFit top was 4 coplanar faces: each got its OWN tilted cap
+    # (own centre, own long axis) -> 4 overlapping slabs and a dark triangle
+    # where they crossed. Now a connected patch of cap faces = ONE region.
+    log("\n== v2.9.1: SPLIT COPLANAR TOPS (2x2 grid top + L-shaped 3-quad top) ==")
+
+    def _split_top_mesh(name, top_cells, H, cell=2.0):
+        """Prism whose top is the given unit cells (one quad each, shared
+        vertices); walls along the outline, one n-gon bottom."""
+        cells = set(top_cells)
+        edges = Counter()
+        for (i, j) in cells:
+            for a, b_ in (((i, j), (i + 1, j)), ((i + 1, j), (i + 1, j + 1)),
+                          ((i + 1, j + 1), (i, j + 1)), ((i, j + 1), (i, j))):
+                edges[frozenset((a, b_))] += 1
+        nxt = {}
+        for (i, j) in cells:      # CCW boundary edges (interior edges cancel)
+            for a, b_ in (((i, j), (i + 1, j)), ((i + 1, j), (i + 1, j + 1)),
+                          ((i + 1, j + 1), (i, j + 1)), ((i, j + 1), (i, j))):
+                if edges[frozenset((a, b_))] == 1:
+                    nxt[a] = b_
+        loop, cur = [], next(iter(sorted(nxt)))
+        while cur not in loop:
+            loop.append(cur)
+            cur = nxt[cur]
+        grid = sorted({c for (i, j) in cells for c in ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))})
+        top_id = {g: k for k, g in enumerate(grid)}
+        verts = [(g[0] * cell, g[1] * cell, H) for g in grid]
+        bot_id = {g: len(verts) + k for k, g in enumerate(loop)}
+        verts += [(g[0] * cell, g[1] * cell, 0.0) for g in loop]
+        faces = [tuple(top_id[c] for c in ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)))
+                 for (i, j) in sorted(cells)]
+        faces.append(tuple(bot_id[g] for g in reversed(loop)))
+        for k, a in enumerate(loop):
+            b_ = loop[(k + 1) % len(loop)]
+            faces.append((bot_id[a], bot_id[b_], top_id[b_], top_id[a]))
+        me_ = bpy.data.meshes.new(name)
+        me_.from_pydata(verts, [], faces)
+        me_.update()
+        me_.materials.append(mat_wall)
+        return me_
+
+    def _cap_top_report(host):
+        """Cap-top faces of the evaluated RoofCap output: connected slabs
+        (islands of shared vertices), plane residual per slab (one incline
+        plane = 0), summed top area (overlapping per-face caps over-count)."""
+        dg_ = bpy.context.evaluated_depsgraph_get()
+        dg_.update()
+        me_ = host.evaluated_get(dg_).data
+        rg_ = me_.attributes.get("vm_roofgen")
+        tops = [p for p in me_.polygons
+                if rg_ and 1.5 <= rg_.data[p.index].value < 2.5 and p.normal.z >= 0.9]
+        parent = {}
+
+        def find(v):
+            while parent.setdefault(v, v) != v:
+                parent[v] = parent[parent[v]]
+                v = parent[v]
+            return v
+        for p in tops:
+            for v in p.vertices[1:]:
+                parent[find(v)] = find(p.vertices[0])
+        slabs = {}
+        for p in tops:
+            slabs.setdefault(find(p.vertices[0]), []).append(p)
+        resid = 0.0
+        for ps in slabs.values():
+            pts = [Vector(me_.vertices[v].co) for p in ps for v in p.vertices]
+            p0, n0 = pts[0], Vector(ps[0].normal)
+            resid = max(resid, max(abs((q - p0).dot(n0)) for q in pts))
+        return dict(top_faces=len(tops), slabs=len(slabs), plane_resid=round(resid, 6),
+                    top_area=round(sum(p.area for p in tops), 4))
+
+    split_specs = (("SplitTopGrid", [(0, 0), (1, 0), (0, 1), (1, 1)], 2.6, (70.0, -16.0, 0.0),
+                    (4.0 + 0.5) * (4.0 + 0.5)),
+                   ("SplitTopL", [(0, 0), (1, 0), (0, 1)], 2.6, (78.0, -16.0, 0.0), None))
+    split_res = {}
+    for nm, cells, H, loc, exp_area in split_specs:
+        so = bpy.data.objects.new(nm, _split_top_mesh(nm, cells, H))
+        so.location = loc
+        col_scene.objects.link(so)
+        for _nm, _grp, _params in (("VM_SceneDetailer_Planks", ng, u3_plank),
+                                   ("VM_RoofCap", ng_roof, u3_roof),
+                                   ("VM_SceneDetailer_Shingles", ng, u3_shingle),
+                                   ("VM_SceneDetailer_Door", ng, u3_door),
+                                   ("VM_SceneDetailer_Windows", ng, u3_win)):
+            _m = so.modifiers.new(_nm, "NODES")
+            _m.node_group = _grp
+            set_params(_m, _grp, _params)
+        so.update_tag()
+        bpy.context.view_layer.update()
+        ct = _cap_top_report(so)
+        rr = roof_report(so, overhang=0.25, style="Flat")
+        if exp_area is not None:
+            # one slab over the whole 4x4 top + 0.25 m overhang each side; the
+            # 2.5 deg incline stretches the sloped area by 1/cos
+            ct["expected_area"] = round(exp_area / math.cos(math.radians(2.5)), 4)
+        split_res[nm] = dict(cap=ct, uncovered=rr["uncovered"], strays=len(rr["strays"]),
+                             host_tops=len(cells))
+        log(f"  {nm}: host top faces={len(cells)} cap={ct} uncovered={rr['uncovered']} "
+            f"strays={len(rr['strays'])}")
+    sg, sl = split_res["SplitTopGrid"], split_res["SplitTopL"]
+    check("v2.9.1(split top = ONE cap): a top split into coplanar faces gets ONE "
+          "connected cap slab on ONE incline plane (2x2 grid and L-shaped 3-quad tops)",
+          all(r["cap"]["slabs"] == 1 and r["cap"]["plane_resid"] < 1e-3
+              and r["cap"]["top_faces"] == r["host_tops"] for r in (sg, sl)),
+          f"grid: {sg['cap']}; L: {sl['cap']}")
+    check("v2.9.1(no overlapping caps): the 2x2 split top's cap area equals ONE "
+          "4x4 m cap + overhang (per-face caps over-counted it by ~27%)",
+          abs(sg["cap"]["top_area"] - sg["cap"]["expected_area"]) < 0.02 * sg["cap"]["expected_area"],
+          f"top area {sg['cap']['top_area']} vs expected {sg['cap']['expected_area']}")
+    check("v2.9.1(split tops fully covered): no uncovered top face and no stray cap face",
+          all(not r["uncovered"] and r["strays"] == 0 for r in (sg, sl)),
+          f"grid uncovered={sg['uncovered']} strays={sg['strays']}; "
+          f"L uncovered={sl['uncovered']} strays={sl['strays']}")
+    results["v291_split_tops"] = split_res
+    render_from("preview_split_tops", (68.0, -24.5, 7.5), (75.0, -13.5, 2.4), 34)
 
     # ================================================== save + deliverables
     set_params(mod_a, ng, defaults)

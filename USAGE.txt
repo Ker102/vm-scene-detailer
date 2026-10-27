@@ -49,9 +49,17 @@ v2.9 (2026-10-27) - BURIED FACES: no roofs/dressing inside the building
   holds and then drops to 0 windows.
 * Acceptance object: 'BuriedFloorHouse' (x=60, y=-16) - two stacked boxes +
   an overlapping annex in ONE mesh; preview_buried_floor_house.png.
-* Known limits: a coplanar top split into several faces still gets one incline
-  cap per face (overlapping caps); a wall only PARTLY overlapped by another
-  block still receives cladding on the hidden part (test is per face).
+* v2.9.1 SPLIT TOPS: a flat top modeled as several coplanar faces (a 2x2
+  grid, an L made of 3 quads) now gets ONE cap: connected cap faces share one
+  region frame (centre, long axis, extents) and extrude as one slab on one
+  incline plane. Before, every face got its own tilted cap -> overlapping
+  slabs and a dark triangle where they crossed. Acceptance objects
+  'SplitTopGrid' (x=70) and 'SplitTopL' (x=78); preview_split_tops.png.
+* v2.9.1 Style menu: removed two stray items 'A'/'B' from VM_RoofCap's Style
+  menu (Blender's default Menu Switch items were never cleared).
+* Known limits: Gable/Hip on a split top still builds one gable per quad; a
+  wall only PARTLY overlapped by another block still receives cladding on the
+  hidden part (test is per face).
 
 v2.8 (2026-10-23) - the user's own-massing bug report, fixed at the engine level
 --------------------------------------------------------------------------------

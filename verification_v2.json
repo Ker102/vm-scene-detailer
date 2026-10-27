@@ -30880,6 +30880,31 @@
         "Plank": 295
       }
     },
+    "v291_split_tops": {
+      "SplitTopGrid": {
+        "cap": {
+          "top_faces": 4,
+          "slabs": 1,
+          "plane_resid": 0.0,
+          "top_area": 20.2693,
+          "expected_area": 20.2693
+        },
+        "uncovered": [],
+        "strays": 0,
+        "host_tops": 4
+      },
+      "SplitTopL": {
+        "cap": {
+          "top_faces": 3,
+          "slabs": 1,
+          "plane_resid": 0.0,
+          "top_area": 15.202
+        },
+        "uncovered": [],
+        "strays": 0,
+        "host_tops": 3
+      }
+    },
     "images_packed": {
       "VM_Starter.blend": {
         "total": 88,
@@ -31156,15 +31181,15 @@
     },
     "version_probe": {
       "VM_Starter.blend": {
-        "total": 127,
+        "total": 137,
         "bad": []
       },
       "VM_SceneDetailer.blend": {
-        "total": 127,
+        "total": 137,
         "bad": []
       },
       "VM_RoofCap.blend": {
-        "total": 127,
+        "total": 137,
         "bad": []
       }
     },
@@ -32207,6 +32232,21 @@
       "detail": "inside main: {}; totals {'Window': 3, 'Door': 3, 'Plank': 295}"
     },
     {
+      "name": "v2.9.1(split top = ONE cap): a top split into coplanar faces gets ONE connected cap slab on ONE incline plane (2x2 grid and L-shaped 3-quad tops)",
+      "pass": true,
+      "detail": "grid: {'top_faces': 4, 'slabs': 1, 'plane_resid': 0.0, 'top_area': 20.2693, 'expected_area': 20.2693}; L: {'top_faces': 3, 'slabs': 1, 'plane_resid': 0.0, 'top_area': 15.202}"
+    },
+    {
+      "name": "v2.9.1(no overlapping caps): the 2x2 split top's cap area equals ONE 4x4 m cap + overhang (per-face caps over-counted it by ~27%)",
+      "pass": true,
+      "detail": "top area 20.2693 vs expected 20.2693"
+    },
+    {
+      "name": "v2.9.1(split tops fully covered): no uncovered top face and no stray cap face",
+      "pass": true,
+      "detail": "grid uncovered=[] strays=0; L uncovered=[] strays=0"
+    },
+    {
       "name": "images_packed VM_Starter.blend: 88/88",
       "pass": true,
       "detail": "88/88 image datablocks packed, unpacked=[]"
@@ -32309,7 +32349,7 @@
     {
       "name": "version: Engine Version socket reads 'v2.9' on EVERY VM modifier in VM_Starter.blend",
       "pass": true,
-      "detail": "127 VM modifiers probed, non-v2.9: []"
+      "detail": "137 VM modifiers probed, non-v2.9: []"
     },
     {
       "name": "version: node-group DESCRIPTIONS carry v2.9 in VM_Starter.blend (visible in the node-group selector tooltip)",
@@ -32349,7 +32389,7 @@
     {
       "name": "version: Engine Version socket reads 'v2.9' on EVERY VM modifier in VM_SceneDetailer.blend",
       "pass": true,
-      "detail": "127 VM modifiers probed, non-v2.9: []"
+      "detail": "137 VM modifiers probed, non-v2.9: []"
     },
     {
       "name": "version: node-group DESCRIPTIONS carry v2.9 in VM_SceneDetailer.blend (visible in the node-group selector tooltip)",
@@ -32364,7 +32404,7 @@
     {
       "name": "version: Engine Version socket reads 'v2.9' on EVERY VM modifier in VM_RoofCap.blend",
       "pass": true,
-      "detail": "127 VM modifiers probed, non-v2.9: []"
+      "detail": "137 VM modifiers probed, non-v2.9: []"
     },
     {
       "name": "version: node-group DESCRIPTIONS carry v2.9 in VM_RoofCap.blend (visible in the node-group selector tooltip)",
