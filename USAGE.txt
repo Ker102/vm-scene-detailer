@@ -55,6 +55,22 @@ v2.10 (2026-10-30) - THE ADD-ON IS THE INTERFACE: engine + presets in ANY file
   Measured: 2-4 m cube -> 1 door + 3 windows, 6 m -> 1 + 7, 10 m -> 1 + 13.
   An object with several separate buildings still gets ONE door in total -
   raise the door layer's Max Instances for more.
+* UPPER STOREYS get windows. Three things kept them bare:
+  - 'Sill Line: Common Z' rejected every wall whose base sat above the shared
+    sill line (ground + Sill Height) - i.e. every upper storey. Such a wall
+    now measures its sill from its OWN base (windows of one storey line up);
+    ground-storey walls keep the common line. Doors stay off roofs through
+    Ground Floor Only + Max Base Height (unchanged defaults).
+  - the gap-law dedupe keyed rows by their index on the face, so a storey
+    stacked on the same wall plane lost its 'row 0' as a 'duplicate'. Rows are
+    now keyed by height (coincident duplicate faces still share one grid).
+  - the base window layer had Max Base Height 0.5 and Slot Rows 1. It now has
+    no base ceiling and one row per 3 m storey on a tall wall ('Row Spacing'
+    3.0, 'Slot Rows' 16 = as many as fit).
+  Verified: stacked boxes, one mesh with a storey edge loop, a setback upper
+  storey and a single 6 m wall all get windows on both storeys.
+  Known limit (unchanged): a wall face that runs down INSIDE another block
+  (intersecting boxes in one mesh) is judged buried as a whole and stays bare.
 * The About panel's 'Engine Version' now always shows the engine the object
   really runs (it was a per-modifier copy that stayed at the old label).
 * One version label (ENGINE_VERSION in build_engine.py) drives every About

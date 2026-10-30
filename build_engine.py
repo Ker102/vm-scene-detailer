@@ -1542,11 +1542,14 @@ def build_node_group():
     b.L(fit_sel.outputs["Boolean"], fit_sel1.inputs[0])
     b.L(mbh_ok.outputs["Result"], fit_sel1.inputs[1])
 
-    # Slots/Common Z sill clearance: the shared sill line is host zmin + Sill
-    # Height (world z, SAME for every wall). A face whose base edge is above the
-    # line gets no slots - openings can never stand on a roof surface.
+    # Slots/Common Z sill line: host zmin + Sill Height (world z, SAME for every
+    # ground-storey wall). v2.10: a wall whose base edge is ABOVE the line (an
+    # upper storey standing on a roof or on the storey below) is no longer
+    # rejected - its rows start at its OWN base + Sill Height (targ switch
+    # below). Doors stay off roofs through Ground Floor Only + Max Base Height,
+    # which reject raised faces on their own.
     # v2.4.1: Sill Height is WORLD meters -> local = sill / sz (hoisted here so
-    # the sill-line gate and the v2.4 anchoring below share one divide)
+    # the sill line and the v2.4 anchoring below share one divide)
     sill_l = b.N("ShaderNodeMath", (550, -550), operation="DIVIDE")
     b.L(gi.outputs["Sill Height"], sill_l.inputs[0])
     b.L(sz_g, sill_l.inputs[1])
@@ -1556,20 +1559,7 @@ def build_node_group():
     sill_eps = b.N("ShaderNodeMath", (250, -1050), operation="ADD")
     b.L(sill_line_z.outputs["Value"], sill_eps.inputs[0])
     sill_eps.inputs[1].default_value = 0.001
-    clear_ok = b.N("FunctionNodeCompare", (400, -1050), data_type="FLOAT", operation="LESS_EQUAL")
-    b.L(na_fz, clear_ok.inputs["A"])
-    b.L(sill_eps.outputs["Value"], clear_ok.inputs["B"])
-    slots_common = b.N("FunctionNodeBooleanMath", (550, -1150), operation="AND")
-    b.L(is_slots, slots_common.inputs[0])
-    b.L(common_z, slots_common.inputs[1])
-    slots_common_not = b.N("FunctionNodeBooleanMath", (625, -1250), operation="NOT")
-    b.L(slots_common.outputs["Boolean"], slots_common_not.inputs[0])
-    clear_gate = b.N("FunctionNodeBooleanMath", (700, -1150), operation="OR")
-    b.L(slots_common_not.outputs["Boolean"], clear_gate.inputs[0])
-    b.L(clear_ok.outputs["Result"], clear_gate.inputs[1])
-    fit_sel2 = b.N("FunctionNodeBooleanMath", (850, -1000), operation="AND")
-    b.L(fit_sel1.outputs["Boolean"], fit_sel2.inputs[0])
-    b.L(clear_gate.outputs["Boolean"], fit_sel2.inputs[1])
+    fit_sel2 = fit_sel1
 
     # ---- v2.8 SPREAD: per-face ordinal among qualifying Fit faces + their total
     # (stored as face attrs; the Max Instances cap below becomes ROUND-ROBIN -
@@ -1944,9 +1934,17 @@ def build_node_group():
     targ_com = b.N("ShaderNodeMath", (4000, -1700), operation="ADD")
     b.L(bb_sep.outputs["Z"], targ_com.inputs[0])
     b.L(sill_l.outputs["Value"], targ_com.inputs[1])
+    # v2.10: Common Z only for faces whose base is at/below the shared line;
+    # a raised face (upper storey) measures its sill from its own base
+    low_face = b.N("FunctionNodeCompare", (3850, -1750), data_type="FLOAT", operation="LESS_EQUAL")
+    b.L(sfz_v, low_face.inputs["A"])
+    b.L(sill_eps.outputs["Value"], low_face.inputs["B"])
+    use_common = b.N("FunctionNodeBooleanMath", (4000, -1820), operation="AND")
+    b.L(common_z, use_common.inputs[0])
+    b.L(low_face.outputs["Result"], use_common.inputs[1])
     targ_sw = b.N("GeometryNodeSwitch", (4150, -1620))
     targ_sw.input_type = "FLOAT"
-    b.L(common_z, targ_sw.inputs["Switch"])
+    b.L(use_common.outputs["Boolean"], targ_sw.inputs["Switch"])
     b.L(targ_com.outputs["Value"], targ_sw.inputs["True"])
     b.L(targ_face.outputs["Value"], targ_sw.inputs["False"])
     # row base z for row j (shared by the fit gate and the position below)
@@ -2311,7 +2309,23 @@ def build_node_group():
     sg_b = b.N("GeometryNodeStoreNamedAttribute", (6350, -750), data_type="FLOAT", domain="POINT")
     b.L(sg_a.outputs["Geometry"], sg_b.inputs["Geometry"])
     sg_b.inputs["Name"].default_value = "vm_grow"
-    b.L(sgj_v, sg_b.inputs["Value"])
+    # v2.10: the greedy row key is the row's HEIGHT (world z / 0.5 m, mod 17 to
+    # fit the safe group-id budget), not its index on the face. Two coplanar
+    # faces stacked on one wall plane (storeys of one mesh) both have a 'row 0';
+    # keyed by index the upper storey lost every opening as a 'duplicate'.
+    # Coincident duplicate faces still share a key (same height).
+    grz_w = b.N("ShaderNodeMath", (6150, -950), operation="MULTIPLY")
+    b.L(z_row.outputs["Value"], grz_w.inputs[0])
+    b.L(sz_g, grz_w.inputs[1])
+    grz_q = b.N("ShaderNodeMath", (6300, -950), operation="MULTIPLY")
+    b.L(grz_w.outputs["Value"], grz_q.inputs[0])
+    grz_q.inputs[1].default_value = 2.0
+    grz_r = b.N("ShaderNodeMath", (6450, -950), operation="ROUND")
+    b.L(grz_q.outputs["Value"], grz_r.inputs[0])
+    grz_m = b.N("ShaderNodeMath", (6600, -950), operation="FLOORED_MODULO")
+    b.L(grz_r.outputs["Value"], grz_m.inputs[0])
+    grz_m.inputs[1].default_value = 17.0
+    b.L(grz_m.outputs["Value"], sg_b.inputs["Value"])
     slot_geo = sg_b.outputs["Geometry"]
 
     # Fit points: Slots layout -> slot_geo, Random layout -> density sampling
@@ -8534,6 +8548,49 @@ def main():
           f"{strip_ver(snap_before) == strip_ver(snap_after)}, instances {inst_before} -> "
           f"{inst_after}, About labels={labels}, node groups={len(bpy.data.node_groups)}, "
           f"duplicates={dup_names()}")
+    # ---- v2.10: UPPER STOREYS get windows (the user's multi-storey report)
+    def storey_mesh(name, boxes, x, bisect_z=None):
+        me_ = bpy.data.meshes.new(name)
+        bm_ = bmesh.new()
+        for (x0, y0, z0, x1, y1, z1) in boxes:
+            bmesh.ops.create_cube(bm_, size=1.0, matrix=Matrix.LocRotScale(
+                ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), None, (x1 - x0, y1 - y0, z1 - z0)))
+        if bisect_z is not None:
+            bmesh.ops.bisect_plane(bm_, geom=bm_.verts[:] + bm_.edges[:] + bm_.faces[:],
+                                   plane_co=(0, 0, bisect_z), plane_no=(0, 0, 1))
+        bm_.to_mesh(me_)
+        bm_.free()
+        ob_ = bpy.data.objects.new(name, me_)
+        fx_scene.collection.objects.link(ob_)
+        ob_.location = (x, 12.0, 0)
+        bpy.ops.object.select_all(action='DESELECT')
+        ob_.select_set(True)
+        fx_scene.view_layers[0].objects.active = ob_
+        bpy.ops.vm.dress_object()
+        return ob_
+
+    st_cases = {
+        "two boxes stacked": storey_mesh("StoreyStacked", [(0, 0, 0, 5, 4, 3), (0, 0, 3, 5, 4, 6)], 0.0),
+        "one mesh, edge loop at 3 m": storey_mesh("StoreyLoop", [(0, 0, 0, 5, 4, 6)], 8.0, bisect_z=3.0),
+        "setback upper storey": storey_mesh("StoreySetback", [(0, 0, 0, 5, 4, 3), (0.8, 0.6, 3, 4.2, 3.4, 6)], 16.0),
+        "one 6 m wall face": storey_mesh("StoreyTall", [(0, 0, 0, 5, 4, 6)], 24.0),
+    }
+    win_names = {o.name for o in bpy.data.collections["VM_Windows"].all_objects}
+    dg_st = bpy.context.evaluated_depsgraph_get()
+    dg_st.update()
+    st_rows = {k: Counter() for k in st_cases}
+    by_ob = {o.name: k for k, o in st_cases.items()}
+    for inst in dg_st.object_instances:
+        if inst.is_instance and inst.parent is not None and inst.parent.original.name in by_ob                 and inst.object.name in win_names:
+            z_ = inst.matrix_world.translation.z
+            st_rows[by_ob[inst.parent.original.name]]["upper" if z_ > 3.0 else "ground"] += 1
+    check("v2.10(upper storeys): Dress Object puts windows on BOTH storeys - stacked boxes, "
+          "one mesh with a storey edge loop, a setback upper storey and a single 6 m wall "
+          "(before: upper-storey walls got none)",
+          all(r["ground"] >= 2 and r["upper"] >= 2 for r in st_rows.values()),
+          f"windows per storey: {{{', '.join(f'{k}: {dict(v)}' for k, v in st_rows.items())}}}")
+    results["upper_storeys"] = {k: dict(v) for k, v in st_rows.items()}
+
     results["addon_library"] = dict(fresh_instances=inst_fa, update_instances=inst_after,
                                     datablocks=n_data)
     vmt.LIBRARY_PATH_OVERRIDE = ""

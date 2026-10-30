@@ -282,6 +282,10 @@ def dress_stack():
         "Min Face Width": ["val", "", 1.2], "Min Face Height": ["val", "", 1.1],
         "Scale Min": ["val", "", 0.5], "Scale Max": ["val", "", 0.5],
         "Ground Floor Only": ["val", "", False],
+        # v2.10: upper storeys get windows too - no base-height ceiling, one
+        # row per 3 m storey on a tall wall (rows that do not fit are dropped)
+        "Max Base Height": ["val", "", 1000.0],
+        "Slot Rows": ["val", "", 16], "Row Spacing": ["val", "", 3.0],
     })
     return [
         ("VM_SceneDetailer_Planks", "VM_SceneDetailer", planks),
