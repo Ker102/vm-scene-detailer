@@ -217,6 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
+ENGINE_VERSION = "v2.10"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -3336,13 +3337,13 @@ def build_node_group():
     # ---- v2.7 About panel: appended LAST so every v2.5/v2.6 socket IDENTIFIER
     # is unchanged (old stacks that re-point at this group keep their values),
     # then MOVED to the top of the interface ----
-    p_about = b.panel("About", "Engine version + quick usage (v2.9): tells you exactly which code this modifier runs")
-    b.sock("Engine Version", "NodeSocketString", p_about, "v2.9",
-           desc="Version of the VM engine code behind this modifier (v2.9). If this "
+    p_about = b.panel("About", f"Engine version + quick usage ({ENGINE_VERSION}): tells you exactly which code this modifier runs")
+    b.sock("Engine Version", "NodeSocketString", p_about, f"{ENGINE_VERSION}",
+           desc=f"Version of the VM engine code behind this modifier ({ENGINE_VERSION}). If this "
                 "panel/socket is missing the stack runs a PRE-v2.8 group - see USAGE.txt "
                 "'Which version am I running?' and 'Upgrading old stacks'")
     b.sock("Usage Hint", "NodeSocketString", p_about,
-           "v2.9 quick use: Fit+Slots puts doors/windows on walls (openings snap to the "
+           f"{ENGINE_VERSION} quick use: Fit+Slots puts doors/windows on walls (openings snap to the "
            "wall's opening grid - they SPREAD over all walls and never overlap, in Random "
            "AND Slots layouts); Cladding stays INSIDE every face (no phantom slabs on "
            "triangles/slivers); VM_RoofCap caps flat tops (Style 'Hip' on a square top = "
@@ -3352,10 +3353,10 @@ def build_node_group():
 
     b.finish_menu_defaults()
     b.ng.description = (
-        "VM_SceneDetailer v2.9 - semantic architectural application engine (Scatter/Fit/"
+        f"VM_SceneDetailer {ENGINE_VERSION} - semantic architectural application engine (Scatter/Fit/"
         "Cladding + HouseCraft Slots openings; openings spread round-robin over all walls "
         "with the gap law in BOTH layouts; cladding confined to real face polygons). The "
-        "About panel shows the Engine Version socket ('v2.9'). Which code does my stack "
+        f"About panel shows the Engine Version socket ('{ENGINE_VERSION}'). Which code does my stack "
         "run / how do I upgrade? See USAGE.txt 'Which version am I running?'")
     try:
         b.iface.move(p_about, 0)   # render About first, identifiers unchanged
@@ -4035,13 +4036,13 @@ def build_roofcap_group():
 
     # ---- v2.7 About panel (appended LAST -> v2.5/v2.6 identifiers unchanged,
     # then moved to the top of the interface) ----
-    p_about = b.panel("About", "Engine version + quick usage (v2.9): tells you exactly which code this modifier runs")
-    b.sock("Engine Version", "NodeSocketString", p_about, "v2.9",
-           desc="Version of the VM engine code behind this modifier (v2.9). If this "
+    p_about = b.panel("About", f"Engine version + quick usage ({ENGINE_VERSION}): tells you exactly which code this modifier runs")
+    b.sock("Engine Version", "NodeSocketString", p_about, f"{ENGINE_VERSION}",
+           desc=f"Version of the VM engine code behind this modifier ({ENGINE_VERSION}). If this "
                 "panel/socket is missing the stack runs a PRE-v2.8 group - see USAGE.txt "
                 "'Which version am I running?' and 'Upgrading old stacks'")
     b.sock("Usage Hint", "NodeSocketString", p_about,
-           "v2.9 quick use: a fresh VM_RoofCap caps flat tops with a subtle 2.5 deg incline "
+           f"{ENGINE_VERSION} quick use: a fresh VM_RoofCap caps flat tops with a subtle 2.5 deg incline "
            "(Style 'Gable'/'Hip' = opt-in pitch - gables are NEVER invented on flat tops; "
            "'Hip' on a square top = pyramid, on a round/cylindrical top = CONE). "
            "Old stack? See USAGE.txt 'Which version am I running?'.",
@@ -4049,10 +4050,10 @@ def build_roofcap_group():
 
     b.finish_menu_defaults()
     b.ng.description = (
-        "VM_RoofCap v2.9 - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: "
+        f"VM_RoofCap {ENGINE_VERSION} - per-region roof caps over flat tops: Style 'Flat' (DEFAULT: "
         "subtle 2.5 deg incline + fascia, NEVER invented gable triangles) / 'Gable' / 'Hip' "
         "(opt-in pitch; hip on a square top = pyramid, on a round top = cone). The About "
-        "panel shows the Engine Version socket ('v2.9'). Which "
+        f"panel shows the Engine Version socket ('{ENGINE_VERSION}'). Which "
         "code does my stack run / how do I upgrade? See USAGE.txt 'Which version am I running?'")
     try:
         b.iface.move(p_about, 0)
@@ -8050,17 +8051,17 @@ def main():
                                     socket_id(m.node_group, "Engine Version")).value)
                 except Exception as e:
                     v = f"<missing:{e}>"
-                if v != "v2.9":
+                if v != ENGINE_VERSION:
                     bad.append((ob.name, m.name, v))
-        check(f"version: Engine Version socket reads 'v2.9' on EVERY VM modifier in {tag}",
-              total > 0 and not bad, f"{total} VM modifiers probed, non-v2.9: {bad[:8]}")
+        check(f"version: Engine Version socket reads '{ENGINE_VERSION}' on EVERY VM modifier in {tag}",
+              total > 0 and not bad, f"{total} VM modifiers probed, non-{ENGINE_VERSION}: {bad[:8]}")
         return total, bad
 
     def probe_descriptions(tag):
         descs = {n: (bpy.data.node_groups[n].description or "")[:80]
                  for n in ("VM_SceneDetailer", "VM_RoofCap")}
-        ok = all("v2.9" in d for d in descs.values())
-        check(f"version: node-group DESCRIPTIONS carry v2.9 in {tag} "
+        ok = all(ENGINE_VERSION in d for d in descs.values())
+        check(f"version: node-group DESCRIPTIONS carry {ENGINE_VERSION} in {tag} "
               f"(visible in the node-group selector tooltip)",
               ok, f"descriptions={descs}")
 
@@ -8076,9 +8077,9 @@ def main():
     rb_ver = str(sock_val(sc_rb, "VM_RoofCap", "Engine Version"))
     check("starter read-back (delivered VM_Starter.blend): saved VM_RoofCap Style='Flat' "
           "(gables never invented on flat tops), Incline=2.5 deg, layers on 'Scale To Face', "
-          "Engine Version 'v2.9'",
+          f"Engine Version '{ENGINE_VERSION}'",
           rb_style == "Flat" and abs(rb_incl - math.radians(2.5)) < 1e-5
-          and rb_fit == "Scale To Face" and rb_ver == "v2.9",
+          and rb_fit == "Scale To Face" and rb_ver == ENGINE_VERSION,
           f"Style={rb_style}, Incline={math.degrees(rb_incl):.3f} deg, "
           f"Opening Fit={rb_fit}, Engine Version={rb_ver}")
     results["starter_readback"] = dict(style=rb_style, incline_deg=round(math.degrees(rb_incl), 4),
@@ -8159,7 +8160,19 @@ def main():
 
     # ================================================== v2.7 VM_Tools_Addon (part 1: same file)
     log("\n== v2.7 VM_Tools_Addon: Dress Object / Copy / Paste / Save Preset ==")
-    import VM_Tools_Addon as vmt
+    # load the add-on from THIS folder: an installed + enabled copy in Blender's
+    # user add-ons is already in sys.modules and would shadow the one under test
+    import importlib.util
+    _inst = sys.modules.get("VM_Tools_Addon")
+    if _inst is not None:
+        try:
+            _inst.unregister()
+        except Exception:
+            pass
+    _spec = importlib.util.spec_from_file_location("VM_Tools_Addon", os.path.join(_HERE, "VM_Tools_Addon.py"))
+    vmt = importlib.util.module_from_spec(_spec)
+    sys.modules["VM_Tools_Addon"] = vmt
+    _spec.loader.exec_module(vmt)
     vmt.register()
     bpy.ops.scene.new(type='NEW')
     ad_scene = bpy.context.scene
@@ -8321,26 +8334,62 @@ def main():
                                              n_sockets=vmt.count_sockets(snap_c),
                                              mismatches=mism_c)
 
-    # ---- v2.7: VM_Assets.blend - both node groups marked as BLENDER ASSETS so
-    # the engine can be dragged onto any object in any file from the Asset Browser
+    # ---- v2.10: VM_Assets.blend = THE ENGINE LIBRARY the add-on imports from
+    # into ANY file: both node groups (also marked as Blender assets), the whole
+    # AssetLibrary pack tree, the default materials and the clean BASE PRESETS
+    # (a VM_Presets JSON text). Built from the starter so it carries exactly the
+    # collections/materials/images the engine was verified with.
+    bpy.ops.wm.open_mainfile(filepath=STARTER_PATH)
+    vmt.register()
+    lib_root = bpy.data.collections[vmt.LIBRARY_COLLECTION]
+    keep_obs = set(lib_root.all_objects)
     for ob in list(bpy.data.objects):
-        bpy.data.objects.remove(ob)          # the assets file ships groups, not a scene
+        if ob not in keep_obs:
+            bpy.data.objects.remove(ob)      # the library ships assets, not a scene
+    keep_cols = {lib_root} | set(lib_root.children_recursive)
+    for c in list(bpy.data.collections):
+        if c not in keep_cols and not c.all_objects:
+            bpy.data.collections.remove(c)
+    for mats_ in vmt.AUTO_MATERIALS.values():
+        for mname in mats_.values():
+            bpy.data.materials[mname].use_fake_user = True
+    probe = make_cube("PresetProbe", 2.0, bpy.context.scene.collection)
+    lib_presets = {}
+    for pname, style, desc in (
+            ("Base - Flat roof", "Flat", "The default pack at default settings: plank walls, flat "
+             "clay-tile roof cap, shingle roof cladding, doors and windows"),
+            ("Base - Gable roof", "Gable", "Base preset with a gable roof cap"),
+            ("Base - Hip roof", "Hip", "Base preset with a hip roof cap")):
+        pw = []
+        vmt.dress_object(probe, pw)
+        rc = probe.modifiers["VM_RoofCap"]
+        set_params(rc, rc.node_group, {"Style": style})
+        lib_presets[pname] = dict(description=desc, modifiers=vmt.snapshot_object(probe))
+    bpy.data.objects.remove(probe)
+    txt = bpy.data.texts.get(vmt.PRESETS_TEXT) or bpy.data.texts.new(vmt.PRESETS_TEXT)
+    txt.from_string(json.dumps(dict(engine_version=ENGINE_VERSION, presets=lib_presets), indent=1))
+    txt.use_fake_user = True
     for ngn_, desc in (
             ("VM_SceneDetailer",
-             "VM engine v2.9 - semantic architectural application engine (Scatter/Fit/"
+             f"VM engine {ENGINE_VERSION} - semantic architectural application engine (Scatter/Fit/"
              "Cladding + Slots openings; 'Opening Fit: Scale To Face'; About panel shows "
-             "Engine Version 'v2.9'). Drag onto a mesh object (or use VM: Dress Object)."),
+             f"Engine Version '{ENGINE_VERSION}'). Best used through the VM Engine add-on "
+             "(Import Engine / Apply Preset / Dress Object)."),
             ("VM_RoofCap",
-             "VM engine v2.9 - per-region roof caps: Style 'Flat' DEFAULT (subtle incline, "
+             f"VM engine {ENGINE_VERSION} - per-region roof caps: Style 'Flat' DEFAULT (subtle incline, "
              "never invented gables) / 'Gable' / 'Hip' opt-in. About panel shows Engine "
-             "Version 'v2.9'.")):
+             f"Version '{ENGINE_VERSION}'.")):
         ng_ = bpy.data.node_groups[ngn_]
         ng_.asset_mark()
         ng_.asset_data.description = desc
         ng_.asset_data.author = "kristo / ViperMesh"
+        ng_.use_fake_user = True
+    bpy.data.orphans_purge(do_recursive=True)   # the starter's scene leftovers
     bpy.ops.wm.save_as_mainfile(filepath=ASSETS_PATH)
     log(f"  saved {ASSETS_PATH}")
+
     bpy.ops.wm.open_mainfile(filepath=ASSETS_PATH)
+    vmt.register()
     marked = sorted(n.name for n in bpy.data.node_groups
                     if n.name.split(".")[0] in ("VM_SceneDetailer", "VM_RoofCap")
                     and n.asset_data is not None)
@@ -8348,10 +8397,146 @@ def main():
           "(Asset Browser: drag the engine onto any object in any file)",
           sorted(m.split(".")[0] for m in marked) == ["VM_RoofCap", "VM_SceneDetailer"],
           f"marked assets: {marked}")
-    results["vm_assets"] = dict(marked=marked, path=ASSETS_PATH,
+    lib_meta = vmt.library_info(ASSETS_PATH)
+    # names the library itself ships (the packs carry their own 'Glass.001' etc.)
+    lib_names = {d.name for coll in (bpy.data.node_groups, bpy.data.collections,
+                                     bpy.data.materials, bpy.data.objects) for d in coll}
+    lib_cols = sorted(c.name for c in bpy.data.collections)
+    lib_stray = sorted(o.name for o in bpy.data.objects
+                       if o not in set(bpy.data.collections[vmt.LIBRARY_COLLECTION].all_objects))
+    lib_need = vmt.default_collections()
+    check(f"library: VM_Assets.blend is the full engine library - groups + AssetLibrary pack "
+          f"collections + default materials + >=3 clean base presets tagged '{ENGINE_VERSION}'",
+          lib_meta.get("engine_version") == ENGINE_VERSION
+          and len(lib_meta.get("presets", {})) >= 3
+          and all(c in lib_cols for c in lib_need) and not lib_stray
+          and all(bpy.data.materials.get(m) for d in vmt.AUTO_MATERIALS.values() for m in d.values())
+          and all(len(pr["modifiers"]) == 5 for pr in lib_meta.get("presets", {}).values()),
+          f"engine_version={lib_meta.get('engine_version')}, presets="
+          f"{sorted(lib_meta.get('presets', {}))}, pack collections={lib_need}, "
+          f"objects outside AssetLibrary={lib_stray}, file collections={len(lib_cols)}")
+    results["vm_assets"] = dict(marked=marked, path=ASSETS_PATH, presets=sorted(lib_meta.get("presets", {})),
+                                collections=lib_cols,
                                 descriptions={n.name: (n.asset_data.description or "")[:60]
                                               for n in bpy.data.node_groups
                                               if n.asset_data is not None})
+
+    # ---- v2.10: the add-on works ACROSS FILES - a genuinely empty file gets the
+    # engine, the pack and a clean base preset from one 'Apply Preset' click
+    log("\n== v2.10 add-on: import engine + clean presets in a FRESH file ==")
+    bpy.ops.wm.read_factory_settings()
+    vmt.register()
+    vmt.LIBRARY_PATH_OVERRIDE = ASSETS_PATH
+    for ob in list(bpy.data.objects):
+        bpy.data.objects.remove(ob)
+    fx_scene = bpy.context.scene
+
+    def fx_cube(name, x):
+        c_ = make_cube(name, 2.0, fx_scene.collection)
+        c_.location = (x, 0, 0)
+        bpy.ops.object.select_all(action='DESELECT')
+        c_.select_set(True)
+        fx_scene.view_layers[0].objects.active = c_
+        return c_
+
+    import re
+
+    def dup_names():
+        return sorted(d.name for coll in (bpy.data.node_groups, bpy.data.collections,
+                                          bpy.data.materials, bpy.data.objects)
+                      for d in coll if re.search(r"\.\d{3}$", d.name) and d.name not in lib_names)
+
+    def mod_instances(ob):
+        # instances per layer, attributed by the pack collection they come from
+        ob.update_tag()
+        freq = eval_stats(ob)["freq"]
+        out = {}
+        for mod_name, cols_ in vmt.AUTO_COLLECTIONS.items():
+            col_ = bpy.data.collections.get(cols_["Primary Props"])
+            members = {o.name for o in col_.all_objects} if col_ else set()
+            out[mod_name] = sum(n for o, n in freq.items() if o in members)
+        return out
+
+    fx_a = fx_cube("FreshA", 0.0)
+    r_a = bpy.ops.vm.apply_preset(preset="lib:Base - Flat roof")
+    snap_fa = vmt.snapshot_object(fx_a)
+    cols_fa = {s_["name"]: [v[1][2] for v in s_["values"].values()
+                            if v[1][1] == "NodeSocketCollection" and v[1][2]] for s_ in snap_fa}
+    inst_fa = mod_instances(fx_a)
+    lib_col_fx = bpy.data.collections.get(vmt.LIBRARY_COLLECTION)
+    excluded = []
+    if lib_col_fx is not None:
+        for lc in fx_scene.view_layers[0].layer_collection.children:
+            if lc.collection == lib_col_fx:
+                excluded.append(lc.exclude)
+    fx_ver = vmt.file_engine_version()
+    check("addon(fresh file): ONE 'Apply Preset' click (Base - Flat roof) imports the engine + "
+          "pack into an EMPTY file and builds the full stack with every pack collection "
+          "assigned - plank walls, ONE door, windows on the other walls, the pack stays hidden",
+          r_a == {'FINISHED'} and len(snap_fa) == 5 and fx_ver == ENGINE_VERSION
+          and inst_fa.get("VM_SceneDetailer_Planks", 0) > 0 and inst_fa.get("VM_SceneDetailer_Door") == 1
+          and inst_fa.get("VM_SceneDetailer_Windows", 0) >= 2
+          and all(cols_fa.get(n) for n in ("VM_SceneDetailer_Planks", "VM_SceneDetailer_Shingles",
+                                           "VM_SceneDetailer_Door", "VM_SceneDetailer_Windows"))
+          and excluded == [True] and not dup_names(),
+          f"result={r_a}, engine={fx_ver}, instances per layer={inst_fa}, collections={cols_fa}, "
+          f"AssetLibrary excluded={excluded}, .00N duplicates={dup_names()}")
+    n_data = (len(bpy.data.node_groups), len(bpy.data.collections), len(bpy.data.materials),
+              len(bpy.data.objects))
+    fx_b = fx_cube("FreshB", 5.0)
+    bpy.ops.vm.apply_preset(preset="lib:Base - Gable roof")
+    fx_c = fx_cube("FreshC", 10.0)
+    bpy.ops.vm.dress_object()
+    n_data2 = (len(bpy.data.node_groups), len(bpy.data.collections), len(bpy.data.materials),
+               len(bpy.data.objects) - 2)
+    snap_fc = vmt.snapshot_object(fx_c)
+    inst_fb = mod_instances(fx_b)
+    b_style = str(getattr(fx_b.modifiers["VM_RoofCap"].properties.inputs,
+                          socket_id(fx_b.modifiers["VM_RoofCap"].node_group, "Style")).value)
+    check("addon(fresh file): applying more presets / Dress Object on new objects imports "
+          "NOTHING twice; Dress Object == the clean 'Base - Flat roof' preset; the Gable "
+          "preset gets shingles on its slopes",
+          n_data == n_data2 and not dup_names() and snap_fc == snap_fa and b_style == "Gable"
+          and inst_fb.get("VM_SceneDetailer_Shingles", 0) > 0,
+          f"datablocks (groups, collections, materials, objects) {n_data} -> {n_data2}, "
+          f"Gable cube Style={b_style} instances={inst_fb}, Dress == Flat preset: {snap_fc == snap_fa}, "
+          f"duplicates={dup_names()}")
+
+    # ---- v2.10: UPDATE an older engine in place - settings survive
+    planks_a = fx_a.modifiers["VM_SceneDetailer_Planks"]
+    set_params(planks_a, planks_a.node_group, {"Row Height": 0.31})
+    for g_ in vmt.VM_GROUPS:
+        it_ = vmt.find_input(vmt.resolve_group(g_), "Engine Version")
+        it_.default_value = "v2.8"
+        vmt.sync_version_labels(vmt.resolve_group(g_))
+    fx_a.update_tag()
+    old_ver = vmt.file_engine_version()
+    inst_before = mod_instances(fx_a)
+    snap_before = vmt.snapshot_object(fx_a)
+    r_u = bpy.ops.vm.import_engine()
+    snap_after = vmt.snapshot_object(fx_a)
+    inst_after = mod_instances(fx_a)
+    row_h = sock_val(fx_a, "VM_SceneDetailer_Planks", "Row Height")
+    labels = sorted({str(sock_val(o, m.name, "Engine Version")) for o in (fx_a, fx_b, fx_c)
+                     for m in o.modifiers if vmt.is_vm_modifier(m)})
+
+    def strip_ver(sn):
+        return [dict(s_, values={k: v for k, v in s_["values"].items() if v[0] != "Engine Version"})
+                for s_ in sn]
+    check(f"addon(update): 'Import / Update Engine' upgrades an OLD engine ({old_ver}) to "
+          f"{ENGINE_VERSION} IN PLACE - every modifier keeps its settings (edited Row Height "
+          f"0.31 survives), the About panel of every object shows the new version, nothing duplicated",
+          r_u == {'FINISHED'} and old_ver == "v2.8" and vmt.file_engine_version() == ENGINE_VERSION
+          and abs(row_h - 0.31) < 1e-6 and strip_ver(snap_before) == strip_ver(snap_after)
+          and inst_before == inst_after and labels == [ENGINE_VERSION] and not dup_names()
+          and len(bpy.data.node_groups) == n_data[0],
+          f"{old_ver} -> {vmt.file_engine_version()}, Row Height={row_h}, settings identical="
+          f"{strip_ver(snap_before) == strip_ver(snap_after)}, instances {inst_before} -> "
+          f"{inst_after}, About labels={labels}, node groups={len(bpy.data.node_groups)}, "
+          f"duplicates={dup_names()}")
+    results["addon_library"] = dict(fresh_instances=inst_fa, update_instances=inst_after,
+                                    datablocks=n_data)
+    vmt.LIBRARY_PATH_OVERRIDE = ""
 
     def _jsonable(o):
         # results carry Counter/dict data keyed by tuples (plane keys, zone keys)

@@ -1,18 +1,19 @@
 bl_info = {
-    "name": "VM Tools - Dress / Copy / Paste Engine + Modifier Controls",
+    "name": "VM Engine - Import / Update / Presets / Dress",
     "author": "kristo / ViperMesh",
-    "version": (1, 1, 0),
+    "version": (2, 0, 0),
     "blender": (4, 2, 0),
     "location": "Properties > Modifiers tab | 3D Viewport N-Panel > VM",
-    "description": "One click dresses any mesh with the full VM v2.7 engine stack; copy/paste complete engine setups between objects; save/load presets as JSON across .blend files",
+    "description": "The VM engine's interface across .blend files: import or update the engine + asset library from VM_Assets.blend, apply clean base presets or your own, dress any mesh in one click, copy/paste setups",
     "category": "Object",
 }
 
 import bpy
+import re
 import json
 import os
 import math
-from bpy.props import StringProperty
+from bpy.props import EnumProperty, StringProperty
 
 # ------------------------------------------------------------------ constants
 VM_GROUPS = ("VM_SceneDetailer", "VM_RoofCap")
@@ -37,6 +38,21 @@ AUTO_MATERIALS = {
     },
     "VM_RoofCap": {"Roof Material": "VM_RoofClayTiles"},
 }
+
+# v2.10: the pack collections each layer uses by default - wired BY NAME when
+# they exist in the file (after Import Engine they always do)
+AUTO_COLLECTIONS = {
+    "VM_SceneDetailer_Planks": {"Primary Props": "VM_Tiles_Plank"},
+    "VM_SceneDetailer_Shingles": {"Primary Props": "VM_Tiles_Shingle"},
+    "VM_SceneDetailer_Door": {"Primary Props": "VM_Doors"},
+    "VM_SceneDetailer_Windows": {"Primary Props": "VM_Windows"},
+}
+DEBRIS_COLLECTION = "VM_Debris_Trash"
+
+LIBRARY_COLLECTION = "AssetLibrary"    # root of the pack collections in VM_Assets.blend
+PRESETS_TEXT = "VM_Presets"            # JSON text datablock in VM_Assets.blend
+LIBRARY_PATH_OVERRIDE = ""             # tests / scripts: force a library file
+BASE_PRESET = "Base - Flat roof"       # what Dress Object applies
 
 
 # ------------------------------------------------------------------ helpers
@@ -184,6 +200,8 @@ def apply_snapshot(ob, snap, warnings):
         m = ob.modifiers.new(spec["name"], 'NODES')
         m.node_group = ng
         for ident, (disp, payload) in spec.get("values", {}).items():
+            if disp == "Engine Version":
+                continue        # a label of the GROUP, never carried by a preset
             write_socket(m, ng, ident, payload, warnings)
         n += 1
     ob.update_tag()
@@ -255,9 +273,10 @@ def dress_stack():
         "Min Face Width": ["val", "", 0.6], "Min Face Height": ["val", "", 1.2],
         "Ground Floor Only": ["val", "", True],
         "Max Base Height": ["val", "", 0.5],
+        "Max Instances": ["val", "", 1],     # v2.10: ONE front door, not one per wall
     })
     wins = dict(slots, **{
-        "Column Select": ["val", "", "Skip First"],
+        "Column Select": ["val", "", "All"],  # v2.10: the door's slot is already taken
         "Sill Height": ["val", "", 0.9],
         "Opening Width": ["val", "", 0.8], "Opening Height": ["val", "", 0.9],
         "Min Face Width": ["val", "", 1.2], "Min Face Height": ["val", "", 1.1],
@@ -292,12 +311,285 @@ def dress_object(ob, warnings):
         for key, mat_name in AUTO_MATERIALS.get(mod_name, {}).items():
             if bpy.data.materials.get(mat_name) is not None:
                 write_socket(m, ng, key, ["id", "NodeSocketMaterial", mat_name], warnings)
+        if group == "VM_SceneDetailer":
+            cols = dict(AUTO_COLLECTIONS.get(mod_name, {}), **{"Debris/Trash Props": DEBRIS_COLLECTION})
+            for key, col_name in cols.items():
+                if bpy.data.collections.get(col_name) is not None:
+                    write_socket(m, ng, key, ["id", "NodeSocketCollection", col_name], warnings)
         applied += 1
     ob.update_tag()
     return applied
 
 
+# ------------------------------------------------------------------ v2.10 engine library
+def _addon_prefs(context=None):
+    context = context or bpy.context
+    addon = context.preferences.addons.get(__name__)
+    return addon.preferences if addon else None
+
+
+def library_path(context=None):
+    """VM_Assets.blend to import from: override -> add-on preference -> next to
+    this add-on -> the usual delivery folder. Returns '' when none exists."""
+    prefs = _addon_prefs(context)
+    cands = [LIBRARY_PATH_OVERRIDE, os.environ.get("VM_LIBRARY", ""),
+             getattr(prefs, "library_path", "") if prefs else "",
+             os.path.join(os.path.dirname(os.path.abspath(__file__)), "VM_Assets.blend"),
+             os.path.expanduser(os.path.join("~", "Downloads", "blender-engine", "VM_Assets.blend"))]
+    for c in cands:
+        if c and os.path.isfile(bpy.path.abspath(c)):
+            return bpy.path.abspath(c)
+    return ""
+
+
+_LIB_CACHE = {}
+
+
+def library_info(path):
+    """{'engine_version', 'presets': {name: {description, modifiers}}} from the
+    library's VM_Presets text (cached per file mtime); {} if unreadable."""
+    if not path:
+        return {}
+    key = (path, os.path.getmtime(path))
+    if key in _LIB_CACHE:
+        return _LIB_CACHE[key]
+    info = {}
+    if bpy.data.filepath and os.path.samefile(path, bpy.data.filepath):
+        t = bpy.data.texts.get(PRESETS_TEXT)       # Blender cannot load from the open file
+        return json.loads(t.as_string()) if t else {}
+    before = set(bpy.data.texts)
+    try:
+        with bpy.data.libraries.load(path, link=False) as (src, dst):
+            dst.texts = [PRESETS_TEXT] if PRESETS_TEXT in src.texts else []
+        for t in dst.texts:
+            if t is not None:
+                info = json.loads(t.as_string())
+    except Exception as e:
+        print(f"VM: cannot read library {path}: {e}")
+    finally:
+        for t in set(bpy.data.texts) - before:
+            bpy.data.texts.remove(t)
+    if info:                                       # never cache a failed read
+        _LIB_CACHE.clear()
+        _LIB_CACHE[key] = info
+    return info
+
+
+def group_version(ng):
+    if ng is None:
+        return ""
+    for it in ng.interface.items_tree:
+        if it.item_type == 'SOCKET' and it.name == "Engine Version":
+            return str(getattr(it, "default_value", "") or "")
+    return "pre-v2.7"
+
+
+def sync_version_labels(ng):
+    """Modifiers keep their own copy of every input, so after a group update the
+    About panel would still show the old 'Engine Version' - reset it on every
+    modifier that uses `ng` to the group's (new) default."""
+    it = find_input(ng, "Engine Version")
+    if it is None:
+        return
+    for ob in bpy.data.objects:
+        for m in ob.modifiers:
+            if m.type == 'NODES' and m.node_group == ng:
+                sock = getattr(m.properties.inputs, it.identifier, None)
+                if sock is not None:
+                    sock.value = it.default_value
+
+
+def file_engine_version():
+    ng = resolve_group("VM_SceneDetailer")
+    return group_version(ng) if ng else ""
+
+
+def default_collections():
+    return sorted({c for d in AUTO_COLLECTIONS.values() for c in d.values()} | {DEBRIS_COLLECTION})
+
+
+def _exclude_from_view_layers(col):
+    def walk(lc):
+        if lc.collection == col:
+            lc.exclude = True
+            return True
+        return any(walk(ch) for ch in lc.children)
+    for scene in bpy.data.scenes:
+        if col.name in scene.collection.children:
+            for vl in scene.view_layers:
+                walk(vl.layer_collection)
+
+
+DEDUPE_KINDS = ("collections", "objects", "meshes", "materials", "images")
+
+
+def _dedupe_appended(before):
+    """Appending a node group also appends what it references - VM_SceneDetailer's
+    'Primary Props' defaults to VM_Doors, so an update would bring a second
+    'VM_Doors.001' + door objects. Any new datablock whose LIBRARY name already
+    exists in this file is remapped to the existing one and removed."""
+    n = 0
+    for kind in DEDUPE_KINDS:
+        coll = getattr(bpy.data, kind)
+        for d in [d for d in coll if d.name_full not in before[kind]]:
+            wr = d.library_weak_reference
+            lib_name = wr.id_name[2:] if wr is not None else re.sub(r"\.\d{3}$", "", d.name)
+            keep = coll.get(lib_name)
+            if keep is None or keep == d or keep.name_full not in before[kind]:
+                continue
+            d.user_remap(keep)
+            coll.remove(d)
+            n += 1
+    return n
+
+
+def import_engine(path, report):
+    """Bring the engine into the CURRENT file without duplicating anything:
+    missing node groups, the pack collections (AssetLibrary tree, excluded from
+    the view layer so the asset objects stay out of sight) and the default
+    materials. OUTDATED node groups are updated in place: every modifier is
+    remapped to the library version and keeps its values (socket identifiers
+    are stable across engine builds)."""
+    lib_version = library_info(path).get("engine_version", "")
+    want_cols = [c for c in default_collections() if bpy.data.collections.get(c) is None]
+    want_mats = sorted({m for d in AUTO_MATERIALS.values() for m in d.values()
+                        if bpy.data.materials.get(m) is None})
+    missing = [g for g in VM_GROUPS if resolve_group(g) is None]
+    outdated = [g for g in VM_GROUPS if g not in missing and lib_version
+                and group_version(resolve_group(g)) != lib_version]
+    if not (missing or outdated or want_cols or want_mats):
+        return report
+    before = {k: {d.name_full for d in getattr(bpy.data, k)} for k in DEDUPE_KINDS}
+    with bpy.data.libraries.load(path, link=False) as (src, dst):
+        dst.node_groups = [g for g in missing + outdated if g in src.node_groups]
+        dst.collections = [LIBRARY_COLLECTION] if want_cols and LIBRARY_COLLECTION in src.collections else []
+        dst.materials = [m for m in want_mats if m in src.materials]
+    for ng in dst.node_groups:
+        if ng is None:
+            continue
+        if ng.asset_data is not None:
+            ng.asset_clear()
+        base = group_base(ng)
+        old = resolve_group(base) if base in outdated else None
+        if old is not None and old != ng:
+            old_v = group_version(old)
+            old_name = old.name
+            old.user_remap(ng)
+            bpy.data.node_groups.remove(old)
+            ng.name = old_name
+            sync_version_labels(ng)
+            report.append(f"updated {base} {old_v} -> {group_version(ng)}")
+        else:
+            ng.name = base
+            report.append(f"imported {base} {group_version(ng)}")
+    for col in dst.collections:
+        if col is None:
+            continue
+        scene = bpy.context.scene
+        if col.name not in scene.collection.children:
+            scene.collection.children.link(col)
+        _exclude_from_view_layers(col)
+        report.append(f"imported the asset pack ({len(col.children_recursive)} collections)")
+    _dedupe_appended(before)
+    mats = [m for m in dst.materials if m is not None]
+    for mat in mats:
+        mat.use_fake_user = True
+    if mats:
+        report.append(f"imported {len(mats)} default material(s)")
+    return report
+
+
+def user_presets():
+    if not os.path.isdir(PRESET_DIR):
+        return []
+    return sorted(f[:-5] for f in os.listdir(PRESET_DIR) if f.endswith(".json"))
+
+
+_PRESET_ITEMS = []
+
+
+def preset_items(self, context):
+    """Dropdown: the library's clean base presets first, then the user's own."""
+    items = []
+    for name, p in library_info(library_path(context)).get("presets", {}).items():
+        items.append(("lib:" + name, name, p.get("description", "")))
+    for name in user_presets():
+        items.append(("user:" + name, name + " (mine)", "Saved with VM: Save Preset"))
+    if not items:
+        items.append(("none", "No presets found", "Set the VM_Assets.blend path in the add-on preferences"))
+    _PRESET_ITEMS[:] = items       # Blender needs the item strings kept alive
+    return _PRESET_ITEMS
+
+
+def load_preset_snapshot(key, context=None):
+    kind, _, name = key.partition(":")
+    if kind == "lib":
+        p = library_info(library_path(context)).get("presets", {}).get(name)
+        return p.get("modifiers") if p else None
+    if kind == "user" and os.path.isfile(_preset_path(name)):
+        with open(_preset_path(name)) as f:
+            return json.load(f).get("modifiers")
+    return None
+
+
 # ------------------------------------------------------------------ operators
+class VM_OT_import_engine(bpy.types.Operator):
+    bl_idname = "vm.import_engine"
+    bl_label = "Import / Update Engine"
+    bl_description = ("Bring the VM engine into this file from VM_Assets.blend: missing node "
+                      "groups, the asset pack collections and default materials. Older engine "
+                      "groups are updated in place - every modifier keeps its settings")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        path = library_path(context)
+        if not path:
+            self.report({'WARNING'}, "VM_Assets.blend not found - set its path in the add-on preferences")
+            return {'CANCELLED'}
+        report = import_engine(path, [])
+        for g in VM_GROUPS:
+            if resolve_group(g) is not None:
+                sync_version_labels(resolve_group(g))
+        for ob in context.scene.objects:
+            if vm_modifiers(ob):
+                ob.update_tag()
+        self.report({'INFO'}, ("; ".join(report) if report else "Engine already up to date")
+                    + f" (engine {file_engine_version()})")
+        return {'FINISHED'}
+
+
+class VM_OT_apply_preset(bpy.types.Operator):
+    bl_idname = "vm.apply_preset"
+    bl_label = "Apply Preset"
+    bl_description = ("Replace the VM stack of the selected object(s) with a CLEAN preset - the "
+                      "library's base presets (pack collections at default settings) or one you "
+                      "saved. Imports the engine first if this file does not have it")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    preset: StringProperty(name="Preset", default="")
+
+    @classmethod
+    def poll(cls, context):
+        return any(o.type == 'MESH' for o in context.selected_objects)
+
+    def execute(self, context):
+        key = self.preset or getattr(context.scene, "vm_preset_choice", "")
+        snap = load_preset_snapshot(key, context)
+        if not snap:
+            self.report({'WARNING'}, f"Preset '{key}' not found")
+            return {'CANCELLED'}
+        path = library_path(context)
+        report = import_engine(path, []) if path else []
+        targets = [o for o in context.selected_objects if o.type == 'MESH']
+        warnings = []
+        total = sum(apply_snapshot(ob, snap, warnings) for ob in targets)
+        self.report({'INFO'}, f"'{key.partition(':')[2]}' applied: {total} modifiers on "
+                              f"{len(targets)} object(s)" + (f" ({'; '.join(report)})" if report else ""))
+        if warnings:
+            self.report({'WARNING'}, f"{len(warnings)} note(s): " + "; ".join(sorted(set(warnings))[:6]))
+        return {'FINISHED'}
+
+
 class VM_OT_toggle_all_modifiers(bpy.types.Operator):
     bl_idname = "vm.toggle_all_modifiers"
     bl_label = "Toggle All Modifiers"
@@ -350,9 +642,9 @@ class VM_OT_toggle_all_modifiers(bpy.types.Operator):
 class VM_OT_dress_object(bpy.types.Operator):
     bl_idname = "vm.dress_object"
     bl_label = "VM: Dress Object"
-    bl_description = ("Apply the FULL default VM v2.7 stack to selected object(s): wall "
-                      "cladding + VM_RoofCap (Flat) + roof cladding + doors + windows. "
-                      "Only remaining step: assign the variant collections in the Assets panels")
+    bl_description = ("One click: the full default stack (wall cladding + flat roof cap + roof "
+                      "cladding + doors + windows) with the pack collections assigned. Imports "
+                      "the engine first if this file does not have it")
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -366,12 +658,15 @@ class VM_OT_dress_object(bpy.types.Operator):
             return {'CANCELLED'}
         warnings = []
         total = 0
+        path = library_path(context)
+        report = import_engine(path, []) if path else []
+        base = load_preset_snapshot("lib:" + BASE_PRESET, context) if path else None
         for ob in targets:
-            total += dress_object(ob, warnings)
+            total += apply_snapshot(ob, base, warnings) if base else dress_object(ob, warnings)
         for ob in targets:
             ob.update_tag()
-        msg = (f"VM v2.7 stack applied to {len(targets)} object(s) "
-               f"({total} modifiers) - now assign the variant collections in the Assets panels")
+        msg = (f"VM stack applied to {len(targets)} object(s) ({total} modifiers)"
+               + (f" - {'; '.join(report)}" if report else ""))
         self.report({'INFO'}, msg)
         if warnings:
             self.report({'WARNING'}, "; ".join(sorted(set(warnings))[:6]))
@@ -463,7 +758,7 @@ class VM_OT_save_preset(bpy.types.Operator):
             self.report({'WARNING'}, f"{ob.name} has no VM_* modifiers to save")
             return {'CANCELLED'}
         os.makedirs(PRESET_DIR, exist_ok=True)
-        meta = dict(engine="VM v2.7", source_object=ob.name, modifiers=snap)
+        meta = dict(engine=file_engine_version(), source_object=ob.name, modifiers=snap)
         path = _preset_path(name)
         with open(path, "w") as f:
             json.dump(meta, f, indent=2)
@@ -509,19 +804,39 @@ class VM_OT_load_preset(bpy.types.Operator):
 
 # ------------------------------------------------------------------ UI
 def _draw_buttons(layout, context):
-    col = layout.column(align=True)
-    col.scale_y = 1.3
-    col.operator(VM_OT_toggle_all_modifiers.bl_idname, icon='RESTRICT_VIEW_OFF')
+    path = library_path(context)
+    lib_v = library_info(path).get("engine_version", "") if path else ""
+    file_v = file_engine_version()
+    box = layout.box()
+    box.label(text="Engine", icon='NODETREE')
+    box.label(text=f"This file: {file_v or 'not imported'}   Library: {lib_v or 'not found'}")
+    if not path:
+        box.label(text="Set VM_Assets.blend in the add-on preferences", icon='ERROR')
+    elif file_v != lib_v:
+        box.operator(VM_OT_import_engine.bl_idname,
+                     text="Import Engine" if not file_v else f"Update Engine to {lib_v}", icon='IMPORT')
+    else:
+        box.operator(VM_OT_import_engine.bl_idname, text="Engine up to date (re-check)", icon='CHECKMARK')
+
+    box = layout.box()
+    box.label(text="Presets", icon='PRESET')
+    col = box.column(align=True)
+    col.scale_y = 1.2
     col.operator(VM_OT_dress_object.bl_idname, icon='MODIFIER')
     row = col.row(align=True)
-    row.operator(VM_OT_copy_engine_setup.bl_idname, icon='COPYDOWN')
-    row.operator(VM_OT_paste_engine_setup.bl_idname, icon='PASTEDOWN')
+    row.prop(context.scene, "vm_preset_choice", text="")
+    row.operator(VM_OT_apply_preset.bl_idname, text="Apply", icon='CHECKMARK')
     row = col.row(align=True)
-    row.prop(context.scene, "vm_preset_name", text="Preset")
+    row.prop(context.scene, "vm_preset_name", text="Name")
+    row.operator(VM_OT_save_preset.bl_idname, text="Save Mine", icon='FILE_TICK')
+
+    box = layout.box()
+    box.label(text="Object", icon='OBJECT_DATA')
+    col = box.column(align=True)
     row = col.row(align=True)
-    row.operator(VM_OT_save_preset.bl_idname, icon='FILE_TICK')
-    row.operator(VM_OT_load_preset.bl_idname, icon='FILE_FOLDER')
-    layout.label(text="Dress = full v2.7 stack; then assign collections.")
+    row.operator(VM_OT_copy_engine_setup.bl_idname, text="Copy Setup", icon='COPYDOWN')
+    row.operator(VM_OT_paste_engine_setup.bl_idname, text="Paste Setup", icon='PASTEDOWN')
+    col.operator(VM_OT_toggle_all_modifiers.bl_idname, icon='RESTRICT_VIEW_OFF')
 
 
 class VM_PT_panel_modifiers(bpy.types.Panel):
@@ -546,8 +861,23 @@ class VM_PT_panel_view3d(bpy.types.Panel):
         _draw_buttons(self.layout, context)
 
 
-classes = (VM_OT_toggle_all_modifiers, VM_OT_dress_object, VM_OT_copy_engine_setup,
-           VM_OT_paste_engine_setup, VM_OT_save_preset, VM_OT_load_preset,
+class VM_AddonPreferences(bpy.types.AddonPreferences):
+    bl_idname = __name__
+
+    library_path: StringProperty(
+        name="VM_Assets.blend", subtype='FILE_PATH', default="",
+        description="The engine library: node groups, asset pack collections and base presets")
+
+    def draw(self, context):
+        self.layout.prop(self, "library_path")
+        found = library_path(context)
+        self.layout.label(text=f"Using: {found}" if found else "Not found yet",
+                          icon='CHECKMARK' if found else 'ERROR')
+
+
+classes = (VM_AddonPreferences, VM_OT_toggle_all_modifiers, VM_OT_dress_object,
+           VM_OT_copy_engine_setup, VM_OT_paste_engine_setup, VM_OT_save_preset,
+           VM_OT_load_preset, VM_OT_import_engine, VM_OT_apply_preset,
            VM_PT_panel_modifiers, VM_PT_panel_view3d)
 
 
@@ -561,6 +891,10 @@ def register():
         bpy.types.Scene.vm_preset_name = StringProperty(
             name="Preset Name", default="",
             description="Name used by VM: Save Preset / VM: Load Preset")
+    if not hasattr(bpy.types.Scene, "vm_preset_choice"):
+        bpy.types.Scene.vm_preset_choice = EnumProperty(
+            name="Preset", items=preset_items,
+            description="Clean base presets from the library, then your saved presets")
 
 
 def unregister():
@@ -569,11 +903,12 @@ def unregister():
             bpy.utils.unregister_class(c)
         except Exception:
             pass
-    if hasattr(bpy.types.Scene, "vm_preset_name"):
-        try:
-            del bpy.types.Scene.vm_preset_name
-        except Exception:
-            pass
+    for prop in ("vm_preset_name", "vm_preset_choice"):
+        if hasattr(bpy.types.Scene, prop):
+            try:
+                delattr(bpy.types.Scene, prop)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

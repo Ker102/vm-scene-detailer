@@ -12,14 +12,13 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.9) - BOTH node groups marked as BLENDER ASSETS for the
-    Asset Browser: add this file ONCE to Blender's asset libraries (see
-    'ZERO-SETUP UX' below) and drag the engine onto any object in any file
-  VM_Tools_Addon.py (v2.9) - one-click helpers: 'VM: Dress Object' (full
-    default v2.9 stack on selected objects), 'VM: Copy/Paste Engine Setup'
-    (copy the whole VM_* modifier stack, incl. collection references, between
-    objects) and 'VM: Save/Load Preset <name>' (JSON setups that travel
-    across .blend files). Install as an add-on (see 'ZERO-SETUP UX' below)
+  VM_Assets.blend (v2.10) - THE ENGINE LIBRARY: both node groups (also marked
+    as Blender assets), the whole AssetLibrary pack tree, the default
+    materials and the clean BASE PRESETS. The add-on imports from it into any
+    file (see 'THE VM ENGINE ADD-ON' below)
+  VM_Tools_Addon.py (v2.10) - the engine's interface across files: Import /
+    Update Engine, Apply Preset (clean base presets + your own), Dress Object,
+    Copy/Paste Setup, Save Mine, Toggle All Modifiers
   build_engine.py - deterministic generator (rebuilds everything from scratch)
   pack_ingest.py - GENERIC ZERO-CONFIG asset-pack adapter (see PACK ADAPTER
     below); ingests any glTF/OBJ pack into classified variant collections
@@ -32,10 +31,35 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (235 checks: the original 197 kept
-    green + 38 v2.7/v2.8/v2.9 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (242 checks: the original 197 kept
+    green + 45 v2.7-v2.10 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.10 (2026-10-30) - THE ADD-ON IS THE INTERFACE: engine + presets in ANY file
+-------------------------------------------------------------------------------
+* VM_Assets.blend is now the full engine LIBRARY (groups + pack collections +
+  default materials + base presets). Point the add-on at it once.
+* 'Import / Update Engine': brings the engine into the current file without
+  duplicating anything. An OLDER engine already in the file is updated IN
+  PLACE - every modifier keeps its settings, only the node trees change.
+* Clean BASE PRESETS ('Base - Flat roof' / 'Base - Gable roof' / 'Base - Hip
+  roof'): the default pack at default settings, applied to a new object in
+  one click (no need to copy from an object you already modified). Your own
+  presets ('Save Mine') appear in the same dropdown.
+* 'Dress Object' = 'Base - Flat roof' with the pack collections ASSIGNED
+  (before, the collections were left empty).
+* Base stack openings: ONE door per object (door layer 'Max Instances' 1) and
+  windows on the remaining walls (window layer 'Column Select' All). Before,
+  Dress put a door on EVERY wall and no windows on cubes under ~6 m.
+  Measured: 2-4 m cube -> 1 door + 3 windows, 6 m -> 1 + 7, 10 m -> 1 + 13.
+  An object with several separate buildings still gets ONE door in total -
+  raise the door layer's Max Instances for more.
+* The About panel's 'Engine Version' now always shows the engine the object
+  really runs (it was a per-modifier copy that stayed at the old label).
+* One version label (ENGINE_VERSION in build_engine.py) drives every About
+  socket, description, check and the library - v2.9.1 shipped still saying
+  'v2.9'.
 
 v2.9 (2026-10-27) - BURIED FACES: no roofs/dressing inside the building
 ------------------------------------------------------------------------
@@ -139,12 +163,11 @@ QUICK START: MAKE A LITTLE HOUSE FROM A CUBE
    "StarterGround" has a sixth VM_SceneDetailer in Scatter mode for debris.
 2. To build it yourself on any cube:
    - Add > Mesh > Cube (2m). Optionally set its origin so the base sits at z=0.
-   - ZERO-SETUP (v2.7, recommended): select the cube and press
-     'VM: Dress Object' (VM Tools panel) - the FULL default v2.7 stack is
-     applied in one click (wall cladding + VM_RoofCap + roof cladding + doors
-     + windows). The ONLY remaining step: assign the variant collections in
-     the Assets panels of each layer. (Or drag 'VM_SceneDetailer'/'VM_RoofCap'
-     from the VM_Assets.blend Asset Browser onto the object.)
+   - ZERO-SETUP (v2.10, recommended): select the cube and press 'Dress
+     Object' (or pick a preset + 'Apply') in the VM panel - the engine, the
+     pack and the full default stack (wall cladding + VM_RoofCap + roof
+     cladding + doors + windows) with every collection assigned, in one
+     click, in ANY file. See 'THE VM ENGINE ADD-ON' below.
    - BY HAND: Modifier Properties > Add Modifier > Geometry Nodes, pick
      "VM_SceneDetailer". Since v2.7 a FRESH modifier already defaults to
      Placement Mode 'Fit' + Slot Layout 'Slots' (doors on walls out of the
@@ -225,52 +248,56 @@ RECIPE for a flat-topped design (the user's design language):
   windows Sill 0.9 (cross-layer split: doors 'First Only', windows
   'Skip First' - or 'Exact N' counts).
 
-ZERO-SETUP UX (v2.7): VM_Tools_Addon + VM_Assets.blend
-------------------------------------------------------
-Goal (the user's words): "apply the engine on a new cube and only have to
-configure the collections... copy and paste the engine configuration and all
-the collection configuration from an existing object to another new one
-without having to do all the manual setting up all modifiers."
+THE VM ENGINE ADD-ON (v2.10): VM_Tools_Addon + VM_Assets.blend
+--------------------------------------------------------------
+The add-on is how you use the engine in your own files. You never have to
+open the starter or copy settings from an object you already changed.
 
 INSTALL ONCE:
-  * Add-on: Blender > Edit > Preferences > Add-ons > Install... >
-    VM_Tools_Addon.py (enable 'VM Tools'). Buttons appear in the Modifier
-    Properties tab and the 3D-view N-panel > 'VM', next to 'Toggle All
-    Modifiers'.
-  * Asset library: Blender > Edit > Preferences > File Paths > Asset
-    Libraries > add THIS FOLDER (or point at VM_Assets.blend's folder). The
-    Asset Browser then shows 'VM_SceneDetailer' and 'VM_RoofCap' (both carry
-    the v2.8 description) - drag either onto any object in ANY file.
+  1. Blender > Edit > Preferences > Add-ons > Install from Disk... >
+     VM_Tools_Addon.py, enable 'VM Engine - Import / Update / Presets / Dress'.
+  2. In the add-on's preferences set 'VM_Assets.blend' to the library file
+     in this folder. (Without it the add-on also looks next to itself and in
+     ~/Downloads/blender-engine/.) The preferences show 'Using: <path>'.
+  The panel appears in the 3D view N-panel > 'VM' and in the Modifier tab.
 
-OPERATORS (VM Tools panel):
-  * VM: Dress Object       - one click = the FULL default v2.9 stack on all
-    selected meshes (wall cladding, VM_RoofCap 'Flat', roof cladding, doors,
-    windows - the StarterCube recipe with current defaults). Collections are
-    intentionally left EMPTY: assigning the variant collections in the Assets
-    panels is the only remaining step. Materials named VM_WallWeatheredPlanks
-    / VM_RoofClayTiles / VM_FloorGrass are auto-wired when they exist.
-  * VM: Copy Engine Setup  - snapshot ALL VM_* modifiers of the active object
-    (node group + EVERY socket value + collection/object/material references).
-    Non-VM modifiers are never touched.
-  * VM: Paste Engine Setup - apply the snapshot to the selected objects,
-    fully REPLACING their existing VM stack (again: non-VM modifiers stay).
-    Socket values are copied by interface IDENTIFIER (rename-safe across
-    group revisions; falls back to socket name) and ID references are matched
-    by NAME in the target file - missing names are REPORTED, never dropped
-    silently.
-  * VM: Save Preset <name> - the same snapshot of the active object written
-    to ~/.config/vm_engine/presets/<name>.json (stack config + collection
-    NAMES, so setups travel across .blend files).
-  * VM: Load Preset <name> - rebuild the stack on the selected objects from
-    the JSON. Collections/materials are re-matched BY NAME in the current
-    file; any missing names are listed in the status bar report.
+THE PANEL:
+  Engine   'This file: <version>   Library: <version>'
+           Import Engine / Update Engine to <version> - brings the node
+           groups, the AssetLibrary pack (hidden: excluded from the view
+           layer) and the default materials into THIS file. Nothing is ever
+           duplicated. An older engine is replaced in place: every object
+           keeps its settings and its About panel shows the new version.
+  Presets  Dress Object - one click: 'Base - Flat roof' on every selected mesh.
+           [preset dropdown] + Apply - REPLACES the VM stack of the selected
+           objects with a CLEAN preset:
+             Base - Flat roof / Base - Gable roof / Base - Hip roof
+               (from the library: the default pack at default settings)
+             <name> (mine) (your own, saved with 'Save Mine')
+           Apply/Dress import the engine first if the file does not have it.
+           Name + Save Mine - saves the active object's stack as your preset
+           (~/.config/vm_engine/presets/<name>.json; collections by NAME).
+  Object   Copy Setup / Paste Setup - the full VM stack of the active object
+           onto the selected ones (every socket + collection references).
+           Toggle All Modifiers - viewport on/off for the whole stack.
+  Non-VM modifiers are never touched. Missing collections/materials are
+  REPORTED in the status bar, never silently dropped.
 
-WORKED EXAMPLE (verified headless in verification_v2.json):
-  cube A: Dress Object + collections assigned -> Copy -> cube B: Paste
-  => B's VM modifiers == A's (same groups, identical socket values incl.
-  collection pointers). Save Preset from A -> open a FRESH file (engine
-  groups present + same-named collections) -> Load Preset -> identical stack.
-  Renders: preview_addon_source.png vs preview_addon_pasted.png (identical).
+TYPICAL USE:
+  * New file: add a cube, Dress Object (or a preset + Apply). Done.
+  * An older file (e.g. a copy of an earlier starter): open it, press
+    'Update Engine to v2.10'. Your tuned objects keep their settings.
+  * The Asset Browser still works: VM_Assets.blend's node groups are marked
+    as assets - drag them onto an object - but the add-on is the
+    recommended path because it also brings the pack and the presets.
+
+VERIFIED HEADLESS (verification_v2.json, 'addon(fresh file)' / 'addon(update)'):
+  an EMPTY file + one Apply Preset click -> 5 modifiers, every pack
+  collection assigned, planks/shingles/doors/windows instancing, no .001
+  duplicates; more presets / Dress on new cubes import nothing twice; an
+  engine faked to 'v2.8' with an edited Row Height 0.31 updates to v2.10 with
+  0.31 kept, identical settings and identical instance counts.
+  The v2.7 Copy/Paste/Save/Load proofs are kept (preview_addon_*.png).
 
 WORLD-SPACE SIZING (v2.4.1) - 'make the house bigger' works
 -----------------------------------------------------------
@@ -831,7 +858,13 @@ in-memory:
     pointers, counted); Save/Load Preset round-trips across a FRESH file with
     same-named collections (0 mismatches);
   * assets: VM_Assets.blend ships both node groups marked as Blender assets.
-Total for this release: 223 checks, 223 passed (verification_v2.json).
+  * library (v2.10): VM_Assets.blend = groups + pack collections + default
+    materials + >=3 base presets tagged with the engine version;
+  * addon(fresh file) (v2.10): one Apply Preset in an EMPTY file imports
+    engine + pack and builds the full stack (every layer instancing); more
+    presets / Dress Object import nothing twice;
+  * addon(update) (v2.10): an older engine updates in place, settings kept.
+Total for this release: 242 checks, 242 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered
