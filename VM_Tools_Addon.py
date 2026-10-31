@@ -50,9 +50,14 @@ AUTO_MATERIALS = {
 # v2.10: the pack collections each layer uses by default - wired BY NAME when
 # they exist in the file (after Import Engine they always do)
 AUTO_COLLECTIONS = {
-    "VM_SceneDetailer_Planks": {"Primary Props": "VM_Tiles_Plank"},
+    # v2.13: broken pieces + worn tiles for the Damage panel
+    "VM_SceneDetailer_Planks": {"Primary Props": "VM_Tiles_Plank",
+                                "Broken Props": "VM_Tiles_PlankBroken",
+                                "Worn Props": "VM_Tiles_PlankWorn"},
     "VM_SceneDetailer_Floor": {"Primary Props": "VM_Tiles_Plank"},
-    "VM_SceneDetailer_Shingles": {"Primary Props": "VM_Tiles_Shingle"},
+    "VM_SceneDetailer_Shingles": {"Primary Props": "VM_Tiles_Shingle",
+                                  "Broken Props": "VM_Tiles_ShingleBroken",
+                                  "Worn Props": "VM_Tiles_ShingleWorn"},
     "VM_SceneDetailer_Door": {"Primary Props": "VM_Doors"},
     "VM_SceneDetailer_Windows": {"Primary Props": "VM_Windows"},
 }

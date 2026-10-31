@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.12) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.13) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.12) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.13) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,29 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (250 checks: the original 197 kept
-    green + 53 v2.7-v2.12 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (252 checks: the original 197 kept
+    green + 55 v2.7-v2.13 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.13 (2026-10-31) - REAL DAMAGED GEOMETRY, NOTHING FLOATING
+-------------------------------------------------------------------------------
+* BROKEN tiles are now real broken pieces, not boards cut square: jagged,
+  splintered break lines on siding, broken-off butts on shakes (new library
+  collections VM_Tiles_PlankBroken / VM_Tiles_ShingleBroken, wired to the
+  new 'Broken Props' socket). Each piece keeps the tile's nailed end exactly
+  where it was. Empty 'Broken Props' = the old cut-short behaviour.
+* WORN tiles: a 'Wear' band just outside the damage (default 0.12) swaps in
+  full-size worn tiles - end splits running up the grain, chipped corners,
+  bites out of the edges (VM_Tiles_PlankWorn / VM_Tiles_ShingleWorn on the new
+  'Worn Props' socket). Damage now builds up: intact -> worn -> loose ->
+  broken -> missing.
+* NOTHING FLOATS: a broken or hanging board must keep an end that is held -
+  touching an intact or worn board's end, or cut at the wall outline (under a
+  corner board / the eave / the rake). It keeps that end; with no held end it
+  falls off (missing). (Shakes hang under the course above - no rule.)
+* Hanging boards now drop their free end (v2.12 turned it up).
+* Still to do: real holes / window openings into an INTERIOR (next), VINES.
 
 v2.12 (2026-10-31) - MOVABLE DAMAGE
 -------------------------------------------------------------------------------
@@ -993,8 +1012,12 @@ in-memory:
     the Empty (missing + broken/loose tiles), no tile beyond the radius changes;
   * v2.12(movable): moving the Empty heals the old spot exactly and damages
     the new one;
-  * v2.12(damage off): Damage off gives back the identical undamaged tiles.
-Total for this release: 250 checks, 250 passed (verification_v2.json).
+  * v2.12(damage off): Damage off gives back the identical undamaged tiles;
+  * v2.13(broken geometry): broken boards / shakes are jagged pieces from the
+    Broken collections and worn tiles appear around the damage;
+  * v2.13(no floating): every broken board's nailed end meets an intact
+    board's end or the wall outline.
+Total for this release: 252 checks, 252 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

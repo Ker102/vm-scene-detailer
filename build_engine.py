@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.12"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.13"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -661,6 +661,167 @@ def make_shake_variants(col, name, n, mat, length=0.42, butt=0.024, tip=0.004, s
         col.objects.link(ob)
         out.append(ob)
     return out
+
+
+def _outline_tile(name, outline, front_y, back, uv_grain, lo, span):
+    """v2.13 damaged tile from a 2D outline: `outline` is the tile's silhouette
+    as (x, z) points in order (X along/across the row, Z up the face), extruded
+    from the flat back plane y=`back` to the front surface y=front_y(x, z) - the
+    same wedge as the intact tiles, so jagged ends, splits and bites are REAL
+    geometry. UVs follow _tile_mesh: U = meters along the grain, V = 0..1 across
+    (`lo`, `span` = the across-grain extent)."""
+    bm = bmesh.new()
+    fv = [bm.verts.new((x, front_y(x, z), z)) for x, z in outline]
+    bv = [bm.verts.new((x, back, z)) for x, z in outline]
+    bm.faces.new(fv)
+    bm.faces.new(list(reversed(bv)))
+    n = len(outline)
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((bv[i], bv[j], fv[j], fv[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    uvl = bm.loops.layers.uv.new("UVMap")
+    for f in bm.faces:
+        for lp in f.loops:
+            x, z = lp.vert.co.x, lp.vert.co.z
+            if uv_grain == "X":
+                lp[uvl].uv = (x, min(max((z - lo) / span, 0.0), 1.0))
+            else:
+                lp[uvl].uv = (z, min(max((x - lo) / span, 0.0), 1.0))
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    for p_ in me.polygons:
+        p_.use_smooth = False
+    return me
+
+
+def _jag(rng, a, b, n, depth, spike=0.0, spike_w=(0.008, 0.02)):
+    """Jagged break line from a to b (the 'along' coordinate fixed at 0):
+    returns [(offset, t)] with t running a -> b across the tile and offset the
+    break's reach (+ = longer). One splinter spike sticks out when spike > 0."""
+    pts = [(rng.uniform(-depth, depth * 0.4), a)]
+    for k in range(1, n):
+        pts.append((rng.uniform(-depth, depth * 0.6), a + (b - a) * (k + rng.uniform(-0.3, 0.3)) / n))
+    if spike > 0:
+        t0 = rng.uniform(a + (b - a) * 0.2, a + (b - a) * 0.7)
+        w = rng.uniform(*spike_w) * (1 if b > a else -1)
+        pts += [(depth * 0.3, t0), (spike, t0 + w * 0.4), (spike * 0.8, t0 + w), (0.0, t0 + w * 1.3)]
+    pts.append((rng.uniform(-depth, depth * 0.4), b))
+    return sorted(pts, key=lambda q: q[1] * (1 if b > a else -1))
+
+
+def _mirror_x(outline):
+    return [(-x, z) for x, z in reversed(outline)]
+
+
+def make_broken_siding(col, name, n, mat, width=0.2, butt=0.022, top=0.006, seed=13):
+    """v2.13 BROKEN siding pieces for the Damage panel's Broken Props: 1 m long,
+    the NAILED (kept) end square at the origin, the free end a jagged break with
+    a splinter. Pairs: _L runs along +X, _R is its mirror along -X (the engine
+    picks the one whose nailed end sits next to an intact board)."""
+    import random
+    rng = random.Random(seed)
+    h = width / 2
+
+    def front(x, z):
+        return -0.006 + butt + (top - butt) * (z + h) / width
+    for i in range(n):
+        jag = _jag(rng, h, -h, rng.randint(4, 6), 0.07, spike=rng.uniform(0.08, 0.22))
+        ol = [(0.0, -h), (0.0, h)] + [(1.0 + off, t) for off, t in jag]
+        for side, o in (("L", ol), ("R", _mirror_x(ol))):
+            nm = f"{name}_{i + 1:02d}_{side}"
+            me = _outline_tile(nm, o, front, -0.006, "X", -h, width)
+            me.materials.append(mat)
+            col.objects.link(bpy.data.objects.new(nm, me))
+
+
+def make_broken_shakes(col, name, n, mat, width=0.2, butt=0.016, tip=0.004, seed=17):
+    """v2.13 BROKEN shakes: the nailed top edge at the origin, 1 m down -Z
+    (scaled to what remains), the butt broken off in a jagged line - often split
+    up the grain. _L / _R are mirrored break patterns."""
+    import random
+    rng = random.Random(seed)
+    w = width / 2
+
+    def front(x, z):
+        return -0.004 + tip + (butt - tip) * (-z)
+    for i in range(n):
+        jag = _jag(rng, w, -w, rng.randint(3, 5), 0.16, spike=rng.uniform(0.1, 0.3),
+                   spike_w=(0.015, 0.03))
+        ol = [(-w, 0.0), (w, 0.0)] + [(t, -1.0 - off) for off, t in jag]
+        ol = list(reversed(ol))
+        for side, o in (("L", ol), ("R", _mirror_x(ol))):
+            nm = f"{name}_{i + 1:02d}_{side}"
+            me = _outline_tile(nm, o, front, -0.004, "Z", -w, width)
+            me.materials.append(mat)
+            col.objects.link(bpy.data.objects.new(nm, me))
+
+
+def make_worn_siding(col, name, n, mat, length=2.0, width=0.2, butt=0.022, top=0.006, seed=19):
+    """v2.13 WORN siding (the Damage panel's Worn Props, a band around the
+    damage): full-size boards with an end SPLIT running up the grain, CHIPPED
+    corners and BITES out of the edges - the same 2 x 0.2 m as the intact tiles."""
+    import random
+    rng = random.Random(seed)
+    L, h = length / 2, width / 2
+
+    def front(x, z):
+        return -0.006 + butt + (top - butt) * (z + h) / width
+    for i in range(n):
+        right = [(L, -h)]
+        if rng.random() < 0.75:                               # end split
+            z0, g, sl = rng.uniform(-0.02, 0.03), rng.uniform(0.003, 0.007), rng.uniform(0.3, 1.0)
+            right += [(L, z0 - g / 2), (L - sl, z0), (L, z0 + g / 2)]
+        right += [(L, h)]
+        top_e = []
+        if rng.random() < 0.5:                                # bite out of the top edge
+            a0, bw, d = rng.uniform(-0.6, 0.4), rng.uniform(0.15, 0.4), rng.uniform(0.02, 0.06)
+            top_e = [(a0 + bw, h), (a0 + bw * 0.6, h - d), (a0 + bw * 0.25, h - d * 0.7), (a0, h)]
+        left = []
+        if rng.random() < 0.6:                                # chipped corner
+            c1, c2 = rng.uniform(0.04, 0.09), rng.uniform(0.06, 0.2)
+            left = [(-L + c2, h), (-L + c2 * 0.45, h - c1 * 0.5), (-L, h - c1)]
+        else:
+            left = [(-L, h)]
+        bot = []
+        if rng.random() < 0.4:                                # bite out of the bottom edge
+            a0, bw, d = rng.uniform(-0.4, 0.6), rng.uniform(0.1, 0.3), rng.uniform(0.02, 0.04)
+            bot = [(a0, -h), (a0 + bw * 0.35, -h + d), (a0 + bw * 0.7, -h + d * 0.6), (a0 + bw, -h)]
+        ol = [(-L, -h)] + bot + right + top_e + left
+        nm = f"{name}_{i + 1:02d}"
+        me = _outline_tile(nm, ol, front, -0.006, "X", -h, width)
+        me.materials.append(mat)
+        col.objects.link(bpy.data.objects.new(nm, me))
+
+
+def make_worn_shakes(col, name, n, mat, length=0.42, width=0.2, butt=0.024, tip=0.004, seed=23):
+    """v2.13 WORN shakes: full-size, SPLIT up from the butt, with chipped and
+    broken butt corners."""
+    import random
+    rng = random.Random(seed)
+    L, w = length / 2, width / 2
+
+    def front(x, z):
+        return -0.004 + tip + (butt - tip) * (L - z) / length
+    for i in range(n):
+        bot = [(-w, -L)]
+        if rng.random() < 0.3:
+            c1 = rng.uniform(0.03, 0.08)
+            bot = [(-w, -L + c1), (-w + c1 * 0.7, -L)]
+        if rng.random() < 0.8:                                # split up from the butt
+            x0, g, sl = rng.uniform(-w * 0.3, w * 0.3), rng.uniform(0.004, 0.01), rng.uniform(0.1, 0.3)
+            bot += [(x0 - g / 2, -L), (x0, -L + sl), (x0 + g / 2, -L)]
+        if rng.random() < 0.5:
+            c1 = rng.uniform(0.03, 0.07)
+            bot += [(w - c1 * 0.8, -L), (w, -L + c1)]
+        else:
+            bot += [(w, -L)]
+        ol = bot + [(w, L), (-w, L)]
+        nm = f"{name}_{i + 1:02d}"
+        me = _outline_tile(nm, ol, front, -0.004, "Z", -w, width)
+        me.materials.append(mat)
+        col.objects.link(bpy.data.objects.new(nm, me))
 
 
 def make_debris(debris_col):
@@ -2894,8 +3055,32 @@ def build_node_group():
     p_sum3 = b.N("ShaderNodeVectorMath", (4250, -3485), operation="ADD")
     b.L(c_v, p_sum3.inputs[0])
     b.L(p_sum1.outputs["Vector"], p_sum3.inputs[1])
+    # v2.13: a tile end CUT at the face outline (a wall corner, the rake) sits
+    # under trim - it counts as nailed for the Damage support rule. Its local
+    # position is stored (far away when the end is not cut).
+    pe_chain = st_tz.outputs["Geometry"]
+    for nm_, a_end, cut_ in (
+            ("vm_pe_lo", t_lo, tcmp("GREATER_THAN", t_lo, tm("ADD", tm("SUBTRACT", t_c, t_half), 1e-4))),
+            ("vm_pe_hi", t_hi, tcmp("LESS_THAN", t_hi, tm("SUBTRACT", tm("ADD", t_c, t_half), 1e-4)))):
+        pe_u = b.N("ShaderNodeVectorMath", random_loc(), operation="SCALE")
+        b.L(u_v, pe_u.inputs[0]); b.L(a_end, pe_u.inputs["Scale"])
+        pe_s = b.N("ShaderNodeVectorMath", random_loc(), operation="ADD")
+        b.L(pe_u.outputs["Vector"], pe_s.inputs[0]); b.L(v_fin.outputs["Vector"], pe_s.inputs[1])
+        pe_p = b.N("ShaderNodeVectorMath", random_loc(), operation="ADD")
+        b.L(c_v, pe_p.inputs[0]); b.L(pe_s.outputs["Vector"], pe_p.inputs[1])
+        pe_sw = b.N("GeometryNodeSwitch", random_loc())
+        pe_sw.input_type = "VECTOR"
+        b.L(tand(trim_on, cut_), pe_sw.inputs["Switch"])
+        pe_sw.inputs["False"].default_value = (1e6, 1e6, 1e6)
+        b.L(pe_p.outputs["Vector"], pe_sw.inputs["True"])
+        st_pe = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR",
+                    domain="POINT")
+        b.L(pe_chain, st_pe.inputs["Geometry"])
+        st_pe.inputs["Name"].default_value = nm_
+        b.L(pe_sw.outputs["Output"], st_pe.inputs["Value"])
+        pe_chain = st_pe.outputs["Geometry"]
     setpos_c = b.N("GeometryNodeSetPosition", (3750, -2200))
-    b.L(st_tz.outputs["Geometry"], setpos_c.inputs["Geometry"])
+    b.L(pe_chain, setpos_c.inputs["Geometry"])
     b.L(p_sum3.outputs["Vector"], setpos_c.inputs["Position"])
     # ---- v2.8 CONTAINMENT (the user's phantom-wall-slab bug): a cladding slot
     # is kept ONLY if its anchor lies inside a real face polygon of the host
@@ -3965,6 +4150,16 @@ def build_node_group():
            "Loose tiles: largest angle - a shake curls out from its top edge, a long board "
            "hangs from the nail at one end")
 
+    # v2.13: REAL damaged geometry + no floating pieces
+    b.sock("Broken Props", "NodeSocketCollection", p_dmg, None,
+           desc="Damage (v2.13): broken pieces - nailed end at the origin, 1 m long along +X "
+                "(name _L) / -X (_R) for boards, down -Z for shakes. Empty = the tile is just cut short")
+    b.sock("Worn Props", "NodeSocketCollection", p_dmg, None,
+           desc="Damage (v2.13): full-size worn tiles (split, chipped, bitten) used in the Wear "
+                "band around the damage. Empty = no wear")
+    b.sock("Wear", "NodeSocketFloat", p_dmg, 0.12, 0.0, 1.0, "FACTOR",
+           "How far beyond the damage the tiles are worn (cracked, split, chipped)")
+
     d_pos = b.N("GeometryNodeInputPosition", (3200, 600))
     d_idx = b.N("GeometryNodeInputIndex", (3200, 500))
     d_seed = gi.outputs["Damage Seed"]
@@ -4006,59 +4201,27 @@ def build_node_group():
     b.L(em("MULTIPLY", d_rl, 0.3), d_mr.inputs["From Max"])
     d_mask = tsw(tcmp("GREATER_THAN", gi.outputs["Damage Radius"], 0.0), 1.0, d_mr.outputs["Result"])
     d_thr = em("SUBTRACT", 1.0, em("MULTIPLY", gi.outputs["Damage Amount"], d_mask))
-    d_on = tand(tand(gi.outputs["Damage"], is_clad), tcmp("GREATER_THAN", d_score, d_thr))
+    d_live = tand(gi.outputs["Damage"], is_clad)
+    d_on = tand(d_live, tcmp("GREATER_THAN", d_score, d_thr))
+    # v2.13 the wear band: just short of the damage threshold (inside the mask)
+    d_worn = tand(tand(d_live, tcmp("GREATER_THAN", d_mask, 0.001)),
+                  tcmp("GREATER_THAN", d_score, em("SUBTRACT", d_thr, gi.outputs["Wear"])))
     # severity: how far past the threshold (saturating 0.3 deep - the heart of a
-    # patch) plus a per-tile random, so the categories mix at their borders
+    # patch) plus a small per-tile random, so the categories mix at their borders
     d_sev = tm("MULTIPLY_ADD", em("MINIMUM", em("DIVIDE", em("SUBTRACT", d_score, d_thr), 0.3), 1.0),
-               0.6, em("MULTIPLY", r_a["Y"], 0.4))
+               0.8, em("MULTIPLY", r_a["Y"], 0.2))
     d_lim_m = em("SUBTRACT", 1.0, gi.outputs["Missing Share"])
     d_lim_b = em("SUBTRACT", d_lim_m, gi.outputs["Broken Share"])
-    # category: 0 intact, 1 missing, 2 broken, 3 loose (stored - the fields
-    # below run after a Delete, where the instance indices have shifted)
-    d_cat = tsw(d_on, 0.0, tsw(tcmp("GREATER_EQUAL", d_sev, d_lim_m), tsw(
+    # category: 0 intact, 1 missing, 2 broken, 3 loose, 4 worn
+    d_cat = tsw(d_on, tsw(d_worn, 0.0, 4.0), tsw(tcmp("GREATER_EQUAL", d_sev, d_lim_m), tsw(
         tcmp("GREATER_EQUAL", d_sev, d_lim_b), 3.0, 2.0), 1.0))
-    st_dc = b.N("GeometryNodeStoreNamedAttribute", (3200, 150), data_type="FLOAT", domain="INSTANCE")
-    st_dc.inputs["Name"].default_value = "vm_dcat"
-    b.L(d_cat, st_dc.inputs["Value"])
-    st_dr = b.N("GeometryNodeStoreNamedAttribute", (3350, 150), data_type="FLOAT_VECTOR",
-                domain="INSTANCE")
-    b.L(st_dc.outputs["Geometry"], st_dr.inputs["Geometry"])
-    st_dr.inputs["Name"].default_value = "vm_drnd"
-    b.L(r_b_vec, st_dr.inputs["Value"])
-    # re-route: store_an -> damage chain -> join_all
-    for lk in list(b.ng.links):
-        if lk.from_node == store_an and lk.to_node == join_all:
-            b.ng.links.remove(lk)
-    b.L(store_an.outputs["Geometry"], st_dc.inputs["Geometry"])
-    dc_rd = b.N("GeometryNodeInputNamedAttribute", (3500, 0))
-    dc_rd.data_type = "FLOAT"
-    dc_rd.inputs["Name"].default_value = "vm_dcat"
-    dr_rd = b.N("GeometryNodeInputNamedAttribute", (3500, -100))
-    dr_rd.data_type = "FLOAT_VECTOR"
-    dr_rd.inputs["Name"].default_value = "vm_drnd"
-    dr_s = b.N("ShaderNodeSeparateXYZ", (3650, -100))
-    b.L(dr_rd.outputs["Attribute"], dr_s.inputs["Vector"])
-
-    def is_cat(k):
-        return tcmp("EQUAL", dc_rd.outputs["Attribute"], float(k))
-    d_del = b.N("GeometryNodeDeleteGeometry", (3500, 150), domain="INSTANCE")
-    b.L(st_dr.outputs["Geometry"], d_del.inputs["Geometry"])
-    b.L(is_cat(1), d_del.inputs["Selection"])
-    # tile frame from the Primary Props bounds: long tiles (siding) break and
-    # slip along X; tall tiles (shakes) break from the butt (bottom)
+    # the tile frame from the Primary Props bounds: long tiles (siding) break and
+    # hang along X; tall tiles (shakes) break from the butt (bottom)
     bb_mn = b.N("ShaderNodeSeparateXYZ", (3650, -300))
     b.L(t_bb.outputs["Min"], bb_mn.inputs["Vector"])
     bb_mx = b.N("ShaderNodeSeparateXYZ", (3650, -450))
     b.L(t_bb.outputs["Max"], bb_mx.inputs["Vector"])
     d_long = tcmp("GREATER_THAN", t_exs.outputs["X"], t_exs.outputs["Z"])
-    d_end = tsw(tcmp("LESS_THAN", dr_s.outputs["Y"], 0.5), bb_mx.outputs["X"], bb_mn.outputs["X"])
-
-    def vsw(cond, if_false, if_true):
-        n_ = b.N("GeometryNodeSwitch", random_loc())
-        n_.input_type = "VECTOR"
-        b.L(cond, n_.inputs["Switch"])
-        b.L(if_false, n_.inputs["False"]); b.L(if_true, n_.inputs["True"])
-        return n_.outputs["Output"]
 
     def v3(x, y, z):
         n_ = b.N("ShaderNodeCombineXYZ", random_loc())
@@ -4068,32 +4231,196 @@ def build_node_group():
             else:
                 b.L(val, n_.inputs[k_])
         return n_.outputs["Vector"]
-    d_f = tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.4, 0.3)          # broken: 30-70 % remains
-    d_sc = b.N("GeometryNodeScaleInstances", (3800, 150))
+
+    def vsw(cond, if_false, if_true):
+        n_ = b.N("GeometryNodeSwitch", random_loc())
+        n_.input_type = "VECTOR"
+        b.L(cond, n_.inputs["Switch"])
+        b.L(if_false, n_.inputs["False"]); b.L(if_true, n_.inputs["True"])
+        return n_.outputs["Output"]
+
+    def vmath(op, a_, b_, out="Vector"):
+        n_ = b.N("ShaderNodeVectorMath", random_loc(), operation=op)
+        b.L(a_, n_.inputs[0])
+        if op == "SCALE":
+            b.L(b_, n_.inputs["Scale"])
+        else:
+            b.L(b_, n_.inputs[1])
+        return n_.outputs[out]
+
+    def dnamed(name, dt):
+        n_ = b.N("GeometryNodeInputNamedAttribute", random_loc())
+        n_.data_type = dt
+        n_.inputs["Name"].default_value = name
+        return n_.outputs["Attribute"]
+    i_rot = b.N("GeometryNodeInputInstanceRotation", (3200, 300)).outputs["Rotation"]
+    i_scl = b.N("GeometryNodeInputInstanceScale", (3200, 250)).outputs["Scale"]
+    i_scs = b.N("ShaderNodeSeparateXYZ", (3350, 250))
+    b.L(i_scl, i_scs.inputs["Vector"])
+
+    def end_pos(x_local):
+        rv_ = b.N("FunctionNodeRotateVector", random_loc())
+        b.L(v3(em("MULTIPLY", x_local, i_scs.outputs["X"]), 0.0, 0.0), rv_.inputs["Vector"])
+        b.L(i_rot, rv_.inputs["Rotation"])
+        return vmath("ADD", d_pos.outputs["Position"], rv_.outputs["Vector"])
+    # pass 1: category, randoms, both ends and the placement (store context -
+    # the fields below run after Deletes / conversions where indices shift)
+    stores1 = [("vm_dcat0", "FLOAT", d_cat), ("vm_drnd", "FLOAT_VECTOR", r_b_vec),
+               ("vm_elo", "FLOAT_VECTOR", end_pos(bb_mn.outputs["X"])),
+               ("vm_ehi", "FLOAT_VECTOR", end_pos(bb_mx.outputs["X"])),
+               ("vm_irot", "QUATERNION", i_rot), ("vm_iscl", "FLOAT_VECTOR", i_scl)]
+    for lk in list(b.ng.links):
+        if lk.from_node == store_an and lk.to_node == join_all:
+            b.ng.links.remove(lk)
+    d_chain = store_an.outputs["Geometry"]
+    for nm_, dt_, val_ in stores1:
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="INSTANCE")
+        b.L(d_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        d_chain = st_.outputs["Geometry"]
+    cat0 = dnamed("vm_dcat0", "FLOAT")
+    dr_s = b.N("ShaderNodeSeparateXYZ", (3650, -100))
+    b.L(dnamed("vm_drnd", "FLOAT_VECTOR"), dr_s.inputs["Vector"])
+
+    def is_c(cat_sock, k):
+        return tcmp("EQUAL", cat_sock, float(k))
+
+    def bor(a_, b_):
+        n_ = b.N("FunctionNodeBooleanMath", random_loc(), operation="OR")
+        b.L(a_, n_.inputs[0]); b.L(b_, n_.inputs[1])
+        return n_.outputs["Boolean"]
+
+    def bnot(a_):
+        n_ = b.N("FunctionNodeBooleanMath", random_loc(), operation="NOT")
+        b.L(a_, n_.inputs[0])
+        return n_.outputs["Boolean"]
+    # pass 2: SUPPORT. A broken / hanging board keeps the end that touches an
+    # intact (or worn) board's end or an outline-cut end; with no supported end
+    # it falls off (missing). Shakes hang under the course above: no rule.
+    sup_parts = []
+    for sel_, attr_ in ((bor(is_c(cat0, 0), is_c(cat0, 4)), "vm_elo"),
+                        (bor(is_c(cat0, 0), is_c(cat0, 4)), "vm_ehi"),
+                        (None, "vm_pe_lo"), (None, "vm_pe_hi")):
+        i2p = b.N("GeometryNodeInstancesToPoints", random_loc())
+        b.L(d_chain, i2p.inputs["Instances"])
+        if sel_ is not None:
+            b.L(sel_, i2p.inputs["Selection"])
+        sp_ = b.N("GeometryNodeSetPosition", random_loc())
+        b.L(i2p.outputs["Points"], sp_.inputs["Geometry"])
+        b.L(dnamed(attr_, "FLOAT_VECTOR"), sp_.inputs["Position"])
+        sup_parts.append(sp_.outputs["Geometry"])
+    sup_cloud = b.N("GeometryNodeJoinGeometry", random_loc())
+    for g_ in sup_parts:
+        b.L(g_, sup_cloud.inputs["Geometry"])
+
+    def supported(attr_):
+        px_ = b.N("GeometryNodeProximity", random_loc())
+        px_.target_element = "POINTS"
+        b.L(sup_cloud.outputs["Geometry"], px_.inputs["Geometry"])
+        b.L(dnamed(attr_, "FLOAT_VECTOR"), px_.inputs["Sample Position"])
+        return tcmp("LESS_THAN", px_.outputs["Distance"], em("DIVIDE", 0.04, geo_f))
+    sup_lo, sup_hi = supported("vm_elo"), supported("vm_ehi")
+    d_hang = tand(d_long, bor(is_c(cat0, 2), is_c(cat0, 3)))
+    # kept end: 1 = the max-X end, 0 = the min-X end
+    side_r = tsw(tcmp("LESS_THAN", dr_s.outputs["Y"], 0.5), 1.0, 0.0)
+    d_side = tsw(d_long, side_r, tsw(tand(sup_lo, sup_hi), tsw(sup_hi, 0.0, 1.0), side_r))
+    d_fall = tand(d_hang, bnot(bor(sup_lo, sup_hi)))
+    d_cat2 = tsw(d_fall, cat0, 1.0)
+    for nm_, val_ in (("vm_dcat", d_cat2), ("vm_dside", d_side)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+        b.L(d_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        d_chain = st_.outputs["Geometry"]
+    cat = dnamed("vm_dcat", "FLOAT")
+    side = dnamed("vm_dside", "FLOAT")
+    side_hi = tcmp("GREATER_THAN", side, 0.5)
+    d_end = tsw(side_hi, bb_mn.outputs["X"], bb_mx.outputs["X"])
+
+    # replacement collections (fallback when empty: cut short / no wear)
+    def coll_count(sock_name):
+        ci_ = b.N("GeometryNodeCollectionInfo", random_loc())
+        b.L(gi.outputs[sock_name], ci_.inputs["Collection"])
+        ci_.inputs["Separate Children"].default_value = True
+        ci_.inputs["Reset Children"].default_value = True
+        ds_ = b.N("GeometryNodeAttributeDomainSize", random_loc())
+        ds_.component = "INSTANCES"
+        b.L(ci_.outputs["Instances"], ds_.inputs["Geometry"])
+        return ci_.outputs["Instances"], ds_.outputs["Instance Count"]
+    br_inst, br_n = coll_count("Broken Props")
+    wo_inst, wo_n = coll_count("Worn Props")
+    has_br = tcmp("GREATER_THAN", br_n, 0.5)
+    has_wo = tcmp("GREATER_THAN", wo_n, 0.5)
+    sel_br = tand(is_c(cat, 2), has_br)
+    sel_wo = tand(is_c(cat, 4), has_wo)
+    d_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="INSTANCE")
+    b.L(d_chain, d_del.inputs["Geometry"])
+    b.L(bor(is_c(cat, 1), bor(sel_br, sel_wo)), d_del.inputs["Selection"])
+    # fallback broken: the tile itself cut short about its kept end
+    d_f = tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.4, 0.3)          # 30-70 % remains
+    d_sc = b.N("GeometryNodeScaleInstances", random_loc())
     b.L(d_del.outputs["Geometry"], d_sc.inputs["Instances"])
-    b.L(is_cat(2), d_sc.inputs["Selection"])
+    b.L(tand(is_c(cat, 2), bnot(has_br)), d_sc.inputs["Selection"])
     b.L(vsw(d_long, v3(1.0, 1.0, d_f), v3(d_f, 1.0, 1.0)), d_sc.inputs["Scale"])
     b.L(vsw(d_long, v3(0.0, 0.0, bb_mx.outputs["Z"]), v3(d_end, 0.0, 0.0)), d_sc.inputs["Center"])
     d_sc.inputs["Local Space"].default_value = True
     # loose: a shake curls out about its top edge (+Y is the face normal); a
-    # long board HANGS from the nail at one end - its free end drops (in-plane
-    # turn) and swings a little off the wall so it rides over the boards below
+    # long board HANGS from the nail at its kept end - the free end drops
+    # (in-plane turn) and swings a little off the wall over the boards below
     d_tx = em("MULTIPLY", gi.outputs["Max Tilt"],
               tsw(d_long, tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.7, 0.3),
                   em("MULTIPLY", dr_s.outputs["X"], 0.3)))
-    d_sgn = tsw(tcmp("LESS_THAN", dr_s.outputs["Y"], 0.5), 1.0, -1.0)   # nail at max X -> -1
+    d_sgn = tsw(side_hi, 1.0, -1.0)            # nail at min X: +turn drops the +X end
     d_ty = tsw(d_long, 0.0, em("MULTIPLY", d_sgn, em("MULTIPLY", gi.outputs["Max Tilt"],
                                                      tm("MULTIPLY_ADD", dr_s.outputs["Z"], 0.6, 0.4))))
     d_tz = tsw(d_long, 0.0, em("MULTIPLY", d_sgn, 0.015))
-    d_eul = b.N("FunctionNodeEulerToRotation", (3800, -150))
+    d_eul = b.N("FunctionNodeEulerToRotation", random_loc())
     b.L(v3(d_tx, d_ty, d_tz), d_eul.inputs["Euler"])
-    d_rot = b.N("GeometryNodeRotateInstances", (3950, 150))
+    d_rot = b.N("GeometryNodeRotateInstances", random_loc())
     b.L(d_sc.outputs["Instances"], d_rot.inputs["Instances"])
-    b.L(is_cat(3), d_rot.inputs["Selection"])
+    b.L(is_c(cat, 3), d_rot.inputs["Selection"])
     b.L(d_eul.outputs["Rotation"], d_rot.inputs["Rotation"])
     b.L(v3(tsw(d_long, 0.0, d_end), 0.0, bb_mx.outputs["Z"]), d_rot.inputs["Pivot Point"])
     d_rot.inputs["Local Space"].default_value = True
     b.L(d_rot.outputs["Instances"], join_all.inputs["Geometry"])
+
+    # broken pieces: placed at the kept end (board) / top edge (shake), the
+    # remaining length scaled, same rotation and cross-section as the tile
+    def replace(sel_, inst_, n_sock, pick_, pos_, scale_):
+        i2p = b.N("GeometryNodeInstancesToPoints", random_loc())
+        b.L(d_chain, i2p.inputs["Instances"])
+        b.L(sel_, i2p.inputs["Selection"])
+        sp_ = b.N("GeometryNodeSetPosition", random_loc())
+        b.L(i2p.outputs["Points"], sp_.inputs["Geometry"])
+        if pos_ is not None:
+            b.L(pos_, sp_.inputs["Position"])
+        iop_ = b.N("GeometryNodeInstanceOnPoints", random_loc())
+        b.L(sp_.outputs["Geometry"], iop_.inputs["Points"])
+        b.L(inst_, iop_.inputs["Instance"])
+        iop_.inputs["Pick Instance"].default_value = True
+        b.L(pick_, iop_.inputs["Instance Index"])
+        b.L(dnamed("vm_irot", "QUATERNION"), iop_.inputs["Rotation"])
+        b.L(scale_, iop_.inputs["Scale"])
+        b.L(iop_.outputs["Instances"], join_all.inputs["Geometry"])
+    p_pos = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    p_scs = b.N("ShaderNodeSeparateXYZ", random_loc())
+    b.L(dnamed("vm_iscl", "FLOAT_VECTOR"), p_scs.inputs["Vector"])
+    p_off = b.N("FunctionNodeRotateVector", random_loc())
+    b.L(vsw(d_long, v3(0.0, 0.0, em("MULTIPLY", bb_mx.outputs["Z"], p_scs.outputs["Z"])),
+            v3(em("MULTIPLY", d_end, p_scs.outputs["X"]), 0.0, 0.0)), p_off.inputs["Vector"])
+    b.L(dnamed("vm_irot", "QUATERNION"), p_off.inputs["Rotation"])
+    br_pairs = em("MAXIMUM", em("FLOOR", em("DIVIDE", br_n, 2.0)), 1.0)
+    br_k = em("MINIMUM", em("FLOOR", em("MULTIPLY", dr_s.outputs["Z"], br_pairs)), em("SUBTRACT", br_pairs, 1.0))
+    br_bit = tsw(d_long, tsw(tcmp("LESS_THAN", dr_s.outputs["Y"], 0.5), 0.0, 1.0), side)
+    replace(sel_br, br_inst, br_n, tm("MULTIPLY_ADD", br_k, 2.0, br_bit),
+            vmath("ADD", p_pos, p_off.outputs["Vector"]),
+            vsw(d_long, v3(p_scs.outputs["X"], p_scs.outputs["Y"],
+                           em("MULTIPLY", em("MULTIPLY", d_f, t_exs.outputs["Z"]), p_scs.outputs["Z"])),
+                v3(em("MULTIPLY", em("MULTIPLY", d_f, t_exs.outputs["X"]), p_scs.outputs["X"]),
+                   p_scs.outputs["Y"], p_scs.outputs["Z"])))
+    wo_k = em("MINIMUM", em("FLOOR", em("MULTIPLY", dr_s.outputs["Z"], wo_n)), em("SUBTRACT", wo_n, 1.0))
+    replace(sel_wo, wo_inst, wo_n, wo_k, None, dnamed("vm_iscl", "FLOAT_VECTOR"))
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -9224,6 +9551,16 @@ def main():
         for ob in list(col_.objects):
             bpy.data.objects.remove(ob)
         maker(col_, cn.replace("VM_Tiles_", ""), 6, mat_)
+    # v2.13: the Damage panel's broken pieces + worn tiles, next to the tiles
+    tile_parent = next(c for c in bpy.data.collections
+                       if bpy.data.collections["VM_Tiles_Plank"].name in c.children)
+    for cn, maker, mat_, n_ in (("VM_Tiles_PlankBroken", make_broken_siding, lib_mats["siding"], 4),
+                                ("VM_Tiles_PlankWorn", make_worn_siding, lib_mats["siding"], 6),
+                                ("VM_Tiles_ShingleBroken", make_broken_shakes, lib_mats["shake"], 4),
+                                ("VM_Tiles_ShingleWorn", make_worn_shakes, lib_mats["shake"], 6)):
+        col_ = bpy.data.collections.new(cn)
+        tile_parent.children.link(col_)
+        maker(col_, cn.replace("VM_Tiles_", ""), n_, mat_)
     pack_images()
     keep_obs = set(lib_root.all_objects)
     for ob in list(bpy.data.objects):
@@ -9652,6 +9989,56 @@ def main():
           f"tiles {len(dz_clean)} -> {len(dz_c)}, identical={dz_c.keys() == dz_clean.keys()}")
     results["damage_v212"] = dict(clean=len(dz_clean), zone_tiles=len(dz_a), changed=len(gone_a),
                                   broken_loose=len(new_a), moved_changed=len(gone_b))
+
+    # ---- v2.13: REAL broken geometry + NO floating pieces (the user's report:
+    # 'some pieces are floating', 'no realistic damage geometry')
+    for m_ in vmt.damage_layers(dz_ob):
+        set_params(m_, m_.node_group, {"Damage": True})
+    dz_emp.location = Vector((61.0, 12.0, 1.6))
+    dz_ob.update_tag()
+    dg_d = bpy.context.evaluated_depsgraph_get()
+    dg_d.update()
+    kinds = {}
+    for cn_ in ("VM_Tiles_PlankBroken", "VM_Tiles_PlankWorn", "VM_Tiles_ShingleBroken",
+                "VM_Tiles_ShingleWorn"):
+        for o_ in bpy.data.collections[cn_].all_objects:
+            kinds[o_.name] = cn_
+    jagged = all(len(o_.data.vertices) > 14 for o_ in bpy.data.objects if o_.name in kinds
+                 and "Broken" in kinds[o_.name])
+    n_kind = Counter()
+    pieces, ends = [], []
+    for inst in dg_d.object_instances:
+        if not (inst.is_instance and inst.parent is not None and inst.parent.original == dz_ob):
+            continue
+        nm_ = inst.object.name
+        m_ = inst.matrix_world.copy()
+        if nm_ in kinds:
+            n_kind[kinds[nm_]] += 1
+        if kinds.get(nm_) == "VM_Tiles_PlankBroken":
+            pieces.append(m_.translation - Vector((55.0, 12.0, 0.0)))     # the nailed end
+        elif nm_ in plank_names or kinds.get(nm_) == "VM_Tiles_PlankWorn":
+            bx_ = [c_[0] for c_ in inst.object.bound_box]
+            for x_ in (min(bx_), max(bx_)):
+                ends.append(m_ @ Vector((x_, 0.0, 0.0)) - Vector((55.0, 12.0, 0.0)))
+
+    def on_outline(q_):
+        # the end sits on its wall's outline: a corner (under the corner board)
+        # or the wall top / rake (under the eave)
+        on_x_wall = min(abs(q_.x), abs(q_.x - 6.0)) < 0.1
+        along, length = (q_.y, 4.5) if on_x_wall else (q_.x, 6.0)
+        return min(abs(along), abs(along - length)) < 0.06 or q_.z > 2.9
+    floating = [q_ for q_ in pieces if not on_outline(q_)
+                and min(((q_ - e_).length for e_ in ends), default=9.0) > 0.06]
+    check("v2.13(broken geometry): damage uses REAL damaged pieces - broken boards and shakes "
+          "with jagged, splintered ends and worn (split / chipped / bitten) tiles around the damage",
+          jagged and all(n_kind[k_] > 0 for k_ in ("VM_Tiles_PlankBroken", "VM_Tiles_ShingleBroken",
+                                                   "VM_Tiles_ShingleWorn")),
+          f"pieces placed: {dict(n_kind)}, broken meshes jagged={jagged}")
+    check("v2.13(no floating): every broken board is still nailed where something holds it - its "
+          "kept end meets an intact board's end or the wall outline (corner board / eave)",
+          len(pieces) > 0 and not floating,
+          f"{len(pieces)} broken boards, floating={[tuple(round(c_, 2) for c_ in q_) for q_ in floating[:6]]}")
+    results["damage_v213"] = dict(kinds=dict(n_kind), broken_boards=len(pieces), floating=len(floating))
 
     results["addon_library"] = dict(fresh_instances=inst_fa, update_instances=inst_after,
                                     datablocks=n_data)
