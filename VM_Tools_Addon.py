@@ -34,8 +34,10 @@ AUTO_MATERIALS = {
     "VM_SceneDetailer_Planks": {
         "Wall Material": "VM_WallWeatheredPlanks",
         "Roof Material": "VM_RoofClayTiles",
-        "Floor Material": "VM_FloorGrass",
+        # v2.10: no grass on the building's own bottom - the floor layer below
+        # covers it with boards and a wood material
     },
+    "VM_SceneDetailer_Floor": {"Floor Material": "VM_WallWeatheredPlanks"},
     "VM_RoofCap": {"Roof Material": "VM_RoofClayTiles"},
 }
 
@@ -43,6 +45,7 @@ AUTO_MATERIALS = {
 # they exist in the file (after Import Engine they always do)
 AUTO_COLLECTIONS = {
     "VM_SceneDetailer_Planks": {"Primary Props": "VM_Tiles_Plank"},
+    "VM_SceneDetailer_Floor": {"Primary Props": "VM_Tiles_Plank"},
     "VM_SceneDetailer_Shingles": {"Primary Props": "VM_Tiles_Shingle"},
     "VM_SceneDetailer_Door": {"Primary Props": "VM_Doors"},
     "VM_SceneDetailer_Windows": {"Primary Props": "VM_Windows"},
@@ -214,10 +217,10 @@ def count_sockets(snap):
 
 # ------------------------------------------------------------------ v2.7 dress recipe
 def dress_stack():
-    """The FULL default v2.7 engine stack, layer by layer (the StarterCube
-    recipe): wall cladding -> VM_RoofCap (Flat by default) -> roof cladding ->
-    doors -> windows. Collection sockets stay EMPTY: assigning the variant
-    collections in the Assets panels is the only remaining manual step."""
+    """The FULL default engine stack, layer by layer: wall cladding -> interior
+    floorboards -> VM_RoofCap (Flat by default) -> roof cladding -> doors ->
+    windows. Collection sockets stay EMPTY here; dress_object / the library
+    presets wire the pack collections by name."""
     base = {
         "Debris Ratio": ["val", "", 0.0],
         "Embed": ["val", "", 0.02],
@@ -233,6 +236,16 @@ def dress_stack():
         "Stagger": ["val", "", 0.0], "Jitter": ["val", "", 0.002],
         "Slot Width": ["val", "", 2.0], "Surface Offset": ["val", "", -0.02],
         "Max Instances": ["val", "", 2000],
+    })
+    # v2.10: floorboards on the building's bottom, laid from the inside
+    floor = dict(base, **{
+        "Placement Mode": ["val", "", "Cladding"],
+        "Face Zone": ["val", "", "Interior Floor"],
+        "Row Height": ["val", "", 0.16], "Row Overlap": ["val", "", 0.0],
+        "Stagger": ["val", "", 0.5], "Jitter": ["val", "", 0.0],
+        "Slot Width": ["val", "", 1.6], "Surface Offset": ["val", "", 0.0],
+        "Trim To Face": ["val", "", True],
+        "Max Instances": ["val", "", 4000],
     })
     roof = {
         "Style": ["val", "", "Flat"],            # v2.7 default: never invent gables
@@ -289,6 +302,7 @@ def dress_stack():
     })
     return [
         ("VM_SceneDetailer_Planks", "VM_SceneDetailer", planks),
+        ("VM_SceneDetailer_Floor", "VM_SceneDetailer", floor),
         ("VM_RoofCap", "VM_RoofCap", roof),
         ("VM_SceneDetailer_Shingles", "VM_SceneDetailer", shingles),
         ("VM_SceneDetailer_Door", "VM_SceneDetailer", doors),

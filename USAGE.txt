@@ -31,8 +31,8 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (242 checks: the original 197 kept
-    green + 45 v2.7-v2.10 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (244 checks: the original 197 kept
+    green + 47 v2.7-v2.10 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
 
@@ -71,6 +71,28 @@ v2.10 (2026-10-30) - THE ADD-ON IS THE INTERFACE: engine + presets in ANY file
   storey and a single 6 m wall all get windows on both storeys.
   Known limit (unchanged): a wall face that runs down INSIDE another block
   (intersecting boxes in one mesh) is judged buried as a whole and stays bare.
+* A FLOOR inside the building. The bottom face used to show the grass Floor
+  Material from inside. The stack has a new layer after the wall planks,
+  'VM_SceneDetailer_Floor': floorboards laid on the building's bottom face
+  from the INSIDE (flat, face up, staggered courses), and the bottom face
+  itself gets a wood material instead of grass. Dress Object / the base
+  presets now apply SIX layers:
+    Planks -> Floor -> VM_RoofCap -> Shingles -> Door -> Windows.
+  Two engine additions make it work (both opt-in, walls are unchanged):
+  - Face Zone 'Interior Floor': the downward-facing bottom faces, dressed as
+    an up-facing floor seen from inside (buried faces stay excluded, so the
+    faces between two stacked boxes get no boards).
+  - 'Trim To Face' (Placement panel, Cladding): every tile is sized to
+    exactly its cell (length = slot spacing, width = row spacing - no
+    overlap, so no flicker on a flat floor) and tiles crossing a face edge
+    are CUT to it: staggered rows end in half boards at both walls. Off (the
+    default) keeps the wall behaviour, where tiles overlap past corners.
+  Floor layer defaults: Row Height 0.16 (board width), Slot Width 1.6 (board
+  length; a 5 m room gets 1.25 m boards), Stagger 0.5, no jitter.
+  Known limits: tile size is taken from the collection's overall bounds
+  (fine for the plank pack, whose variants share one size); on an L-shaped
+  floor made of ONE n-gon, boards are cut to the face's bounding box, not
+  its outline - split such floors into quads.
 * The About panel's 'Engine Version' now always shows the engine the object
   really runs (it was a per-modifier copy that stayed at the old label).
 * One version label (ENGINE_VERSION in build_engine.py) drives every About
@@ -308,7 +330,7 @@ TYPICAL USE:
     recommended path because it also brings the pack and the presets.
 
 VERIFIED HEADLESS (verification_v2.json, 'addon(fresh file)' / 'addon(update)'):
-  an EMPTY file + one Apply Preset click -> 5 modifiers, every pack
+  an EMPTY file + one Apply Preset click -> 6 modifiers, every pack
   collection assigned, planks/shingles/doors/windows instancing, no .001
   duplicates; more presets / Dress on new cubes import nothing twice; an
   engine faked to 'v2.8' with an edited Row Height 0.31 updates to v2.10 with
@@ -879,8 +901,12 @@ in-memory:
   * addon(fresh file) (v2.10): one Apply Preset in an EMPTY file imports
     engine + pack and builds the full stack (every layer instancing); more
     presets / Dress Object import nothing twice;
-  * addon(update) (v2.10): an older engine updates in place, settings kept.
-Total for this release: 242 checks, 242 passed (verification_v2.json).
+  * addon(update) (v2.10): an older engine updates in place, settings kept;
+  * v2.10(upper storeys): stacked boxes, a storey edge loop, a setback storey
+    and a single 6 m wall all get windows on both storeys;
+  * v2.10(floor): floorboards lie flat inside the footprint, every row spans
+    the floor exactly (edge boards cut), the bottom face is wood, not grass.
+Total for this release: 244 checks, 244 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

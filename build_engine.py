@@ -1091,7 +1091,9 @@ def build_node_group():
     b.sock("Tint Amount", "NodeSocketFloat", p_var, 0.5, 0.0, 1.0, "FACTOR")
 
     p_zone = b.panel("Zones", "Face classification by normal; drives Fit/Cladding sampling and Materials")
-    b.menu_sock("Face Zone", p_zone, "Walls", "Which faces Fit/Cladding use (Scatter uses all faces)")
+    b.menu_sock("Face Zone", p_zone, "Walls", "Which faces Fit/Cladding use (Scatter uses all faces). "
+                "'Interior Floor' (v2.10): the building's downward-facing bottom faces, dressed from the "
+                "INSIDE - boards lie on the bottom face facing up into the rooms")
     b.sock("Wall Slope", "NodeSocketFloat", p_zone, 0.35, 0.0, 1.0, "FACTOR", "Walls: |N.z| <= Wall Slope")
     b.sock("Roof Slope Min", "NodeSocketFloat", p_zone, 0.55, 0.0, 1.0, "FACTOR", "Roof zone SLOPE BAND lower bound (v2.4): Roof = Roof Slope Min <= N.z < Roof Slope Max - pitched faces only; flat tops (N.z ~ 1) are NOT roof")
     b.sock("Roof Slope Max", "NodeSocketFloat", p_zone, 0.92, 0.0, 1.0, "FACTOR", "Roof band upper bound; Floor zone = N.z <= -Roof Slope Min OR N.z >= Roof Slope Max (flat decks and bottoms use Floor or stay bare)")
@@ -1170,10 +1172,18 @@ def build_node_group():
     b.L(floor_hi.outputs["Result"], is_floor_raw.inputs[1])
     is_floor = zone_and(is_floor_raw.outputs["Boolean"], (-1000, 470))
 
-    zone_sel, _ = b.menu_switch(
-        ["All", "Walls", "Roof", "Floor"], "BOOLEAN", gi.outputs["Face Zone"],
+    # v2.10 Interior Floor: exterior bottom faces (N.z <= -Roof Slope Min). The
+    # selection is STORED before the sampling mesh flips those faces (below),
+    # so it survives the flip that turns their normals up into the building.
+    ifl_raw = zone_and(floor_lo.outputs["Result"], (-1000, 390))
+    ifl_rd = b.N("GeometryNodeInputNamedAttribute", (-1250, 350))
+    ifl_rd.data_type = "BOOLEAN"
+    ifl_rd.inputs["Name"].default_value = "vm_ifl"
+    zone_sel, zone_bools = b.menu_switch(
+        ["All", "Walls", "Roof", "Floor", "Interior Floor"], "BOOLEAN", gi.outputs["Face Zone"],
         {"All": ext_ok, "Walls": is_wall.outputs["Boolean"], "Roof": is_roof.outputs["Boolean"],
-         "Floor": is_floor.outputs["Boolean"]}, loc=(-1050, 650))
+         "Floor": is_floor.outputs["Boolean"], "Interior Floor": ifl_rd.outputs["Attribute"]},
+        loc=(-1050, 650))
 
     # ---------------- base materials by zone (gated Set Material) ----------------
     base1 = material_gate(b, host_geo, gi.outputs["Wall Material"],
@@ -1188,7 +1198,20 @@ def build_node_group():
     del_inst = b.N("GeometryNodeDeleteGeometry", (-200, 1350), domain="INSTANCE")
     b.L(base_out, del_inst.inputs["Geometry"])
     del_inst.inputs["Selection"].default_value = True
-    mesh_only = del_inst.outputs["Geometry"]
+    # v2.10 Interior Floor: flip the bottom faces of the SAMPLING mesh only (the
+    # output mesh keeps its normals) so every frame, course and offset below
+    # treats them as an up-facing floor seen from inside the building
+    st_ifl = b.N("GeometryNodeStoreNamedAttribute", (-50, 1350), data_type="BOOLEAN", domain="FACE")
+    b.L(del_inst.outputs["Geometry"], st_ifl.inputs["Geometry"])
+    st_ifl.inputs["Name"].default_value = "vm_ifl"
+    b.L(ifl_raw.outputs["Boolean"], st_ifl.inputs["Value"])
+    ifl_flip_sel = b.N("FunctionNodeBooleanMath", (-50, 1500), operation="AND")
+    b.L(zone_bools["Interior Floor"], ifl_flip_sel.inputs[0])
+    b.L(ifl_raw.outputs["Boolean"], ifl_flip_sel.inputs[1])
+    ifl_flip = b.N("GeometryNodeFlipFaces", (100, 1350))
+    b.L(st_ifl.outputs["Geometry"], ifl_flip.inputs["Mesh"])
+    b.L(ifl_flip_sel.outputs["Boolean"], ifl_flip.inputs["Selection"])
+    mesh_only = ifl_flip.outputs["Mesh"]
 
     # ---------------- SCATTER branch (v1 behavior, all faces) ----------------
     dist = b.N("GeometryNodeDistributePointsOnFaces", (-1150, 200), distribute_method="RANDOM")
@@ -2405,8 +2428,13 @@ def build_node_group():
     b.L(pitch_p.outputs["Value"], max1_p.inputs[0])
     max1_p.inputs[1].default_value = 0.001
 
+    # v2.10 Trim To Face: the socket is created LAST (socket identifiers keep
+    # their order for old stacks) and linked into this OR at the end
+    trim_in = b.N("FunctionNodeBooleanMath", (2050, -2350), operation="OR")
+    trim_in.inputs[1].default_value = False
+    trim_on = trim_in.outputs["Boolean"]
     keep_i = b.N("FunctionNodeCompare", (2200, -2500), data_type="FLOAT", operation="LESS_THAN")
-    b.L(gi_v, keep_i.inputs["A"]); b.L(ns_v, keep_i.inputs["B"])
+    b.L(gi_v, keep_i.inputs["A"])
     keep_j = b.N("FunctionNodeCompare", (2200, -2650), data_type="FLOAT", operation="LESS_THAN")
     b.L(gj_v, keep_j.inputs["A"]); b.L(nr_v, keep_j.inputs["B"])
     keep_ij = b.N("FunctionNodeBooleanMath", (2400, -2550), operation="AND")
@@ -2419,6 +2447,16 @@ def build_node_group():
     sh_m = b.N("ShaderNodeMath", (2350, -2850), operation="FLOORED_MODULO")
     b.L(sh_row.outputs["Value"], sh_m.inputs[0])
     sh_m.inputs[1].default_value = 1.0
+    # Trim To Face: a staggered row gets ONE extra slot (no wrap) so its cut
+    # end boards sit at both face edges
+    sh_pos = b.N("FunctionNodeCompare", (2350, -2700), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(sh_m.outputs["Value"], sh_pos.inputs["A"])
+    sh_pos.inputs["B"].default_value = 1e-4
+    sh_xtra = b.N("FunctionNodeBooleanMath", (2500, -2700), operation="AND")
+    b.L(trim_on, sh_xtra.inputs[0]); b.L(sh_pos.outputs["Result"], sh_xtra.inputs[1])
+    ns_k = b.N("ShaderNodeMath", (2650, -2700), operation="ADD")
+    b.L(ns_v, ns_k.inputs[0]); b.L(sh_xtra.outputs["Boolean"], ns_k.inputs[1])
+    b.L(ns_k.outputs["Value"], keep_i.inputs["B"])
     ai = b.N("ShaderNodeMath", (2500, -2850), operation="MULTIPLY_ADD")
     b.L(gi_v, ai.inputs[0])
     ai.inputs[1].default_value = 1.0
@@ -2514,9 +2552,76 @@ def build_node_group():
     b_fin = b.N("ShaderNodeMath", (3750, -3520), operation="MAXIMUM")
     b.L(bj_2.outputs["Value"], b_fin.inputs[0])
     b.L(blo_m.outputs["Value"], b_fin.inputs[1])
+    # ---- v2.10 TRIM TO FACE (floorboards): every tile is sized to exactly its
+    # cell (length = slot spacing, width = row spacing - no overlap, so no
+    # z-fighting on a flat floor) and a tile crossing a face edge is CUT to it.
+    # Slot k of a row is centred at alo + (k + 0.5 - shift) * sp, then clipped
+    # to [alo, alo + w]; u jitter is dropped (it would open seams).
+    t_k = b.N("ShaderNodeMath", (3450, -3800), operation="ADD")
+    b.L(gi_v, t_k.inputs[0]); t_k.inputs[1].default_value = 0.5
+    t_ks = b.N("ShaderNodeMath", (3600, -3800), operation="SUBTRACT")
+    b.L(t_k.outputs["Value"], t_ks.inputs[0]); b.L(sh_m.outputs["Value"], t_ks.inputs[1])
+    t_c = b.N("ShaderNodeMath", (3750, -3800), operation="MULTIPLY_ADD")
+    b.L(t_ks.outputs["Value"], t_c.inputs[0]); b.L(sp_w.outputs["Value"], t_c.inputs[1])
+    b.L(alo_v, t_c.inputs[2])
+    t_half = b.N("ShaderNodeMath", (3750, -3900), operation="MULTIPLY")
+    b.L(sp_w.outputs["Value"], t_half.inputs[0]); t_half.inputs[1].default_value = 0.5
+    t_lo0 = b.N("ShaderNodeMath", (3900, -3800), operation="SUBTRACT")
+    b.L(t_c.outputs["Value"], t_lo0.inputs[0]); b.L(t_half.outputs["Value"], t_lo0.inputs[1])
+    t_lo = b.N("ShaderNodeMath", (4050, -3800), operation="MAXIMUM")
+    b.L(t_lo0.outputs["Value"], t_lo.inputs[0]); b.L(alo_v, t_lo.inputs[1])
+    t_hi0 = b.N("ShaderNodeMath", (3900, -3900), operation="ADD")
+    b.L(t_c.outputs["Value"], t_hi0.inputs[0]); b.L(t_half.outputs["Value"], t_hi0.inputs[1])
+    t_hi = b.N("ShaderNodeMath", (4050, -3900), operation="MINIMUM")
+    b.L(t_hi0.outputs["Value"], t_hi.inputs[0]); b.L(ahi_m.outputs["Value"], t_hi.inputs[1])
+    t_mid = b.N("ShaderNodeMath", (4200, -3850), operation="ADD")
+    b.L(t_lo.outputs["Value"], t_mid.inputs[0]); b.L(t_hi.outputs["Value"], t_mid.inputs[1])
+    t_a = b.N("ShaderNodeMath", (4350, -3850), operation="MULTIPLY")
+    b.L(t_mid.outputs["Value"], t_a.inputs[0]); t_a.inputs[1].default_value = 0.5
+    t_len = b.N("ShaderNodeMath", (4200, -3950), operation="SUBTRACT")
+    b.L(t_hi.outputs["Value"], t_len.inputs[0]); b.L(t_lo.outputs["Value"], t_len.inputs[1])
+    a_use = b.N("GeometryNodeSwitch", (4500, -3450))
+    a_use.input_type = "FLOAT"
+    b.L(trim_on, a_use.inputs["Switch"])
+    b.L(a_fin.outputs["Value"], a_use.inputs["False"])
+    b.L(t_a.outputs["Value"], a_use.inputs["True"])
+    # tile size from the Primary Props bounds (the variants share one nominal size)
+    t_ci = b.N("GeometryNodeCollectionInfo", (3450, -4100))
+    b.L(gi.outputs["Primary Props"], t_ci.inputs["Collection"])
+    t_ci.inputs["Separate Children"].default_value = True
+    t_ci.inputs["Reset Children"].default_value = True
+    t_real = b.N("GeometryNodeRealizeInstances", (3600, -4100))
+    b.L(t_ci.outputs["Instances"], t_real.inputs["Geometry"])
+    t_bb = b.N("GeometryNodeBoundBox", (3750, -4100))
+    b.L(t_real.outputs["Geometry"], t_bb.inputs["Geometry"])
+    t_ext = b.N("ShaderNodeVectorMath", (3900, -4100), operation="SUBTRACT")
+    b.L(t_bb.outputs["Max"], t_ext.inputs[0]); b.L(t_bb.outputs["Min"], t_ext.inputs[1])
+    t_exs = b.N("ShaderNodeSeparateXYZ", (4050, -4100))
+    b.L(t_ext.outputs["Vector"], t_exs.inputs["Vector"])
+    t_lx = b.N("ShaderNodeMath", (4200, -4050), operation="MAXIMUM")
+    b.L(t_exs.outputs["X"], t_lx.inputs[0]); t_lx.inputs[1].default_value = 0.001
+    t_lz = b.N("ShaderNodeMath", (4200, -4150), operation="MAXIMUM")
+    b.L(t_exs.outputs["Z"], t_lz.inputs[0]); t_lz.inputs[1].default_value = 0.001
+    # world tile scale: X = cut length / tile length, Z = row spacing / tile width
+    t_xw = b.N("ShaderNodeMath", (4350, -3950), operation="MULTIPLY")
+    b.L(t_len.outputs["Value"], t_xw.inputs[0]); b.L(eu_pts, t_xw.inputs[1])
+    t_xs = b.N("ShaderNodeMath", (4500, -3950), operation="DIVIDE")
+    b.L(t_xw.outputs["Value"], t_xs.inputs[0]); b.L(t_lx.outputs["Value"], t_xs.inputs[1])
+    t_zw = b.N("ShaderNodeMath", (4350, -4150), operation="MULTIPLY")
+    b.L(sp_h.outputs["Value"], t_zw.inputs[0]); b.L(ev_pts, t_zw.inputs[1])
+    t_zs = b.N("ShaderNodeMath", (4500, -4150), operation="DIVIDE")
+    b.L(t_zw.outputs["Value"], t_zs.inputs[0]); b.L(t_lz.outputs["Value"], t_zs.inputs[1])
+    st_tx = b.N("GeometryNodeStoreNamedAttribute", (3450, -2200), data_type="FLOAT", domain="POINT")
+    b.L(real.outputs["Geometry"], st_tx.inputs["Geometry"])
+    st_tx.inputs["Name"].default_value = "vm_tx"
+    b.L(t_xs.outputs["Value"], st_tx.inputs["Value"])
+    st_tz = b.N("GeometryNodeStoreNamedAttribute", (3600, -2200), data_type="FLOAT", domain="POINT")
+    b.L(st_tx.outputs["Geometry"], st_tz.inputs["Geometry"])
+    st_tz.inputs["Name"].default_value = "vm_tz"
+    b.L(t_zs.outputs["Value"], st_tz.inputs["Value"])
     u_fin = b.N("ShaderNodeVectorMath", (3950, -3450), operation="SCALE")
     b.L(u_v, u_fin.inputs[0])
-    b.L(a_fin.outputs["Value"], u_fin.inputs["Scale"])
+    b.L(a_use.outputs["Output"], u_fin.inputs["Scale"])
     v_fin = b.N("ShaderNodeVectorMath", (3950, -3520), operation="SCALE")
     b.L(v_v, v_fin.inputs[0])
     b.L(b_fin.outputs["Value"], v_fin.inputs["Scale"])
@@ -2527,7 +2632,7 @@ def build_node_group():
     b.L(c_v, p_sum3.inputs[0])
     b.L(p_sum1.outputs["Vector"], p_sum3.inputs[1])
     setpos_c = b.N("GeometryNodeSetPosition", (3750, -2200))
-    b.L(real.outputs["Geometry"], setpos_c.inputs["Geometry"])
+    b.L(st_tz.outputs["Geometry"], setpos_c.inputs["Geometry"])
     b.L(p_sum3.outputs["Vector"], setpos_c.inputs["Position"])
     # ---- v2.8 CONTAINMENT (the user's phantom-wall-slab bug): a cladding slot
     # is kept ONLY if its anchor lies inside a real face polygon of the host
@@ -3192,10 +3297,21 @@ def build_node_group():
     sxs = b.N("ShaderNodeMath", (1800, -120), operation="MULTIPLY")
     b.L(rv_scale.outputs["Value"], sxs.inputs[0])
     b.L(sx_c.outputs["Value"], sxs.inputs[1])
+    # v2.10 Trim To Face: length/width come from the stored cell size
+    def trim_axis(name, normal_sock, loc):
+        rd = b.N("GeometryNodeInputNamedAttribute", (loc[0] - 150, loc[1]))
+        rd.data_type = "FLOAT"
+        rd.inputs["Name"].default_value = name
+        sw = b.N("GeometryNodeSwitch", loc)
+        sw.input_type = "FLOAT"
+        b.L(trim_on, sw.inputs["Switch"])
+        b.L(normal_sock, sw.inputs["False"])
+        b.L(rd.outputs["Attribute"], sw.inputs["True"])
+        return sw.outputs["Output"]
     scale_c = b.N("ShaderNodeCombineXYZ", (1650, 60))
-    b.L(sxs.outputs["Value"], scale_c.inputs["X"])
+    b.L(trim_axis("vm_tx", sxs.outputs["Value"], (1500, -250)), scale_c.inputs["X"])
     b.L(rv_scale.outputs["Value"], scale_c.inputs["Y"])
-    b.L(sz.outputs["Value"], scale_c.inputs["Z"])
+    b.L(trim_axis("vm_tz", sz.outputs["Value"], (1500, -350)), scale_c.inputs["Z"])
     scale_sw1 = b.N("GeometryNodeSwitch", (1900, 150))
     scale_sw1.input_type = "VECTOR"
     b.L(is_fit, scale_sw1.inputs["Switch"])
@@ -3364,6 +3480,12 @@ def build_node_group():
            "pyramid, on a round top = cone; 'Gable' for ridge roofs). Old stack? See "
            "USAGE.txt 'Which version am I running?'.",
            desc="One-line usage reminder")
+    # v2.10: created after every older socket so their identifiers never shift
+    b.sock("Trim To Face", "NodeSocketBool", p_pl, False,
+           desc="Cladding (v2.10): size every tile to exactly its cell (length = slot spacing, "
+                "width = row spacing) and CUT tiles at the face edges - for floorboards. Off = "
+                "wall behaviour (tiles keep their size and overlap past corners)")
+    b.L(gi.outputs["Trim To Face"], trim_in.inputs[0])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -8188,6 +8310,11 @@ def main():
     sys.modules["VM_Tools_Addon"] = vmt
     _spec.loader.exec_module(vmt)
     vmt.register()
+    # part 1 tests THIS build's in-code stack (vmt.dress_stack), so the add-on
+    # must not fall back to a previously delivered library (its presets are
+    # the LAST build's); the library path is restored for the v2.10 part
+    _lib_path = vmt.library_path
+    vmt.library_path = lambda context=None: ""
     bpy.ops.scene.new(type='NEW')
     ad_scene = bpy.context.scene
     ad_scene.render.engine = "CYCLES"
@@ -8222,10 +8349,9 @@ def main():
     a_names = [m.name for m in cube_a.modifiers]
     a_roof_style = sock_val(cube_a, "VM_RoofCap", "Style")
     a_door_fit = sock_val(cube_a, "VM_SceneDetailer_Door", "Opening Fit")
-    check("addon(dress): 'VM: Dress Object' applies the FULL default v2.7 stack in one click "
-          "(wall cladding + VM_RoofCap + roof cladding + doors + windows)",
-          a_names == ["VM_SceneDetailer_Planks", "VM_RoofCap", "VM_SceneDetailer_Shingles",
-                      "VM_SceneDetailer_Door", "VM_SceneDetailer_Windows"]
+    check("addon(dress): 'VM: Dress Object' applies the FULL default stack in one click "
+          "(wall cladding + interior floor + VM_RoofCap + roof cladding + doors + windows)",
+          a_names == [n_ for n_, _, _ in vmt.dress_stack()]
           and a_roof_style == "Flat" and a_door_fit == "Scale To Face",
           f"modifiers={a_names}, RoofCap Style={a_roof_style}, Door Opening Fit={a_door_fit}")
 
@@ -8242,7 +8368,7 @@ def main():
     n_socks = vmt.count_sockets(snap_a)
     check("addon(copy/paste): cube B's VM stack == cube A's (same groups, identical socket "
           "values incl. collection pointers, counted)",
-          snap_a == snap_b and len(snap_a) == 5 and n_socks >= 100 and not mism_ab,
+          snap_a == snap_b and len(snap_a) == len(vmt.dress_stack()) and n_socks >= 100 and not mism_ab,
           f"{len(snap_a)} modifiers, {n_socks} sockets compared per object, "
           f"modifier-index mismatches={mism_ab}, collection pointers "
           f"{[v for s in snap_b for k, v in s['values'].items() if v[1][0] == 'id' and v[1][2]][:8]}")
@@ -8258,7 +8384,7 @@ def main():
     preset_snap = preset_meta.get("modifiers", [])
     check("addon(preset): 'VM: Save Preset' stores the full stack config + collection NAMES "
           "to ~/.config/vm_engine/presets/<name>.json",
-          preset_ok and len(preset_snap) == 5 and vmt.count_sockets(preset_snap) == n_socks,
+          preset_ok and len(preset_snap) == len(vmt.dress_stack()) and vmt.count_sockets(preset_snap) == n_socks,
           f"{preset_path}: exists={preset_ok}, {len(preset_snap)} modifiers, "
           f"{vmt.count_sockets(preset_snap)} sockets")
 
@@ -8341,7 +8467,7 @@ def main():
               != (preset_snap[k] if k < len(preset_snap) else None)]
     check("addon(preset CROSS-FILE): Load Preset in a FRESH file with same-named collections/"
           "materials rebuilds the identical stack (counted, 0 mismatches)",
-          snap_c == preset_snap and len(snap_c) == 5 and not mism_c,
+          snap_c == preset_snap and len(snap_c) == len(vmt.dress_stack()) and not mism_c,
           f"{len(snap_c)} modifiers, {vmt.count_sockets(snap_c)} sockets, "
           f"modifier-index mismatches={mism_c}")
     results["addon_preset_crossfile"] = dict(n_modifiers=len(snap_c),
@@ -8425,7 +8551,7 @@ def main():
           and len(lib_meta.get("presets", {})) >= 3
           and all(c in lib_cols for c in lib_need) and not lib_stray
           and all(bpy.data.materials.get(m) for d in vmt.AUTO_MATERIALS.values() for m in d.values())
-          and all(len(pr["modifiers"]) == 5 for pr in lib_meta.get("presets", {}).values()),
+          and all(len(pr["modifiers"]) == len(vmt.dress_stack()) for pr in lib_meta.get("presets", {}).values()),
           f"engine_version={lib_meta.get('engine_version')}, presets="
           f"{sorted(lib_meta.get('presets', {}))}, pack collections={lib_need}, "
           f"objects outside AssetLibrary={lib_stray}, file collections={len(lib_cols)}")
@@ -8440,6 +8566,7 @@ def main():
     log("\n== v2.10 add-on: import engine + clean presets in a FRESH file ==")
     bpy.ops.wm.read_factory_settings()
     vmt.register()
+    vmt.library_path = _lib_path
     vmt.LIBRARY_PATH_OVERRIDE = ASSETS_PATH
     for ob in list(bpy.data.objects):
         bpy.data.objects.remove(ob)
@@ -8487,7 +8614,7 @@ def main():
     check("addon(fresh file): ONE 'Apply Preset' click (Base - Flat roof) imports the engine + "
           "pack into an EMPTY file and builds the full stack with every pack collection "
           "assigned - plank walls, ONE door, windows on the other walls, the pack stays hidden",
-          r_a == {'FINISHED'} and len(snap_fa) == 5 and fx_ver == ENGINE_VERSION
+          r_a == {'FINISHED'} and len(snap_fa) == len(vmt.dress_stack()) and fx_ver == ENGINE_VERSION
           and inst_fa.get("VM_SceneDetailer_Planks", 0) > 0 and inst_fa.get("VM_SceneDetailer_Door") == 1
           and inst_fa.get("VM_SceneDetailer_Windows", 0) >= 2
           and all(cols_fa.get(n) for n in ("VM_SceneDetailer_Planks", "VM_SceneDetailer_Shingles",
@@ -8590,6 +8717,36 @@ def main():
           all(r["ground"] >= 2 and r["upper"] >= 2 for r in st_rows.values()),
           f"windows per storey: {{{', '.join(f'{k}: {dict(v)}' for k, v in st_rows.items())}}}")
     results["upper_storeys"] = {k: dict(v) for k, v in st_rows.items()}
+
+    # ---- v2.10: INTERIOR FLOOR (the user's "grass inside the house" report)
+    fl_ob = st_cases["one 6 m wall face"]          # 5 x 4 footprint at (24..29, 12..16)
+    plank_names = {o.name for o in bpy.data.collections["VM_Tiles_Plank"].all_objects}
+    fl_boards, fl_rows = [], Counter()
+    for inst in dg_st.object_instances:
+        if inst.is_instance and inst.parent is not None and inst.parent.original == fl_ob \
+                and inst.object.name in plank_names:
+            m_ = inst.matrix_world
+            if m_.col[1].to_3d().normalized().z > 0.9:     # lies flat, face up
+                t_ = m_.translation
+                bbx_ = [c_[0] for c_ in inst.object.bound_box]     # local, unscaled
+                ln_ = m_.col[0].to_3d().length * (max(bbx_) - min(bbx_))
+                fl_boards.append((t_.x - ln_ / 2, t_.x + ln_ / 2, t_.y, t_.z))
+                fl_rows[round(t_.y, 3)] += ln_
+    fl_ev = fl_ob.evaluated_get(dg_st)
+    fl_mats = sorted({fl_ev.data.materials[p_.material_index].name for p_ in fl_ev.data.polygons
+                      if p_.normal.z < -0.9 and fl_ev.data.materials
+                      and fl_ev.data.materials[p_.material_index]})
+    fl_inside = all(24.0 - 1e-3 <= x0 and x1 <= 29.0 + 1e-3 and 12.0 <= y_ <= 16.0
+                    and abs(z_) < 0.03 for x0, x1, y_, z_ in fl_boards)
+    fl_full = bool(fl_rows) and all(abs(v - 5.0) < 0.02 for v in fl_rows.values())
+    check("v2.10(floor): Dress Object lays floorboards on the building's bottom from the "
+          "inside - flat, face up, every row exactly spans the 5 m floor (edge boards cut, "
+          "nothing past the walls) and the bottom face is wood, not grass",
+          len(fl_boards) > 0 and fl_inside and fl_full and len(fl_rows) == 25
+          and fl_mats and "VM_FloorGrass" not in fl_mats,
+          f"{len(fl_boards)} boards in {len(fl_rows)} rows, inside footprint={fl_inside}, "
+          f"row lengths={sorted({round(v, 3) for v in fl_rows.values()})}, bottom material={fl_mats}")
+    results["floor"] = dict(boards=len(fl_boards), rows=len(fl_rows), bottom_materials=fl_mats)
 
     results["addon_library"] = dict(fresh_instances=inst_fa, update_instances=inst_after,
                                     datablocks=n_data)
