@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.13) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.14) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.13) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.14) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,28 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (252 checks: the original 197 kept
-    green + 55 v2.7-v2.13 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (253 checks: the original 197 kept
+    green + 56 v2.7-v2.14 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.14 (2026-10-31) - DAMAGED AROUND EVERY HOLE, MORE VARIETY
+-------------------------------------------------------------------------------
+* No clean flat board end at a hole any more. A board end is 'covered' when
+  it meets another intact / worn board's end, the wall outline, or the end a
+  broken / hanging board kept. A board with one uncovered end breaks there -
+  the jagged end faces the hole and it keeps 70-95 % of its length. A board
+  with both ends uncovered (alone between two gaps) falls out.
+* Boards whose top edge is bared by a hole above, and shakes next to a hole,
+  turn worn (split / chipped / bitten).
+* Hanging (loose) boards and curled shakes use the worn pieces - their free
+  end is split, not cut square.
+* More variety: 8 broken boards (shallow snaps to deep ragged breaks, no /
+  short / long splinter, some with a bite out of the top edge), 10 worn
+  boards (end splits, chipped or broken-off corners, ragged top edges, a
+  second split at the other end), 6 broken shakes, 8 worn shakes.
+* Still to do: real window / door openings and holes into an INTERIOR
+  (next), glass, VINES.
 
 v2.13 (2026-10-31) - REAL DAMAGED GEOMETRY, NOTHING FLOATING
 -------------------------------------------------------------------------------
@@ -1016,8 +1034,11 @@ in-memory:
   * v2.13(broken geometry): broken boards / shakes are jagged pieces from the
     Broken collections and worn tiles appear around the damage;
   * v2.13(no floating): every broken board's nailed end meets an intact
-    board's end or the wall outline.
-Total for this release: 252 checks, 252 passed (verification_v2.json).
+    board's end or the wall outline;
+  * v2.14(hole edges): no intact board shows a clean flat end at a hole -
+    every end meets another board, a broken board's nailed end or the
+    outline.
+Total for this release: 253 checks, 253 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

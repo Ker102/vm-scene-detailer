@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.13"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.14"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -727,8 +727,16 @@ def make_broken_siding(col, name, n, mat, width=0.2, butt=0.022, top=0.006, seed
     def front(x, z):
         return -0.006 + butt + (top - butt) * (z + h) / width
     for i in range(n):
-        jag = _jag(rng, h, -h, rng.randint(4, 6), 0.07, spike=rng.uniform(0.08, 0.22))
-        ol = [(0.0, -h), (0.0, h)] + [(1.0 + off, t) for off, t in jag]
+        # v2.14 variety: shallow snaps to deep ragged breaks, no / short / long
+        # splinter, and sometimes a bite out of the top edge by the break
+        depth = rng.uniform(0.03, 0.13)
+        spike = rng.choice([0.0, rng.uniform(0.06, 0.14), rng.uniform(0.15, 0.3)])
+        jag = _jag(rng, h, -h, rng.randint(3, 8), depth, spike=spike)
+        top_e = []
+        if rng.random() < 0.4:
+            a0, bw, d = rng.uniform(0.35, 0.6), rng.uniform(0.1, 0.25), rng.uniform(0.02, 0.06)
+            top_e = [(a0, h), (a0 + bw * 0.3, h - d), (a0 + bw * 0.7, h - d * 0.6), (a0 + bw, h)]
+        ol = [(0.0, -h), (0.0, h)] + top_e + [(1.0 + off, t) for off, t in jag]
         for side, o in (("L", ol), ("R", _mirror_x(ol))):
             nm = f"{name}_{i + 1:02d}_{side}"
             me = _outline_tile(nm, o, front, -0.006, "X", -h, width)
@@ -747,8 +755,8 @@ def make_broken_shakes(col, name, n, mat, width=0.2, butt=0.016, tip=0.004, seed
     def front(x, z):
         return -0.004 + tip + (butt - tip) * (-z)
     for i in range(n):
-        jag = _jag(rng, w, -w, rng.randint(3, 5), 0.16, spike=rng.uniform(0.1, 0.3),
-                   spike_w=(0.015, 0.03))
+        jag = _jag(rng, w, -w, rng.randint(3, 6), rng.uniform(0.08, 0.22),
+                   spike=rng.choice([0.0, rng.uniform(0.1, 0.3)]), spike_w=(0.015, 0.03))
         ol = [(-w, 0.0), (w, 0.0)] + [(t, -1.0 - off) for off, t in jag]
         ol = list(reversed(ol))
         for side, o in (("L", ol), ("R", _mirror_x(ol))):
@@ -770,6 +778,9 @@ def make_worn_siding(col, name, n, mat, length=2.0, width=0.2, butt=0.022, top=0
         return -0.006 + butt + (top - butt) * (z + h) / width
     for i in range(n):
         right = [(L, -h)]
+        if rng.random() < 0.3:                                # broken-off bottom corner
+            c1, c2 = rng.uniform(0.02, 0.05), rng.uniform(0.03, 0.08)
+            right = [(L - c2, -h), (L - c2 * 0.5, -h + c1 * 0.6), (L, -h + c1)]
         if rng.random() < 0.75:                               # end split
             z0, g, sl = rng.uniform(-0.02, 0.03), rng.uniform(0.003, 0.007), rng.uniform(0.3, 1.0)
             right += [(L, z0 - g / 2), (L - sl, z0), (L, z0 + g / 2)]
@@ -778,9 +789,12 @@ def make_worn_siding(col, name, n, mat, length=2.0, width=0.2, butt=0.022, top=0
         if rng.random() < 0.5:                                # bite out of the top edge
             a0, bw, d = rng.uniform(-0.6, 0.4), rng.uniform(0.15, 0.4), rng.uniform(0.02, 0.06)
             top_e = [(a0 + bw, h), (a0 + bw * 0.6, h - d), (a0 + bw * 0.25, h - d * 0.7), (a0, h)]
+        if rng.random() < 0.6:                                # top edge, worn ragged
+            a1 = rng.uniform(-0.8, -0.75)
+            top_e += [(a1 + 0.12, h), (a1 + 0.07, h - rng.uniform(0.01, 0.03)), (a1, h)]
         left = []
         if rng.random() < 0.6:                                # chipped corner
-            c1, c2 = rng.uniform(0.04, 0.09), rng.uniform(0.06, 0.2)
+            c1, c2 = rng.uniform(0.03, 0.06), rng.uniform(0.06, 0.15)
             left = [(-L + c2, h), (-L + c2 * 0.45, h - c1 * 0.5), (-L, h - c1)]
         else:
             left = [(-L, h)]
@@ -788,6 +802,9 @@ def make_worn_siding(col, name, n, mat, length=2.0, width=0.2, butt=0.022, top=0
         if rng.random() < 0.4:                                # bite out of the bottom edge
             a0, bw, d = rng.uniform(-0.4, 0.6), rng.uniform(0.1, 0.3), rng.uniform(0.02, 0.04)
             bot = [(a0, -h), (a0 + bw * 0.35, -h + d), (a0 + bw * 0.7, -h + d * 0.6), (a0 + bw, -h)]
+        if rng.random() < 0.4:                                # second split, other end
+            z1, g, sl = rng.uniform(-0.02, 0.03), rng.uniform(0.003, 0.006), rng.uniform(0.2, 0.8)
+            left += [(-L, z1 + g / 2), (-L + sl, z1), (-L, z1 - g / 2)]
         ol = [(-L, -h)] + bot + right + top_e + left
         nm = f"{name}_{i + 1:02d}"
         me = _outline_tile(nm, ol, front, -0.006, "X", -h, width)
@@ -4295,39 +4312,113 @@ def build_node_group():
         n_ = b.N("FunctionNodeBooleanMath", random_loc(), operation="NOT")
         b.L(a_, n_.inputs[0])
         return n_.outputs["Boolean"]
-    # pass 2: SUPPORT. A broken / hanging board keeps the end that touches an
-    # intact (or worn) board's end or an outline-cut end; with no supported end
-    # it falls off (missing). Shakes hang under the course above: no rule.
-    sup_parts = []
-    for sel_, attr_ in ((bor(is_c(cat0, 0), is_c(cat0, 4)), "vm_elo"),
-                        (bor(is_c(cat0, 0), is_c(cat0, 4)), "vm_ehi"),
-                        (None, "vm_pe_lo"), (None, "vm_pe_hi")):
-        i2p = b.N("GeometryNodeInstancesToPoints", random_loc())
-        b.L(d_chain, i2p.inputs["Instances"])
-        if sel_ is not None:
-            b.L(sel_, i2p.inputs["Selection"])
-        sp_ = b.N("GeometryNodeSetPosition", random_loc())
-        b.L(i2p.outputs["Points"], sp_.inputs["Geometry"])
-        b.L(dnamed(attr_, "FLOAT_VECTOR"), sp_.inputs["Position"])
-        sup_parts.append(sp_.outputs["Geometry"])
-    sup_cloud = b.N("GeometryNodeJoinGeometry", random_loc())
-    for g_ in sup_parts:
-        b.L(g_, sup_cloud.inputs["Geometry"])
+    # pass 2: SUPPORT + HOLE EDGES. Tiles on one face share their X direction, so
+    # a tile's min-X end meets its row neighbour's max-X end: each end is tested
+    # against the OPPOSITE ends of the other tiles (never its own).
+    # - a broken / hanging board keeps an end that meets an intact or worn
+    #   board's end or an outline-cut end; with none it falls off (missing);
+    # - v2.14 an intact / worn board end is COVERED when it meets an intact /
+    #   worn board's end, the outline, or the end a broken / hanging board
+    #   kept. One end uncovered: the board breaks there (the jagged end faces
+    #   the hole, it keeps the covered end). Both uncovered: it falls out;
+    # - v2.14 an intact board whose top edge is bared by a hole above, and a
+    #   shake next to a hole, wears (split / chipped / bitten).
+    # Shakes hang under the course above: no support rule.
+    def end_cloud(sel_, attr_, extra=()):
+        parts = []
+        for sel_k, attr_k in ((sel_, attr_),) + tuple(extra):
+            i2p = b.N("GeometryNodeInstancesToPoints", random_loc())
+            b.L(d_chain, i2p.inputs["Instances"])
+            if sel_k is not None:
+                b.L(sel_k, i2p.inputs["Selection"])
+            sp_ = b.N("GeometryNodeSetPosition", random_loc())
+            b.L(i2p.outputs["Points"], sp_.inputs["Geometry"])
+            b.L(dnamed(attr_k, "FLOAT_VECTOR"), sp_.inputs["Position"])
+            parts.append(sp_.outputs["Geometry"])
+        j_ = b.N("GeometryNodeJoinGeometry", random_loc())
+        for g_ in parts:
+            b.L(g_, j_.inputs["Geometry"])
+        return j_.outputs["Geometry"]
 
-    def supported(attr_):
+    def near(cloud, pos_, dist_):
         px_ = b.N("GeometryNodeProximity", random_loc())
         px_.target_element = "POINTS"
-        b.L(sup_cloud.outputs["Geometry"], px_.inputs["Geometry"])
-        b.L(dnamed(attr_, "FLOAT_VECTOR"), px_.inputs["Sample Position"])
-        return tcmp("LESS_THAN", px_.outputs["Distance"], em("DIVIDE", 0.04, geo_f))
-    sup_lo, sup_hi = supported("vm_elo"), supported("vm_ehi")
+        b.L(cloud, px_.inputs["Geometry"])
+        b.L(pos_, px_.inputs["Sample Position"])
+        return tcmp("LESS_THAN", px_.outputs["Distance"], em("DIVIDE", dist_, geo_f))
+    outline_ends = (None, "vm_pe_lo"), (None, "vm_pe_hi")
+    holds = bor(is_c(cat0, 0), is_c(cat0, 4))                 # intact or worn
+    sup_lo = near(end_cloud(holds, "vm_ehi", outline_ends), dnamed("vm_elo", "FLOAT_VECTOR"), 0.04)
+    sup_hi = near(end_cloud(holds, "vm_elo", outline_ends), dnamed("vm_ehi", "FLOAT_VECTOR"), 0.04)
     d_hang = tand(d_long, bor(is_c(cat0, 2), is_c(cat0, 3)))
-    # kept end: 1 = the max-X end, 0 = the min-X end
+    # kept end: 1 = the max-X end, 0 = the min-X end. A hanging board keeps a
+    # supported end (stored first: the cover test below needs its position)
     side_r = tsw(tcmp("LESS_THAN", dr_s.outputs["Y"], 0.5), 1.0, 0.0)
-    d_side = tsw(d_long, side_r, tsw(tand(sup_lo, sup_hi), tsw(sup_hi, 0.0, 1.0), side_r))
-    d_fall = tand(d_hang, bnot(bor(sup_lo, sup_hi)))
-    d_cat2 = tsw(d_fall, cat0, 1.0)
-    for nm_, val_ in (("vm_dcat", d_cat2), ("vm_dside", d_side)):
+    side_h = tsw(tand(sup_lo, sup_hi), tsw(sup_hi, 0.0, 1.0), side_r)
+    st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR",
+              domain="INSTANCE")
+    b.L(d_chain, st_.inputs["Geometry"])
+    st_.inputs["Name"].default_value = "vm_ekept"
+    b.L(vsw(tcmp("GREATER_THAN", side_h, 0.5), dnamed("vm_elo", "FLOAT_VECTOR"),
+            dnamed("vm_ehi", "FLOAT_VECTOR")), st_.inputs["Value"])
+    d_chain = st_.outputs["Geometry"]
+    kept_end = (d_hang, "vm_ekept"),
+    cov_lo = near(end_cloud(holds, "vm_ehi", outline_ends + kept_end), dnamed("vm_elo", "FLOAT_VECTOR"), 0.04)
+    cov_hi = near(end_cloud(holds, "vm_elo", outline_ends + kept_end), dnamed("vm_ehi", "FLOAT_VECTOR"), 0.04)
+
+    # points along the tiles of a category set (9 per tile, end to end) + a
+    # guard: Proximity to an EMPTY cloud reads distance 0, so an empty cloud
+    # must never count as 'near' (Damage off / no gaps -> no rule fires)
+    def span_cloud(sel_):
+        p_ = b.N("GeometryNodeInstancesToPoints", random_loc())
+        b.L(d_chain, p_.inputs["Instances"])
+        b.L(sel_, p_.inputs["Selection"])
+        d_ = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
+        b.L(p_.outputs["Points"], d_.inputs["Geometry"])
+        d_.inputs["Amount"].default_value = 9
+        t_ = b.N("ShaderNodeVectorMath", random_loc(), operation="SCALE")
+        b.L(vmath("SUBTRACT", dnamed("vm_ehi", "FLOAT_VECTOR"), dnamed("vm_elo", "FLOAT_VECTOR")),
+            t_.inputs[0])
+        b.L(em("DIVIDE", d_.outputs["Duplicate Index"], 8.0), t_.inputs["Scale"])
+        sp_ = b.N("GeometryNodeSetPosition", random_loc())
+        b.L(d_.outputs["Geometry"], sp_.inputs["Geometry"])
+        b.L(vmath("ADD", dnamed("vm_elo", "FLOAT_VECTOR"), t_.outputs["Vector"]), sp_.inputs["Position"])
+        ds_ = b.N("GeometryNodeAttributeDomainSize", random_loc())
+        ds_.component = "POINTCLOUD"
+        b.L(p_.outputs["Points"], ds_.inputs["Geometry"])
+        return sp_.outputs["Geometry"], tcmp("GREATER_THAN", ds_.outputs["Point Count"], 0.5)
+
+    def near_any(cloud_ok, pos_, dist_):
+        return tand(cloud_ok[1], near(cloud_ok[0], pos_, dist_))
+    # an end is OPEN when nothing covers it and a gap (missing / broken /
+    # hanging tile) starts right there - a plain end at the face edge is not
+    gap_c = span_cloud(bnot(holds))
+    open_lo = tand(bnot(cov_lo), near_any(gap_c, dnamed("vm_elo", "FLOAT_VECTOR"), 0.06))
+    open_hi = tand(bnot(cov_hi), near_any(gap_c, dnamed("vm_ehi", "FLOAT_VECTOR"), 0.06))
+    d_hold = tand(d_long, holds)
+    d_edge = tand(d_hold, bor(open_lo, open_hi))
+    d_lone = tand(d_edge, tand(open_lo, open_hi))
+    cov_hi = bnot(open_hi)                                    # the end an edge break keeps
+    # bared top / hole next door: points along every missing tile
+    miss_c = span_cloud(is_c(cat0, 1))
+
+    def top_pt(fx):
+        rv_ = b.N("FunctionNodeRotateVector", random_loc())
+        b.L(v3(em("MULTIPLY", em("MULTIPLY", bb_mx.outputs["X"], fx), i_scs.outputs["X"]), 0.0,
+               em("MULTIPLY", bb_mx.outputs["Z"], i_scs.outputs["Z"])), rv_.inputs["Vector"])
+        b.L(i_rot, rv_.inputs["Rotation"])
+        return vmath("ADD", d_pos.outputs["Position"], rv_.outputs["Vector"])
+    bared = bor(near_any(miss_c, top_pt(-0.6), 0.16),
+                bor(near_any(miss_c, top_pt(0.0), 0.16), near_any(miss_c, top_pt(0.6), 0.16)))
+    d_bare = tand(is_c(cat0, 0), tsw(d_long, near_any(miss_c, d_pos.outputs["Position"], 0.3), bared))
+    d_side = tsw(d_long, side_r, tsw(d_edge, side_h, tsw(cov_hi, 0.0, 1.0)))
+    d_fall = bor(tand(d_hang, bnot(bor(sup_lo, sup_hi))), d_lone)
+    d_cat2 = tsw(d_fall, tsw(d_edge, tsw(d_bare, cat0, 4.0), 2.0), 1.0)
+    # remaining length of a broken tile: a hole-edge break loses only its end
+    # (70-95 %), a broken tile in the damage anything from a stub to most of it
+    d_frac = tsw(d_edge, tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.7, 0.15),
+                 tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.25, 0.7))
+    for nm_, val_ in (("vm_dcat", d_cat2), ("vm_dside", d_side), ("vm_dfrac", d_frac)):
         st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
         b.L(d_chain, st_.inputs["Geometry"])
         st_.inputs["Name"].default_value = nm_
@@ -4353,12 +4444,14 @@ def build_node_group():
     has_br = tcmp("GREATER_THAN", br_n, 0.5)
     has_wo = tcmp("GREATER_THAN", wo_n, 0.5)
     sel_br = tand(is_c(cat, 2), has_br)
-    sel_wo = tand(is_c(cat, 4), has_wo)
+    # v2.14: a loose (hanging / curled) tile is a worn one too - no clean flat
+    # free end swinging over a hole
+    sel_wo = tand(bor(is_c(cat, 4), is_c(cat, 3)), has_wo)
     d_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="INSTANCE")
     b.L(d_chain, d_del.inputs["Geometry"])
     b.L(bor(is_c(cat, 1), bor(sel_br, sel_wo)), d_del.inputs["Selection"])
     # fallback broken: the tile itself cut short about its kept end
-    d_f = tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.4, 0.3)          # 30-70 % remains
+    d_f = dnamed("vm_dfrac", "FLOAT")                              # what remains
     d_sc = b.N("GeometryNodeScaleInstances", random_loc())
     b.L(d_del.outputs["Geometry"], d_sc.inputs["Instances"])
     b.L(tand(is_c(cat, 2), bnot(has_br)), d_sc.inputs["Selection"])
@@ -4377,13 +4470,15 @@ def build_node_group():
     d_tz = tsw(d_long, 0.0, em("MULTIPLY", d_sgn, 0.015))
     d_eul = b.N("FunctionNodeEulerToRotation", random_loc())
     b.L(v3(d_tx, d_ty, d_tz), d_eul.inputs["Euler"])
-    d_rot = b.N("GeometryNodeRotateInstances", random_loc())
-    b.L(d_sc.outputs["Instances"], d_rot.inputs["Instances"])
-    b.L(is_c(cat, 3), d_rot.inputs["Selection"])
-    b.L(d_eul.outputs["Rotation"], d_rot.inputs["Rotation"])
-    b.L(v3(tsw(d_long, 0.0, d_end), 0.0, bb_mx.outputs["Z"]), d_rot.inputs["Pivot Point"])
-    d_rot.inputs["Local Space"].default_value = True
-    b.L(d_rot.outputs["Instances"], join_all.inputs["Geometry"])
+    def loosen(inst_geo, sel_):
+        rot_ = b.N("GeometryNodeRotateInstances", random_loc())
+        b.L(inst_geo, rot_.inputs["Instances"])
+        b.L(sel_, rot_.inputs["Selection"])
+        b.L(d_eul.outputs["Rotation"], rot_.inputs["Rotation"])
+        b.L(v3(tsw(d_long, 0.0, d_end), 0.0, bb_mx.outputs["Z"]), rot_.inputs["Pivot Point"])
+        rot_.inputs["Local Space"].default_value = True
+        return rot_.outputs["Instances"]
+    b.L(loosen(d_sc.outputs["Instances"], is_c(cat, 3)), join_all.inputs["Geometry"])
 
     # broken pieces: placed at the kept end (board) / top edge (shake), the
     # remaining length scaled, same rotation and cross-section as the tile
@@ -4402,7 +4497,7 @@ def build_node_group():
         b.L(pick_, iop_.inputs["Instance Index"])
         b.L(dnamed("vm_irot", "QUATERNION"), iop_.inputs["Rotation"])
         b.L(scale_, iop_.inputs["Scale"])
-        b.L(iop_.outputs["Instances"], join_all.inputs["Geometry"])
+        return iop_.outputs["Instances"]
     p_pos = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
     p_scs = b.N("ShaderNodeSeparateXYZ", random_loc())
     b.L(dnamed("vm_iscl", "FLOAT_VECTOR"), p_scs.inputs["Vector"])
@@ -4413,14 +4508,18 @@ def build_node_group():
     br_pairs = em("MAXIMUM", em("FLOOR", em("DIVIDE", br_n, 2.0)), 1.0)
     br_k = em("MINIMUM", em("FLOOR", em("MULTIPLY", dr_s.outputs["Z"], br_pairs)), em("SUBTRACT", br_pairs, 1.0))
     br_bit = tsw(d_long, tsw(tcmp("LESS_THAN", dr_s.outputs["Y"], 0.5), 0.0, 1.0), side)
-    replace(sel_br, br_inst, br_n, tm("MULTIPLY_ADD", br_k, 2.0, br_bit),
-            vmath("ADD", p_pos, p_off.outputs["Vector"]),
-            vsw(d_long, v3(p_scs.outputs["X"], p_scs.outputs["Y"],
-                           em("MULTIPLY", em("MULTIPLY", d_f, t_exs.outputs["Z"]), p_scs.outputs["Z"])),
-                v3(em("MULTIPLY", em("MULTIPLY", d_f, t_exs.outputs["X"]), p_scs.outputs["X"]),
-                   p_scs.outputs["Y"], p_scs.outputs["Z"])))
+    b.L(replace(sel_br, br_inst, br_n, tm("MULTIPLY_ADD", br_k, 2.0, br_bit),
+                vmath("ADD", p_pos, p_off.outputs["Vector"]),
+                vsw(d_long, v3(p_scs.outputs["X"], p_scs.outputs["Y"],
+                               em("MULTIPLY", em("MULTIPLY", d_f, t_exs.outputs["Z"]), p_scs.outputs["Z"])),
+                    v3(em("MULTIPLY", em("MULTIPLY", d_f, t_exs.outputs["X"]), p_scs.outputs["X"]),
+                       p_scs.outputs["Y"], p_scs.outputs["Z"]))),
+        join_all.inputs["Geometry"])
     wo_k = em("MINIMUM", em("FLOOR", em("MULTIPLY", dr_s.outputs["Z"], wo_n)), em("SUBTRACT", wo_n, 1.0))
-    replace(sel_wo, wo_inst, wo_n, wo_k, None, dnamed("vm_iscl", "FLOAT_VECTOR"))
+    # worn pieces carry vm_dcat / vm_dside / vm_drnd over, so loose ones hang
+    # exactly like the plain tile would
+    b.L(loosen(replace(sel_wo, wo_inst, wo_n, wo_k, None, dnamed("vm_iscl", "FLOAT_VECTOR")),
+               is_c(cat, 3)), join_all.inputs["Geometry"])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -9554,10 +9653,10 @@ def main():
     # v2.13: the Damage panel's broken pieces + worn tiles, next to the tiles
     tile_parent = next(c for c in bpy.data.collections
                        if bpy.data.collections["VM_Tiles_Plank"].name in c.children)
-    for cn, maker, mat_, n_ in (("VM_Tiles_PlankBroken", make_broken_siding, lib_mats["siding"], 4),
-                                ("VM_Tiles_PlankWorn", make_worn_siding, lib_mats["siding"], 6),
-                                ("VM_Tiles_ShingleBroken", make_broken_shakes, lib_mats["shake"], 4),
-                                ("VM_Tiles_ShingleWorn", make_worn_shakes, lib_mats["shake"], 6)):
+    for cn, maker, mat_, n_ in (("VM_Tiles_PlankBroken", make_broken_siding, lib_mats["siding"], 8),
+                                ("VM_Tiles_PlankWorn", make_worn_siding, lib_mats["siding"], 10),
+                                ("VM_Tiles_ShingleBroken", make_broken_shakes, lib_mats["shake"], 6),
+                                ("VM_Tiles_ShingleWorn", make_worn_shakes, lib_mats["shake"], 8)):
         col_ = bpy.data.collections.new(cn)
         tile_parent.children.link(col_)
         maker(col_, cn.replace("VM_Tiles_", ""), n_, mat_)
@@ -9936,7 +10035,11 @@ def main():
     dz_ob = storey_mesh("Cottage212", [(0, 0, 0, 6, 4.5, 3)], 55.0)
     rc_ = dz_ob.modifiers["VM_RoofCap"]
     set_params(rc_, rc_.node_group, {"Style": "Gable"})
-    clad_names = plank_names | shake_names
+    # v2.14: hanging / broken tiles are pieces from the Broken / Worn collections
+    clad_names = plank_names | shake_names | {
+        o_.name for cn_ in ("VM_Tiles_PlankBroken", "VM_Tiles_PlankWorn", "VM_Tiles_ShingleBroken",
+                            "VM_Tiles_ShingleWorn") if cn_ in bpy.data.collections
+        for o_ in bpy.data.collections[cn_].all_objects}
 
     def tile_keys():
         dz_ob.update_tag()
@@ -9955,27 +10058,31 @@ def main():
     dz_clean = tile_keys()
     dz_emp = vmt.add_damage_zone(dz_ob, Vector((61.0, 12.0, 1.6)), fx_scene.collection)
     dz_r = vmt.DAMAGE_ZONE_RADIUS
+    # v2.14: the boards at a hole's edge break too - a board whose neighbour
+    # (inside the radius) is gone can reach one board length (2.4 m) past it
+    dz_reach = dz_r + 2.45
 
     def zone_report(after, centre):
         gone = [dz_clean[k] for k in dz_clean if k not in after]       # missing / moved
         new = [after[k] for k in after if k not in dz_clean]           # broken / loose
-        far = [t_ for t_ in gone if (t_ - centre).length > dz_r + 0.01]
+        far = [t_ for t_ in gone if (t_ - centre).length > dz_reach]
         return gone, new, far
     dz_a = tile_keys()
     gone_a, new_a, far_a = zone_report(dz_a, dz_emp.location.copy())
     n_layers = len(vmt.damage_layers(dz_ob))
     check("v2.12(damage zone): 'Add Damage Zone' damages BOTH cladding layers around an Empty - "
-          "tiles go missing, break and hang loose there, and NOT ONE tile outside the radius changes",
+          "tiles go missing, break and hang loose there, and NOT ONE tile outside the radius changes "
+          "(+ the boards broken at the hole's edge, one board length)",
           n_layers == 2 and len(dz_a) < len(dz_clean) - 5 and len(new_a) > 5 and len(gone_a) > 15
           and not far_a,
           f"layers={n_layers}, tiles {len(dz_clean)} -> {len(dz_a)} ({len(dz_clean) - len(dz_a)} missing), "
-          f"{len(gone_a)} changed, {len(new_a)} broken/loose, changed beyond {dz_r} m={len(far_a)}")
+          f"{len(gone_a)} changed, {len(new_a)} broken/loose, changed beyond {dz_reach:.2f} m={len(far_a)}")
     dz_emp.location = Vector((55.0, 16.5, 2.0))
     dz_b = tile_keys()
     gone_b, new_b, far_b = zone_report(dz_b, dz_emp.location.copy())
     old_c = Vector((61.0, 12.0, 1.6))
     healed = all(k in dz_b for k in dz_clean if (dz_clean[k] - old_c).length <= dz_r
-                 and (dz_clean[k] - dz_emp.location).length > dz_r)
+                 and (dz_clean[k] - dz_emp.location).length > dz_reach)
     check("v2.12(movable): moving the Empty moves the damage - the tiles at the old spot are "
           "whole again (exactly as undamaged) and the new spot is damaged, still inside the radius",
           healed and len(gone_b) > 15 and not far_b,
@@ -10003,7 +10110,8 @@ def main():
                 "VM_Tiles_ShingleWorn"):
         for o_ in bpy.data.collections[cn_].all_objects:
             kinds[o_.name] = cn_
-    jagged = all(len(o_.data.vertices) > 14 for o_ in bpy.data.objects if o_.name in kinds
+    # v2.14 variety: a shallow 3-point snap is the plainest break (10 verts)
+    jagged = all(len(o_.data.vertices) >= 10 for o_ in bpy.data.objects if o_.name in kinds
                  and "Broken" in kinds[o_.name])
     n_kind = Counter()
     pieces, ends = [], []
@@ -10039,6 +10147,53 @@ def main():
           len(pieces) > 0 and not floating,
           f"{len(pieces)} broken boards, floating={[tuple(round(c_, 2) for c_ in q_) for q_ in floating[:6]]}")
     results["damage_v213"] = dict(kinds=dict(n_kind), broken_boards=len(pieces), floating=len(floating))
+
+    # ---- v2.14: no clean flat board end left at a hole (the user's report:
+    # 'some planks remain with flat edges around the holes') + more variety
+    def board_ends(dg_):
+        out_ = []                                    # (instance no., end, intact)
+        for k_, inst in enumerate(dg_.object_instances):
+            if not (inst.is_instance and inst.parent is not None and inst.parent.original == dz_ob):
+                continue
+            nm_ = inst.object.name
+            if nm_ in plank_names or kinds.get(nm_) == "VM_Tiles_PlankWorn":
+                m_ = inst.matrix_world.copy()
+                bx_ = [c_[0] for c_ in inst.object.bound_box]
+                for x_ in (min(bx_), max(bx_)):
+                    out_.append((k_, m_ @ Vector((x_, 0.0, 0.0)) - Vector((55.0, 12.0, 0.0)),
+                                 nm_ in plank_names))
+        return out_
+
+    def covered(q_, k_, ends_, extra_=()):
+        return (any((q_ - e_).length < 0.06 for j_, e_, _i in ends_ if j_ != k_)
+                or any((q_ - e_).length < 0.06 for e_ in extra_))
+    now_ends = board_ends(dg_d)
+    for m_ in vmt.damage_layers(dz_ob):
+        set_params(m_, m_.node_group, {"Damage": False})
+    dz_ob.update_tag()
+    dg_c = bpy.context.evaluated_depsgraph_get()
+    dg_c.update()
+    clean_ends = board_ends(dg_c)
+    for m_ in vmt.damage_layers(dz_ob):
+        set_params(m_, m_.node_group, {"Damage": True})
+    dz_ob.update_tag()
+    owned = [(k_, q_) for k_, q_, intact_ in now_ends if intact_]
+    # undamaged: the board's own end + a neighbour's end were there
+    flat = [q_ for k_, q_ in owned
+            if sum(1 for _j, e_, _i in clean_ends if (e_ - q_).length < 0.06) >= 2
+            and not covered(q_, k_, now_ends, pieces)]
+    outlines = {tuple(round(v_.co.x, 3) for v_ in o_.data.vertices)
+                for o_ in bpy.data.collections["VM_Tiles_PlankBroken"].all_objects}
+    check("v2.14(hole edges): no intact board shows a clean flat end at a hole - every board end "
+          "meets another board, a broken board's nailed end or the wall outline; boards at a hole "
+          "break there (jagged end facing the hole), hanging boards are worn (split ends)",
+          len(owned) > 0 and not flat and n_kind["VM_Tiles_PlankBroken"] >= 20,
+          f"{len(owned)} intact board ends, flat at a hole={len(flat)} "
+          f"{[tuple(round(c_, 2) for c_ in q_) for q_ in flat[:6]]}, "
+          f"broken boards={n_kind['VM_Tiles_PlankBroken']}, distinct broken outlines={len(outlines)}")
+    results["damage_v214"] = dict(intact_ends=len(owned), flat=len(flat),
+                                  broken_boards=n_kind["VM_Tiles_PlankBroken"],
+                                  broken_outlines=len(outlines))
 
     results["addon_library"] = dict(fresh_instances=inst_fa, update_instances=inst_after,
                                     datablocks=n_data)
