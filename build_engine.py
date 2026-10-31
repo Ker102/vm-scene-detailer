@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.10"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.11"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -476,6 +476,182 @@ def make_tile_variants(col, name, wx, hy, th, n, mat, bend, straddle=True):
         ob = bpy.data.objects.new(f"{name}_{i + 1:02d}", me)
         col.objects.link(ob)
         me.materials.append(mat)
+        out.append(ob)
+    return out
+
+
+def make_board_material(name, tdir, tex, n_boards, phase, tex_w, value_lo=0.75, value_hi=1.1,
+                        darken=1.0):
+    """v2.11 per-tile wood material for the 3D cladding tiles. The tile meshes
+    carry UVs with U = meters ALONG the grain and V = 0..1 ACROSS the tile; the
+    shader maps every instance onto ONE whole board of a plank texture
+    (n_boards evenly spaced boards starting at `phase`, measured from the
+    texture's normal map), picked by Object Info > Random, at a random offset
+    along the grain, with a per-tile brightness shift. So no two neighbouring
+    tiles show the same wood and no texture seam runs through a tile."""
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = nt.nodes["Principled BSDF"]
+
+    def node(t, loc, **kw):
+        n = nt.nodes.new(t)
+        n.location = loc
+        for k, v in kw.items():
+            setattr(n, k, v)
+        return n
+
+    def math(op, a, b=None, loc=(0, 0)):
+        n = node("ShaderNodeMath", loc, operation=op)
+        for i, x in enumerate((a, b)):
+            if x is None:
+                continue
+            if isinstance(x, (int, float)):
+                n.inputs[i].default_value = x
+            else:
+                nt.links.new(x, n.inputs[i])
+        return n.outputs["Value"]
+
+    uv = node("ShaderNodeUVMap", (-1500, 0))
+    sep = node("ShaderNodeSeparateXYZ", (-1300, 0))
+    nt.links.new(uv.outputs["UV"], sep.inputs["Vector"])
+    oi = node("ShaderNodeObjectInfo", (-1500, -300))
+    r = oi.outputs["Random"]
+    r_board = math("FRACT", math("MULTIPLY", r, 7.31, (-1300, -250)), None, (-1150, -250))
+    r_val = math("FRACT", math("MULTIPLY", r, 3.17, (-1300, -400)), None, (-1150, -400))
+    board = math("FLOOR", math("MULTIPLY", r_board, float(n_boards), (-1000, -250)), None, (-850, -250))
+    v_in = math("MULTIPLY_ADD", sep.outputs["Y"], 0.84, (-1100, -50))
+    v_in.node.inputs[2].default_value = 0.08
+    v_b = math("ADD", v_in, board, (-850, -50))
+    v_n = math("DIVIDE", v_b, float(n_boards), (-700, -50))
+    v_out = math("ADD", v_n, phase, (-550, -50))
+    u_n = math("DIVIDE", sep.outputs["X"], tex_w, (-1100, 100))
+    u_out = math("MULTIPLY_ADD", r, 13.7, (-850, 100))
+    u_out.node.inputs[2].default_value = 0.0
+    nt.links.new(u_n, u_out.node.inputs[2])
+    comb = node("ShaderNodeCombineXYZ", (-400, 50))
+    nt.links.new(u_out, comb.inputs["X"])
+    nt.links.new(v_out, comb.inputs["Y"])
+
+    def img(suffix, loc, data):
+        im = bpy.data.images.load(os.path.join(tdir, f"{tex}_{suffix}.jpg"), check_existing=True)
+        if data:
+            im.colorspace_settings.name = "Non-Color"
+        n = node("ShaderNodeTexImage", loc, image=im)
+        nt.links.new(comb.outputs["Vector"], n.inputs["Vector"])
+        return n
+
+    diff = img("diff", (-200, 300), False)
+    hsv = node("ShaderNodeHueSaturation", (100, 300))
+    val = math("MULTIPLY_ADD", r_val, value_hi - value_lo, (-100, 450))
+    val.node.inputs[2].default_value = value_lo
+    val_d = math("MULTIPLY", val, darken, (50, 450))
+    nt.links.new(val_d, hsv.inputs["Value"])
+    nt.links.new(diff.outputs["Color"], hsv.inputs["Color"])
+    nt.links.new(hsv.outputs["Color"], bsdf.inputs["Base Color"])
+    rough = img("rough", (-200, 0), True)
+    nt.links.new(rough.outputs["Color"], bsdf.inputs["Roughness"])
+    nor = img("nor", (-200, -300), True)
+    nmap = node("ShaderNodeNormalMap", (100, -300))
+    nt.links.new(nor.outputs["Color"], nmap.inputs["Color"])
+    nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+    return mat
+
+
+def _tile_mesh(name, size_x, size_z, thick_lo, thick_hi, back, bevel, cuts_x, cuts_z, shape, uv_grain):
+    """Closed wedge tile: X across/along the row, Z up the face, Y out of the
+    face. Back plane at y=`back`, front at thick_lo (bottom edge, z=-size_z/2)
+    tapering to thick_hi (top edge). `shape(v)` deforms each vertex last.
+    UVs: U = meters along the grain (X for planks, Z for shakes), V = 0..1
+    across it."""
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    for v in bm.verts:
+        x, y, z = v.co.x * size_x, v.co.y, v.co.z * size_z
+        t = (0.5 - z / size_z)                       # 1 at the bottom edge, 0 at the top
+        y = back if y < 0 else thick_hi + (thick_lo - thick_hi) * t
+        v.co = (x, y, z)
+    if bevel > 0:
+        bmesh.ops.bevel(bm, geom=bm.edges[:], offset=bevel, segments=1, affect="EDGES",
+                        clamp_overlap=True)
+    for k in range(1, cuts_x + 1):
+        x0 = -size_x / 2 + size_x * k / (cuts_x + 1)
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+                               plane_co=(x0, 0, 0), plane_no=(1, 0, 0))
+    for k in range(1, cuts_z + 1):
+        z0 = -size_z / 2 + size_z * k / (cuts_z + 1)
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+                               plane_co=(0, 0, z0), plane_no=(0, 0, 1))
+    uvl = bm.loops.layers.uv.new("UVMap")
+    for f in bm.faces:
+        for lp in f.loops:
+            x, z = lp.vert.co.x, lp.vert.co.z
+            if uv_grain == "X":
+                lp[uvl].uv = (x + size_x / 2, min(max(z / size_z + 0.5, 0.0), 1.0))
+            else:
+                lp[uvl].uv = (z + size_z / 2, min(max(x / size_x + 0.5, 0.0), 1.0))
+    for v in bm.verts:
+        shape(v)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = False
+    return me
+
+
+def make_siding_variants(col, name, n, mat, length=2.0, width=0.2, butt=0.022, top=0.006, seed=7):
+    """v2.11 lap-siding boards (the user's 'walls are not a flat surface'
+    reference): a wedge profile - thick bottom edge, thin top - so every course
+    laps over the one below and casts a real shadow line; chamfered edges catch
+    the light; each variant has its own slight bow and twist."""
+    import random
+    rng = random.Random(seed)
+    out = []
+    for i in range(n):
+        bow = rng.uniform(-0.004, 0.004)
+        twist = rng.uniform(-0.003, 0.003)
+        cup = rng.uniform(0.0, 0.002)
+
+        def shape(v, bow=bow, twist=twist, cup=cup):
+            s = v.co.x / (length / 2)                       # -1..1 along the board
+            v.co.z += bow * (1 - s * s)
+            v.co.y += twist * s * (v.co.z / (width / 2)) + cup * (1 - s * s) * (v.co.y > 0)
+
+        me = _tile_mesh(f"{name}_{i + 1:02d}", length, width, butt, top, -0.006, 0.0018,
+                        7, 1, shape, "X")
+        me.materials.append(mat)
+        ob = bpy.data.objects.new(f"{name}_{i + 1:02d}", me)
+        col.objects.link(ob)
+        out.append(ob)
+    return out
+
+
+def make_shake_variants(col, name, n, mat, length=0.42, butt=0.024, tip=0.004, seed=11):
+    """v2.11 split wooden shakes for the roof: tapered (thick butt at the bottom
+    edge), cupped across the width, random widths (gaps between shakes) and
+    some chipped butt corners."""
+    import random
+    rng = random.Random(seed)
+    out = []
+    for i in range(n):
+        w = rng.uniform(0.165, 0.235)
+        cup = rng.uniform(0.003, 0.008)
+        chip = rng.choice([0.0, 0.0, 0.03, 0.05]) * rng.choice([-1, 1])
+        lean = rng.uniform(-0.004, 0.004)
+
+        def shape(v, w=w, cup=cup, chip=chip, lean=lean):
+            sx = v.co.x / (w / 2)
+            v.co.y += cup * sx * sx * (0.5 - v.co.z / length)
+            v.co.x += lean * (0.5 - v.co.z / length)
+            if chip and v.co.z < -length / 2 + 0.001 and sx * (1 if chip > 0 else -1) > 0.55:
+                v.co.z += abs(chip) * (abs(sx) - 0.55) / 0.45
+
+        me = _tile_mesh(f"{name}_{i + 1:02d}", w, length, butt, tip, -0.004, 0.0015,
+                        3, 4, shape, "Z")
+        me.materials.append(mat)
+        ob = bpy.data.objects.new(f"{name}_{i + 1:02d}", me)
+        col.objects.link(ob)
         out.append(ob)
     return out
 
@@ -1186,12 +1362,23 @@ def build_node_group():
         loc=(-1050, 650))
 
     # ---------------- base materials by zone (gated Set Material) ----------------
-    base1 = material_gate(b, host_geo, gi.outputs["Wall Material"],
+    # v2.11: on the MESH component only - Set Material on the whole input reaches
+    # into earlier layers' instances and turns their object references into
+    # anonymous geometry (the floor layer's boards lost their identity under
+    # the wall layer once the floor moved to the bottom of the stack)
+    mat_sep = b.N("GeometryNodeSeparateComponents", (-950, 1300))
+    b.L(host_geo, mat_sep.inputs["Geometry"])
+    base1 = material_gate(b, mat_sep.outputs["Mesh"], gi.outputs["Wall Material"],
                           is_wall.outputs["Boolean"], (-800, 1100))
     base2 = material_gate(b, base1, gi.outputs["Roof Material"],
                           is_roof.outputs["Boolean"], (-500, 1100))
-    base_out = material_gate(b, base2, gi.outputs["Floor Material"],
-                             is_floor.outputs["Boolean"], (-200, 1100))
+    base3 = material_gate(b, base2, gi.outputs["Floor Material"],
+                          is_floor.outputs["Boolean"], (-200, 1100))
+    mat_join = b.N("GeometryNodeJoinGeometry", (0, 1300))
+    for out_name in ("Instances", "Curve", "Point Cloud"):
+        b.L(mat_sep.outputs[out_name], mat_join.inputs["Geometry"])
+    b.L(base3, mat_join.inputs["Geometry"])
+    base_out = mat_join.outputs["Geometry"]
 
     # sampling must only see the HOST MESH: in stacked modifiers the input also
     # carries earlier instances, and their faces must never receive new parts
@@ -1415,6 +1602,22 @@ def build_node_group():
     b.L(nr_c.outputs["Value"], nr_1.inputs[0])
     nr_1.inputs[1].default_value = 1.0
 
+    # v2.11 Trim To Face follows the face OUTLINE: each corner's (u, v)
+    # coordinate in the face frame (first 4 corners; Offset Corner wraps, so a
+    # triangle repeats one corner and its zero-length edge is ignored)
+    corner_ab = []
+    for k in range(4):
+        d_k = b.N("ShaderNodeVectorMath", (-1150, -4100 - 250 * k), operation="SUBTRACT")
+        b.L(corner_pos(k), d_k.inputs[0])
+        b.L(posf.outputs["Position"], d_k.inputs[1])
+        ab_k = []
+        for axis in (u_out, v_out):
+            dt = b.N("ShaderNodeVectorMath", (-1000, -4100 - 250 * k), operation="DOT_PRODUCT")
+            b.L(d_k.outputs["Vector"], dt.inputs[0])
+            b.L(axis, dt.inputs[1])
+            ab_k.append(dt.outputs["Value"])
+        corner_ab.append(ab_k)
+
     # store frame data on faces -> transfer to face points / read for selection
     store_chain = mesh_only
     stores = [("vm_normal", "FLOAT_VECTOR", nrm.outputs["Normal"]),
@@ -1439,6 +1642,8 @@ def build_node_group():
               ("vm_eu", "FLOAT", eff_u),
               ("vm_ev", "FLOAT", eff_v),
               ("vm_en", "FLOAT", eff_n)]
+    for k in range(4):
+        stores += [(f"vm_ca{k}", "FLOAT", corner_ab[k][0]), (f"vm_cb{k}", "FLOAT", corner_ab[k][1])]
     sx = -600
     for nm_, dt, src in stores:
         st = b.N("GeometryNodeStoreNamedAttribute", (sx, -2100), data_type=dt, domain="FACE")
@@ -2552,39 +2757,98 @@ def build_node_group():
     b_fin = b.N("ShaderNodeMath", (3750, -3520), operation="MAXIMUM")
     b.L(bj_2.outputs["Value"], b_fin.inputs[0])
     b.L(blo_m.outputs["Value"], b_fin.inputs[1])
-    # ---- v2.10 TRIM TO FACE (floorboards): every tile is sized to exactly its
-    # cell (length = slot spacing, width = row spacing - no overlap, so no
-    # z-fighting on a flat floor) and a tile crossing a face edge is CUT to it.
-    # Slot k of a row is centred at alo + (k + 0.5 - shift) * sp, then clipped
-    # to [alo, alo + w]; u jitter is dropped (it would open seams).
-    t_k = b.N("ShaderNodeMath", (3450, -3800), operation="ADD")
-    b.L(gi_v, t_k.inputs[0]); t_k.inputs[1].default_value = 0.5
-    t_ks = b.N("ShaderNodeMath", (3600, -3800), operation="SUBTRACT")
-    b.L(t_k.outputs["Value"], t_ks.inputs[0]); b.L(sh_m.outputs["Value"], t_ks.inputs[1])
-    t_c = b.N("ShaderNodeMath", (3750, -3800), operation="MULTIPLY_ADD")
-    b.L(t_ks.outputs["Value"], t_c.inputs[0]); b.L(sp_w.outputs["Value"], t_c.inputs[1])
-    b.L(alo_v, t_c.inputs[2])
-    t_half = b.N("ShaderNodeMath", (3750, -3900), operation="MULTIPLY")
-    b.L(sp_w.outputs["Value"], t_half.inputs[0]); t_half.inputs[1].default_value = 0.5
-    t_lo0 = b.N("ShaderNodeMath", (3900, -3800), operation="SUBTRACT")
-    b.L(t_c.outputs["Value"], t_lo0.inputs[0]); b.L(t_half.outputs["Value"], t_lo0.inputs[1])
-    t_lo = b.N("ShaderNodeMath", (4050, -3800), operation="MAXIMUM")
-    b.L(t_lo0.outputs["Value"], t_lo.inputs[0]); b.L(alo_v, t_lo.inputs[1])
-    t_hi0 = b.N("ShaderNodeMath", (3900, -3900), operation="ADD")
-    b.L(t_c.outputs["Value"], t_hi0.inputs[0]); b.L(t_half.outputs["Value"], t_hi0.inputs[1])
-    t_hi = b.N("ShaderNodeMath", (4050, -3900), operation="MINIMUM")
-    b.L(t_hi0.outputs["Value"], t_hi.inputs[0]); b.L(ahi_m.outputs["Value"], t_hi.inputs[1])
-    t_mid = b.N("ShaderNodeMath", (4200, -3850), operation="ADD")
-    b.L(t_lo.outputs["Value"], t_mid.inputs[0]); b.L(t_hi.outputs["Value"], t_mid.inputs[1])
-    t_a = b.N("ShaderNodeMath", (4350, -3850), operation="MULTIPLY")
-    b.L(t_mid.outputs["Value"], t_a.inputs[0]); t_a.inputs[1].default_value = 0.5
-    t_len = b.N("ShaderNodeMath", (4200, -3950), operation="SUBTRACT")
-    b.L(t_hi.outputs["Value"], t_len.inputs[0]); b.L(t_lo.outputs["Value"], t_len.inputs[1])
-    a_use = b.N("GeometryNodeSwitch", (4500, -3450))
-    a_use.input_type = "FLOAT"
-    b.L(trim_on, a_use.inputs["Switch"])
-    b.L(a_fin.outputs["Value"], a_use.inputs["False"])
-    b.L(t_a.outputs["Value"], a_use.inputs["True"])
+    # ---- TRIM TO FACE: every tile is sized to its cell and CUT to the face.
+    # v2.10 (floorboards): length = slot spacing; slot k of a row is centred at
+    # alo + (k + 0.5 - shift) * sp; u jitter is dropped (it would open seams).
+    # v2.11 (lap siding, shakes): height = row spacing / (1 - Row Overlap), so
+    # courses lap; the tile is clipped to the face's bottom and top (no shake
+    # rises past the ridge, the eave course ends flush) and its length to the
+    # face OUTLINE across its whole height (gable triangles: boards follow the
+    # rake; exact for convex faces - triangles and quads).
+    def tm(op, a, b_=None, c_=None):
+        n = b.N("ShaderNodeMath", random_loc(), operation=op)
+        for i_, x_ in enumerate((a, b_, c_)):
+            if x_ is None:
+                continue
+            if isinstance(x_, (int, float)):
+                n.inputs[i_].default_value = x_
+            else:
+                b.L(x_, n.inputs[i_])
+        return n.outputs["Value"]
+
+    def tcmp(op, a, b_):
+        n = b.N("FunctionNodeCompare", random_loc(), data_type="FLOAT", operation=op)
+        b.L(a, n.inputs["A"])
+        if isinstance(b_, (int, float)):
+            n.inputs["B"].default_value = b_
+        else:
+            b.L(b_, n.inputs["B"])
+        return n.outputs["Result"]
+
+    def tsw(cond, if_false, if_true):
+        n = b.N("GeometryNodeSwitch", random_loc())
+        n.input_type = "FLOAT"
+        b.L(cond, n.inputs["Switch"])
+        for key, x_ in (("False", if_false), ("True", if_true)):
+            if isinstance(x_, (int, float)):
+                n.inputs[key].default_value = x_
+            else:
+                b.L(x_, n.inputs[key])
+        return n.outputs["Output"]
+
+    def tand(a, b_):
+        n = b.N("FunctionNodeBooleanMath", random_loc(), operation="AND")
+        b.L(a, n.inputs[0]); b.L(b_, n.inputs[1])
+        return n.outputs["Boolean"]
+
+    ca = [named(f"vm_ca{k}") for k in range(4)]
+    cb = [named(f"vm_cb{k}") for k in range(4)]
+
+    def outline_span(b0):
+        """[lo, hi] of the face outline along u at height b0 (local units)."""
+        los, his = [], []
+        for k in range(4):
+            k2 = (k + 1) % 4
+            d_ = tm("SUBTRACT", cb[k2], cb[k])
+            straddle = tcmp("LESS_EQUAL", tm("MULTIPLY", tm("SUBTRACT", cb[k], b0),
+                                             tm("SUBTRACT", cb[k2], b0)), 0.0)
+            sloped = tcmp("GREATER_THAN", tm("ABSOLUTE", d_), 1e-6)
+            valid = tand(straddle, sloped)
+            f_ = tm("DIVIDE", tm("SUBTRACT", b0, cb[k]), tsw(sloped, 1.0, d_))
+            a_ = tm("MULTIPLY_ADD", f_, tm("SUBTRACT", ca[k2], ca[k]), ca[k])
+            los.append(tsw(valid, 1e6, a_))
+            his.append(tsw(valid, -1e6, a_))
+        while len(los) > 1:
+            los = [tm("MINIMUM", los[i], los[i + 1]) for i in range(0, len(los), 2)]
+            his = [tm("MAXIMUM", his[i], his[i + 1]) for i in range(0, len(his), 2)]
+        return los[0], his[0]
+
+    # height: the row centre +- half the lapped tile, clipped to the face
+    k_lap = tm("DIVIDE", 1.0, tm("MAXIMUM", tm("SUBTRACT", 1.0, gi.outputs["Row Overlap"]), 0.05))
+    t_hz = tm("MULTIPLY", tm("MULTIPLY", sp_h.outputs["Value"], 0.5), k_lap)
+    t_bot = tm("MAXIMUM", tm("SUBTRACT", bhalf.outputs["Value"], t_hz), tm("ADD", blo_v, 1e-4))
+    t_top = tm("MINIMUM", tm("ADD", bhalf.outputs["Value"], t_hz),
+               tm("SUBTRACT", tm("ADD", blo_v, h_v), 1e-4))
+    t_b = tm("MULTIPLY", tm("ADD", t_bot, t_top), 0.5)
+    t_hgt = tm("SUBTRACT", t_top, t_bot)
+    # length: the slot, clipped to the outline at the tile's bottom AND top
+    lo1, hi1 = outline_span(t_bot)
+    lo2, hi2 = outline_span(t_top)
+    t_c = tm("MULTIPLY_ADD", tm("SUBTRACT", tm("ADD", gi_v, 0.5), sh_m.outputs["Value"]),
+             sp_w.outputs["Value"], alo_v)
+    t_half = tm("MULTIPLY", sp_w.outputs["Value"], 0.5)
+    t_lo = tm("MAXIMUM", tm("SUBTRACT", t_c, t_half), tm("MAXIMUM", lo1, lo2))
+    t_hi = tm("MINIMUM", tm("ADD", t_c, t_half), tm("MINIMUM", hi1, hi2))
+    t_a = tm("MULTIPLY", tm("ADD", t_lo, t_hi), 0.5)
+    t_len = tm("SUBTRACT", t_hi, t_lo)
+    a_use = tsw(trim_on, a_fin.outputs["Value"], t_a)
+    b_use = tsw(trim_on, b_fin.outputs["Value"], t_b)
+    # slivers (< 2 cm long or < 1 cm high in WORLD meters) are dropped
+    ev_pts = named("vm_ev")
+    trim_ok = tand(tcmp("GREATER_THAN", tm("MULTIPLY", t_len, eu_pts), 0.02),
+                   tcmp("GREATER_THAN", tm("MULTIPLY", t_hgt, ev_pts), 0.01))
+    trim_keep = b.N("FunctionNodeBooleanMath", random_loc(), operation="IMPLY")
+    b.L(trim_on, trim_keep.inputs[0]); b.L(trim_ok, trim_keep.inputs[1])
     # tile size from the Primary Props bounds (the variants share one nominal size)
     t_ci = b.N("GeometryNodeCollectionInfo", (3450, -4100))
     b.L(gi.outputs["Primary Props"], t_ci.inputs["Collection"])
@@ -2598,33 +2862,25 @@ def build_node_group():
     b.L(t_bb.outputs["Max"], t_ext.inputs[0]); b.L(t_bb.outputs["Min"], t_ext.inputs[1])
     t_exs = b.N("ShaderNodeSeparateXYZ", (4050, -4100))
     b.L(t_ext.outputs["Vector"], t_exs.inputs["Vector"])
-    t_lx = b.N("ShaderNodeMath", (4200, -4050), operation="MAXIMUM")
-    b.L(t_exs.outputs["X"], t_lx.inputs[0]); t_lx.inputs[1].default_value = 0.001
-    t_lz = b.N("ShaderNodeMath", (4200, -4150), operation="MAXIMUM")
-    b.L(t_exs.outputs["Z"], t_lz.inputs[0]); t_lz.inputs[1].default_value = 0.001
-    # world tile scale: X = cut length / tile length, Z = row spacing / tile width
-    t_xw = b.N("ShaderNodeMath", (4350, -3950), operation="MULTIPLY")
-    b.L(t_len.outputs["Value"], t_xw.inputs[0]); b.L(eu_pts, t_xw.inputs[1])
-    t_xs = b.N("ShaderNodeMath", (4500, -3950), operation="DIVIDE")
-    b.L(t_xw.outputs["Value"], t_xs.inputs[0]); b.L(t_lx.outputs["Value"], t_xs.inputs[1])
-    t_zw = b.N("ShaderNodeMath", (4350, -4150), operation="MULTIPLY")
-    b.L(sp_h.outputs["Value"], t_zw.inputs[0]); b.L(ev_pts, t_zw.inputs[1])
-    t_zs = b.N("ShaderNodeMath", (4500, -4150), operation="DIVIDE")
-    b.L(t_zw.outputs["Value"], t_zs.inputs[0]); b.L(t_lz.outputs["Value"], t_zs.inputs[1])
+    t_lx = tm("MAXIMUM", t_exs.outputs["X"], 0.001)
+    t_lz = tm("MAXIMUM", t_exs.outputs["Z"], 0.001)
+    # world tile scale: X = cut length / tile length, Z = cut height / tile height
+    t_xs = tm("DIVIDE", tm("MULTIPLY", t_len, eu_pts), t_lx)
+    t_zs = tm("DIVIDE", tm("MULTIPLY", t_hgt, ev_pts), t_lz)
     st_tx = b.N("GeometryNodeStoreNamedAttribute", (3450, -2200), data_type="FLOAT", domain="POINT")
     b.L(real.outputs["Geometry"], st_tx.inputs["Geometry"])
     st_tx.inputs["Name"].default_value = "vm_tx"
-    b.L(t_xs.outputs["Value"], st_tx.inputs["Value"])
+    b.L(t_xs, st_tx.inputs["Value"])
     st_tz = b.N("GeometryNodeStoreNamedAttribute", (3600, -2200), data_type="FLOAT", domain="POINT")
     b.L(st_tx.outputs["Geometry"], st_tz.inputs["Geometry"])
     st_tz.inputs["Name"].default_value = "vm_tz"
-    b.L(t_zs.outputs["Value"], st_tz.inputs["Value"])
+    b.L(t_zs, st_tz.inputs["Value"])
     u_fin = b.N("ShaderNodeVectorMath", (3950, -3450), operation="SCALE")
     b.L(u_v, u_fin.inputs[0])
-    b.L(a_use.outputs["Output"], u_fin.inputs["Scale"])
+    b.L(a_use, u_fin.inputs["Scale"])
     v_fin = b.N("ShaderNodeVectorMath", (3950, -3520), operation="SCALE")
     b.L(v_v, v_fin.inputs[0])
-    b.L(b_fin.outputs["Value"], v_fin.inputs["Scale"])
+    b.L(b_use, v_fin.inputs["Scale"])
     p_sum1 = b.N("ShaderNodeVectorMath", (4100, -3485), operation="ADD")
     b.L(u_fin.outputs["Vector"], p_sum1.inputs[0])
     b.L(v_fin.outputs["Vector"], p_sum1.inputs[1])
@@ -2670,7 +2926,10 @@ def build_node_group():
     b.L(cd_rd.outputs["Attribute"], in_face.inputs["A"])
     in_face.inputs["B"].default_value = CLAD_EPS
     keep_c2 = b.N("FunctionNodeBooleanMath", (3850, -3100), operation="AND")
-    b.L(keep_ij.outputs["Boolean"], keep_c2.inputs[0])
+    keep_c1 = b.N("FunctionNodeBooleanMath", (3700, -3000), operation="AND")
+    b.L(keep_ij.outputs["Boolean"], keep_c1.inputs[0])
+    b.L(trim_keep.outputs["Boolean"], keep_c1.inputs[1])
+    b.L(keep_c1.outputs["Boolean"], keep_c2.inputs[0])
     if V28_FLAGS.get("contain", True):
         b.L(in_face.outputs["Result"], keep_c2.inputs[1])
     else:
@@ -3265,7 +3524,18 @@ def build_node_group():
     rot_sw2.input_type = "ROTATION"
     b.L(is_clad, rot_sw2.inputs["Switch"])
     b.L(rot_sw1.outputs["Output"], rot_sw2.inputs["False"])
-    b.L(align_y.outputs["Rotation"], rot_sw2.inputs["True"])
+    # v2.11: cladding tiles also turn about the normal so local Z points UP the
+    # face (up the wall / up the roof slope) on EVERY face - Align Y alone left
+    # Z pointing downhill on half the roof slopes, so a tapered tile (thick
+    # bottom edge: lap siding, shakes) lay upside down there. Flat faces (floor)
+    # have no 'up' in their plane and keep the Align Y result.
+    align_zu = b.N("FunctionNodeAlignRotationToVector", (1100, 900))
+    align_zu.axis = "Z"
+    align_zu.pivot_axis = "Y"
+    b.L(align_y.outputs["Rotation"], align_zu.inputs["Rotation"])
+    align_zu.inputs["Vector"].default_value = (0.0, 0.0, 1.0)
+    align_zu.inputs["Factor"].default_value = 1.0
+    b.L(align_zu.outputs["Rotation"], rot_sw2.inputs["True"])
     rot_out = rot_sw2.outputs["Output"]
 
     # ---------------- scales ----------------
@@ -3487,6 +3757,175 @@ def build_node_group():
                 "wall behaviour (tiles keep their size and overlap past corners)")
     b.L(gi.outputs["Trim To Face"], trim_in.inputs[0])
 
+    # ---- v2.11 EDGE BOARDS (corner boards / ridge caps): a board profile laid
+    # along every CONVEX edge whose two faces are both in this layer's Face Zone
+    # - the outside corners of the walls (corner boards that cover the siding
+    # ends) and the ridge + hip lines of the roof (ridge cap over the shakes).
+    # The profile is an L whose legs open to the edge's own angle (90 deg wall
+    # corner, 110 deg ridge at 35 deg pitch), set out from the faces by Edge
+    # Board Offset so it sits ON the cladding. Realized mesh with UVs along the
+    # edge (meters) -> the tile wood material works on it.
+    b.sock("Edge Boards", "NodeSocketBool", p_pl, False,
+           desc="Cladding (v2.11): boards along the zone's convex edges - corner boards on "
+                "wall corners, a ridge cap on roof ridges and hips")
+    b.sock("Edge Board Width", "NodeSocketFloat", p_pl, 0.1, 0.0, 2.0, "DISTANCE",
+           "Edge Boards: width of each leg (world meters)")
+    b.sock("Edge Board Thickness", "NodeSocketFloat", p_pl, 0.025, 0.0, 1.0, "DISTANCE",
+           "Edge Boards: board thickness (world meters)")
+    b.sock("Edge Board Offset", "NodeSocketFloat", p_pl, 0.024, -1.0, 1.0, "DISTANCE",
+           "Edge Boards: how far the boards stand off the faces - the cladding thickness")
+    b.sock("Edge Board Material", "NodeSocketMaterial", p_pl, None,
+           desc="Edge Boards: material (empty = none assigned)")
+
+    def em(op, a_, b_=None, loc=(5200, -6000)):
+        n_ = b.N("ShaderNodeMath", loc, operation=op)
+        for i_, x_ in enumerate((a_, b_)):
+            if x_ is None:
+                continue
+            if isinstance(x_, (int, float)):
+                n_.inputs[i_].default_value = x_
+            else:
+                b.L(x_, n_.inputs[i_])
+        return n_.outputs["Value"]
+
+    ew, et, eo = (gi.outputs["Edge Board Width"], gi.outputs["Edge Board Thickness"],
+                  gi.outputs["Edge Board Offset"])
+    # edge data materialized on the EDGE domain (store context), then one point
+    # per selected edge carries it (Mesh to Points / Edges)
+    st_ez = b.N("GeometryNodeStoreNamedAttribute", (4600, -5800), data_type="FLOAT", domain="FACE")
+    b.L(mesh_only, st_ez.inputs["Geometry"])
+    st_ez.inputs["Name"].default_value = "vm_ez"
+    b.L(zone_sel, st_ez.inputs["Value"])
+    ev_n = b.N("GeometryNodeInputMeshEdgeVertices", (4600, -6100))
+    e_ang = b.N("GeometryNodeInputMeshEdgeAngle", (4600, -6250))
+    e_nrm = b.N("GeometryNodeInputNormal", (4600, -6400))
+    e_chain = st_ez.outputs["Geometry"]
+    for k_, (nm_, dt_, src_) in enumerate((("vm_ep1", "FLOAT_VECTOR", ev_n.outputs["Position 1"]),
+                                            ("vm_ep2", "FLOAT_VECTOR", ev_n.outputs["Position 2"]),
+                                            ("vm_eang", "FLOAT", e_ang.outputs["Unsigned Angle"]),
+                                            ("vm_enrm", "FLOAT_VECTOR", e_nrm.outputs["Normal"]))):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", (4800 + 150 * k_, -5800), data_type=dt_,
+                  domain="EDGE")
+        b.L(e_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(src_, st_.inputs["Value"])
+        e_chain = st_.outputs["Geometry"]
+    ez_rd = b.N("GeometryNodeInputNamedAttribute", (4800, -6100))
+    ez_rd.data_type = "FLOAT"
+    ez_rd.inputs["Name"].default_value = "vm_ez"
+    e_nb = b.N("GeometryNodeInputMeshEdgeNeighbors", (4800, -6250))
+    e_both = b.N("FunctionNodeCompare", (4950, -6100), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(ez_rd.outputs["Attribute"], e_both.inputs["A"])
+    e_both.inputs["B"].default_value = 0.999
+    e_two = b.N("FunctionNodeCompare", (4950, -6250), data_type="INT", operation="EQUAL")
+    b.L(e_nb.outputs["Face Count"], e_two.inputs["A"])
+    e_two.inputs["B"].default_value = 2
+    e_cvx = b.N("FunctionNodeCompare", (4950, -6400), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(e_ang.outputs["Signed Angle"], e_cvx.inputs["A"])
+    e_cvx.inputs["B"].default_value = 0.17          # ~10 deg: real corners, not split coplanar faces
+    e_s1 = b.N("FunctionNodeBooleanMath", (5100, -6150), operation="AND")
+    b.L(e_both.outputs["Result"], e_s1.inputs[0]); b.L(e_two.outputs["Result"], e_s1.inputs[1])
+    e_s2 = b.N("FunctionNodeBooleanMath", (5250, -6200), operation="AND")
+    b.L(e_s1.outputs["Boolean"], e_s2.inputs[0]); b.L(e_cvx.outputs["Result"], e_s2.inputs[1])
+    e_on = b.N("FunctionNodeBooleanMath", (5250, -6000), operation="AND")
+    b.L(gi.outputs["Edge Boards"], e_on.inputs[0]); b.L(is_clad, e_on.inputs[1])
+    e_s3 = b.N("FunctionNodeBooleanMath", (5400, -6200), operation="AND")
+    b.L(e_s2.outputs["Boolean"], e_s3.inputs[0]); b.L(e_on.outputs["Boolean"], e_s3.inputs[1])
+    e_pts = b.N("GeometryNodeMeshToPoints", (5550, -5800))
+    e_pts.mode = "EDGES"
+    b.L(e_chain, e_pts.inputs["Mesh"])
+    b.L(e_s3.outputs["Boolean"], e_pts.inputs["Selection"])
+
+    def e_named(name, dt="FLOAT_VECTOR"):
+        n_ = b.N("GeometryNodeInputNamedAttribute", (5550, -6100))
+        n_.data_type = dt
+        n_.inputs["Name"].default_value = name
+        return n_.outputs["Attribute"]
+    ep1, ep2, enrm = e_named("vm_ep1"), e_named("vm_ep2"), e_named("vm_enrm")
+    eang = e_named("vm_eang", "FLOAT")
+    e_dir = b.N("ShaderNodeVectorMath", (5700, -6100), operation="SUBTRACT")
+    b.L(ep2, e_dir.inputs[0]); b.L(ep1, e_dir.inputs[1])
+    e_len = b.N("ShaderNodeVectorMath", (5850, -6100), operation="LENGTH")
+    b.L(e_dir.outputs["Vector"], e_len.inputs[0])
+    # unit L profile (length 1 along +Z), legs along the two faces of a 90 deg
+    # corner, bisector -> +Y after the 45 deg turn
+    e_st = em("ADD", eo, et)                                    # s + t
+    e_full = em("ADD", e_st, ew)                                # w + s + t
+    e_cy = em("MULTIPLY", em("SUBTRACT", e_st, ew), 0.5)        # (s + t - w) / 2
+    e_cx = em("ADD", eo, em("MULTIPLY", et, 0.5))               # s + t/2
+    legs = []
+    for sx_, sy_, tx_, ty_ in ((et, e_full, e_cx, e_cy), (e_full, et, e_cy, e_cx)):
+        cs = b.N("ShaderNodeCombineXYZ", (5400, -6600))
+        b.L(sx_, cs.inputs["X"]); b.L(sy_, cs.inputs["Y"]); cs.inputs["Z"].default_value = 1.0
+        cube = b.N("GeometryNodeMeshCube", (5550, -6600))
+        b.L(cs.outputs["Vector"], cube.inputs["Size"])
+        ct = b.N("ShaderNodeCombineXYZ", (5400, -6750))
+        b.L(tx_, ct.inputs["X"]); b.L(ty_, ct.inputs["Y"]); ct.inputs["Z"].default_value = 0.5
+        tr = b.N("GeometryNodeTransform", (5700, -6600))
+        b.L(cube.outputs["Mesh"], tr.inputs["Geometry"])
+        b.L(ct.outputs["Vector"], tr.inputs["Translation"])
+        legs.append(tr.outputs["Geometry"])
+    e_lj = b.N("GeometryNodeJoinGeometry", (5850, -6600))
+    for lg in legs:
+        b.L(lg, e_lj.inputs["Geometry"])
+    e_rot45 = b.N("GeometryNodeTransform", (6000, -6600))
+    b.L(e_lj.outputs["Geometry"], e_rot45.inputs["Geometry"])
+    e_rot45.inputs["Rotation"].default_value = (0.0, 0.0, math.radians(45.0))
+    # rotation: Z along the edge, Y (bisector) along the edge's outward normal
+    e_az = b.N("FunctionNodeAlignRotationToVector", (6000, -6100))
+    e_az.axis = "Z"
+    b.L(e_dir.outputs["Vector"], e_az.inputs["Vector"])
+    e_ay = b.N("FunctionNodeAlignRotationToVector", (6150, -6100))
+    e_ay.axis = "Y"
+    e_ay.pivot_axis = "Z"
+    b.L(e_az.outputs["Rotation"], e_ay.inputs["Rotation"])
+    b.L(enrm, e_ay.inputs["Vector"])
+    # legs open to the edge angle: X scale = cot(angle between the face normals / 2)
+    e_f = em("MINIMUM", em("MAXIMUM", em("DIVIDE", 1.0, em("MAXIMUM", em("TANGENT", em(
+        "MULTIPLY", eang, 0.5)), 0.05)), 0.3), 3.0)
+    e_sc = b.N("ShaderNodeCombineXYZ", (6150, -6250))
+    b.L(e_f, e_sc.inputs["X"]); e_sc.inputs["Y"].default_value = 1.0
+    b.L(e_len.outputs["Value"], e_sc.inputs["Z"])
+    e_sp = b.N("GeometryNodeSetPosition", (6150, -5800))      # points onto vertex 1
+    b.L(e_pts.outputs["Points"], e_sp.inputs["Geometry"])
+    b.L(ep1, e_sp.inputs["Position"])
+    e_iop = b.N("GeometryNodeInstanceOnPoints", (6300, -5800))
+    b.L(e_sp.outputs["Geometry"], e_iop.inputs["Points"])
+    b.L(e_rot45.outputs["Geometry"], e_iop.inputs["Instance"])
+    b.L(e_ay.outputs["Rotation"], e_iop.inputs["Rotation"])
+    b.L(e_sc.outputs["Vector"], e_iop.inputs["Scale"])
+    e_dn = b.N("ShaderNodeVectorMath", (6300, -6100), operation="NORMALIZE")
+    b.L(e_dir.outputs["Vector"], e_dn.inputs[0])
+    st_ed = b.N("GeometryNodeStoreNamedAttribute", (6450, -5800), data_type="FLOAT_VECTOR",
+                domain="INSTANCE")
+    b.L(e_iop.outputs["Instances"], st_ed.inputs["Geometry"])
+    st_ed.inputs["Name"].default_value = "vm_edir"
+    b.L(e_dn.outputs["Vector"], st_ed.inputs["Value"])
+    e_real = b.N("GeometryNodeRealizeInstances", (6600, -5800))
+    b.L(st_ed.outputs["Geometry"], e_real.inputs["Geometry"])
+    # UVs: U = meters along the edge (wood grain), V = across the leg
+    e_pos = b.N("GeometryNodeInputPosition", (6600, -6100))
+    e_rel = b.N("ShaderNodeVectorMath", (6750, -6100), operation="SUBTRACT")
+    b.L(e_pos.outputs["Position"], e_rel.inputs[0]); b.L(ep1, e_rel.inputs[1])
+    e_u = b.N("ShaderNodeVectorMath", (6900, -6100), operation="DOT_PRODUCT")
+    b.L(e_rel.outputs["Vector"], e_u.inputs[0]); b.L(e_named("vm_edir"), e_u.inputs[1])
+    e_side = b.N("ShaderNodeVectorMath", (6750, -6250), operation="CROSS_PRODUCT")
+    b.L(e_named("vm_edir"), e_side.inputs[0]); b.L(enrm, e_side.inputs[1])
+    e_v0 = b.N("ShaderNodeVectorMath", (6900, -6250), operation="DOT_PRODUCT")
+    b.L(e_rel.outputs["Vector"], e_v0.inputs[0]); b.L(e_side.outputs["Vector"], e_v0.inputs[1])
+    e_v = em("DIVIDE", em("ABSOLUTE", e_v0.outputs["Value"]), em("MAXIMUM", e_full, 0.01))
+    e_uv = b.N("ShaderNodeCombineXYZ", (7050, -6150))
+    b.L(e_u.outputs["Value"], e_uv.inputs["X"]); b.L(e_v, e_uv.inputs["Y"])
+    st_uv = b.N("GeometryNodeStoreNamedAttribute", (6750, -5800), data_type="FLOAT2",
+                domain="CORNER")
+    b.L(e_real.outputs["Geometry"], st_uv.inputs["Geometry"])
+    st_uv.inputs["Name"].default_value = "UVMap"
+    b.L(e_uv.outputs["Vector"], st_uv.inputs["Value"])
+    e_mat = b.N("GeometryNodeSetMaterial", (6900, -5800))
+    b.L(st_uv.outputs["Geometry"], e_mat.inputs["Geometry"])
+    b.L(gi.outputs["Edge Board Material"], e_mat.inputs["Material"])
+    b.L(e_mat.outputs["Geometry"], join_all.inputs["Geometry"])
+
     b.finish_menu_defaults()
     b.ng.description = (
         f"VM_SceneDetailer {ENGINE_VERSION} - semantic architectural application engine (Scatter/Fit/"
@@ -3602,7 +4041,37 @@ def build_roofcap_group():
     b.L(t_del.outputs["Geometry"], st_t.inputs["Geometry"])
     st_t.inputs["Name"].default_value = "vm_t"
     b.L(tcpos.outputs["Position"], st_t.inputs["Value"])
-    template = st_t.outputs["Geometry"]
+    template_plain = st_t.outputs["Geometry"]
+    # v2.11 Built Roof: the socket pair is created LAST (identifier order) and
+    # linked into these placeholders at the end of the group
+    built_in = b.N("FunctionNodeBooleanMath", (-1150, -2050), operation="OR")
+    built_in.inputs[1].default_value = False
+    built_on = built_in.outputs["Boolean"]
+    thick_in = b.N("ShaderNodeMath", (-1150, -1950), operation="ADD")
+    thick_in.inputs[1].default_value = 0.0
+    # gable-end faces of the template (normal along x) are flagged and every
+    # face gets its own vertices, so the gable ends can move independently of
+    # the slopes (merged again after positioning)
+    t_nrm = b.N("GeometryNodeInputNormal", (-1150, -2500))
+    t_nsep = b.N("ShaderNodeSeparateXYZ", (-1000, -2500))
+    b.L(t_nrm.outputs["Normal"], t_nsep.inputs["Vector"])
+    t_nax = b.N("ShaderNodeMath", (-850, -2500), operation="ABSOLUTE")
+    b.L(t_nsep.outputs["X"], t_nax.inputs[0])
+    t_isg = b.N("FunctionNodeCompare", (-700, -2500), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(t_nax.outputs["Value"], t_isg.inputs["A"])
+    t_isg.inputs["B"].default_value = 0.5
+    st_tg = b.N("GeometryNodeStoreNamedAttribute", (-1000, -2300), data_type="FLOAT", domain="FACE")
+    b.L(template_plain, st_tg.inputs["Geometry"])
+    st_tg.inputs["Name"].default_value = "vm_tg"
+    b.L(t_isg.outputs["Result"], st_tg.inputs["Value"])
+    t_split = b.N("GeometryNodeSplitEdges", (-850, -2300))
+    b.L(st_tg.outputs["Geometry"], t_split.inputs["Mesh"])
+    t_sw = b.N("GeometryNodeSwitch", (-700, -2300))
+    t_sw.input_type = "GEOMETRY"
+    b.L(built_on, t_sw.inputs["Switch"])
+    b.L(template_plain, t_sw.inputs["False"])
+    b.L(t_split.outputs["Mesh"], t_sw.inputs["True"])
+    template = t_sw.outputs["Output"]
 
     # ---------------- per-region qualification + frame (face domain) ----------------
     idx = b.N("GeometryNodeInputIndex", (-2400, -500))
@@ -3943,6 +4412,40 @@ def build_roofcap_group():
     eps_l = m("DIVIDE", EPS, sz_g, loc=(2600, -2960))   # v2.4.1: EPS is WORLD meters
     zs = m("MULTIPLY_ADD", tsep2.outputs["Z"], Hh,
            m("ADD", rz_v, eps_l, loc=(2700, -2900)), loc=(2850, -2850))             # zs = tz*Hh + (rz+eps)
+    # ---- v2.11 BUILT ROOF (the user's realism goal): as real roofs are framed.
+    # The slopes keep their overhang but drop below the wall top by
+    # Overhang * tan(Pitch), so every slope passes exactly through the wall-top
+    # line; in Gable style the gable ends move IN to the wall plane as true
+    # triangles (the wall continued - its siding lines up with the wall below)
+    # under the overhanging slopes. Hip ends are slopes and drop the same way.
+    tg_rd = b.N("GeometryNodeInputNamedAttribute", (2550, -3100))
+    tg_rd.data_type = "FLOAT"
+    tg_rd.inputs["Name"].default_value = "vm_tg"
+    is_ge = b.N("FunctionNodeCompare", (2700, -3100), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(tg_rd.outputs["Attribute"], is_ge.inputs["A"])
+    is_ge.inputs["B"].default_value = 0.5
+    is_g = b.N("FunctionNodeBooleanMath", (2850, -3100), operation="AND")
+    b.L(is_ge.outputs["Result"], is_g.inputs[0])
+    b.L(style_sw.outputs["Gable"], is_g.inputs[1])
+
+    def bsw(cond, if_false, if_true, loc):
+        n_ = b.N("GeometryNodeSwitch", loc)
+        n_.input_type = "FLOAT"
+        b.L(cond, n_.inputs["Switch"])
+        b.L(if_false, n_.inputs["False"])
+        b.L(if_true, n_.inputs["True"])
+        return n_.outputs["Output"]
+
+    xs_g = bsw(is_g.outputs["Boolean"], xs, m("SUBTRACT", A, oh_u, loc=(2850, -3250)), (3000, -3250))
+    yb_g = bsw(is_g.outputs["Boolean"], B, m("SUBTRACT", B, oh_v, loc=(2850, -3400)), (3000, -3400))
+    drop = m("DIVIDE", m("MULTIPLY", gi.outputs["Overhang"], tan_p, loc=(2700, -3550)), sz_g,
+             loc=(2850, -3550))
+    drop_k = bsw(is_g.outputs["Boolean"], m("ADD", 1.0, 0.0, loc=(2850, -3700)),
+                 tsep2.outputs["Z"], (3000, -3700))
+    xw = bsw(built_on, xw, m("MULTIPLY", tsep2.outputs["X"], xs_g, loc=(3150, -3250)), (3300, -3250))
+    yw = bsw(built_on, yw, m("MULTIPLY", tsep2.outputs["Y"], yb_g, loc=(3150, -3400)), (3300, -3400))
+    zs = bsw(built_on, zs, m("SUBTRACT", zs, m("MULTIPLY", drop, drop_k, loc=(3150, -3700)),
+                             loc=(3300, -3650)), (3450, -3650))
     px = b.N("ShaderNodeVectorMath", (3000, -2500), operation="SCALE")
     b.L(ru_v, px.inputs[0]); b.L(xw, px.inputs["Scale"])
     py = b.N("ShaderNodeVectorMath", (3000, -2700), operation="SCALE")
@@ -3971,7 +4474,47 @@ def build_roofcap_group():
     sel_all = b.N("FunctionNodeBooleanMath", (3600, -1750), operation="OR")
     sel_all.inputs[0].default_value = True
     sel_all.inputs[1].default_value = True
-    dressed = material_gate(b, sp2.outputs["Geometry"], gi.outputs["Roof Material"],
+    # Built Roof: re-join the split template, then give the slopes a real slab
+    # (Roof Thickness, extruded straight UP so its eave and rake edges are
+    # vertical fascia faces) with a soffit underneath; gable ends stay flat
+    sl_mg = b.N("GeometryNodeMergeByDistance", (3750, -1100))
+    b.L(sp2.outputs["Geometry"], sl_mg.inputs["Geometry"])
+    sl_mg.inputs["Distance"].default_value = 0.0005
+    sl_n = b.N("GeometryNodeInputNormal", (3750, -900))
+    sl_ns = b.N("ShaderNodeSeparateXYZ", (3900, -900))
+    b.L(sl_n.outputs["Normal"], sl_ns.inputs["Vector"])
+    sl_sel = b.N("FunctionNodeCompare", (4050, -900), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(sl_ns.outputs["Z"], sl_sel.inputs["A"])
+    sl_sel.inputs["B"].default_value = 0.1
+    sl_not = b.N("FunctionNodeBooleanMath", (4200, -900), operation="NOT")
+    b.L(sl_sel.outputs["Result"], sl_not.inputs[0])
+    sl_bot = b.N("GeometryNodeDeleteGeometry", (3900, -800), domain="FACE")
+    b.L(sl_mg.outputs["Geometry"], sl_bot.inputs["Geometry"])
+    b.L(sl_not.outputs["Boolean"], sl_bot.inputs["Selection"])
+    sl_flip = b.N("GeometryNodeFlipFaces", (4050, -800))
+    b.L(sl_bot.outputs["Geometry"], sl_flip.inputs["Mesh"])
+    sl_t = m("DIVIDE", m("MAXIMUM", thick_in.outputs["Value"], 0.0, loc=(3750, -700)), sz_g,
+             loc=(3900, -700))
+    sl_off = b.N("ShaderNodeCombineXYZ", (4050, -700))
+    b.L(sl_t, sl_off.inputs["Z"])
+    sl_ex = b.N("GeometryNodeExtrudeMesh", (4050, -1100))
+    sl_ex.mode = "FACES"
+    b.L(sl_mg.outputs["Geometry"], sl_ex.inputs["Mesh"])
+    b.L(sl_sel.outputs["Result"], sl_ex.inputs["Selection"])
+    b.L(sl_off.outputs["Vector"], sl_ex.inputs["Offset"])
+    sl_ex.inputs["Individual"].default_value = False
+    sl_join = b.N("GeometryNodeJoinGeometry", (4200, -1100))
+    b.L(sl_ex.outputs["Mesh"], sl_join.inputs["Geometry"])
+    b.L(sl_flip.outputs["Mesh"], sl_join.inputs["Geometry"])
+    sl_mg2 = b.N("GeometryNodeMergeByDistance", (4350, -1100))
+    b.L(sl_join.outputs["Geometry"], sl_mg2.inputs["Geometry"])
+    sl_mg2.inputs["Distance"].default_value = 0.0005
+    roof_geo = b.N("GeometryNodeSwitch", (4500, -1300))
+    roof_geo.input_type = "GEOMETRY"
+    b.L(built_on, roof_geo.inputs["Switch"])
+    b.L(sp2.outputs["Geometry"], roof_geo.inputs["False"])
+    b.L(sl_mg2.outputs["Geometry"], roof_geo.inputs["True"])
+    dressed = material_gate(b, roof_geo.outputs["Output"], gi.outputs["Roof Material"],
                             sel_all.outputs["Boolean"], (3750, -1500))
     # mark generated faces so Fit (doors/windows) never anchors on gable ends
     st_rg = b.N("GeometryNodeStoreNamedAttribute", (3950, -1500), data_type="FLOAT", domain="FACE")
@@ -4183,6 +4726,16 @@ def build_roofcap_group():
            "'Hip' on a square top = pyramid, on a round/cylindrical top = CONE). "
            "Old stack? See USAGE.txt 'Which version am I running?'.",
            desc="One-line usage reminder")
+    # v2.11: created after every older socket so their identifiers never shift
+    b.sock("Built Roof", "NodeSocketBool", p, False,
+           desc="Gable/Hip (v2.11): build the roof as a real one is framed - the slopes "
+                "overhang and drop below the wall top, gable ends sit IN the wall plane, and the "
+                "slopes are a slab of Roof Thickness with fascia edges and a soffit. Off = the "
+                "v2.4 closed prism")
+    b.sock("Roof Thickness", "NodeSocketFloat", p, 0.12, 0.0, 2.0, "DISTANCE",
+           "Built Roof: slab thickness of the slopes (world meters)")
+    b.L(gi.outputs["Built Roof"], built_in.inputs[0])
+    b.L(gi.outputs["Roof Thickness"], thick_in.inputs[0])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -8482,6 +9035,22 @@ def main():
     bpy.ops.wm.open_mainfile(filepath=STARTER_PATH)
     vmt.register()
     lib_root = bpy.data.collections[vmt.LIBRARY_COLLECTION]
+    # v2.11: the library ships the REAL cladding tiles - lapped siding boards and
+    # split shakes (wedge profile, bevelled, bowed/cupped) with per-board wood
+    # materials, a dark roof underlay and the edge-board trim. The engine stages
+    # above keep the flat test tiles their checks were pinned on.
+    wood_src = os.path.join(ASSET_SRC, "materials", "walls", "dark_planks")
+    lib_mats = dict(
+        siding=make_board_material("VM_SidingBoard", wood_src, "dark_planks", 8, 0.10, 2.0, 0.7, 1.15),
+        shake=make_board_material("VM_Shake", wood_src, "dark_planks", 8, 0.10, 2.0, 0.65, 1.1, 0.6),
+        under=make_principled("VM_RoofUnderlay", (0.03, 0.025, 0.02), rough=0.9))
+    for cn, maker, mat_ in (("VM_Tiles_Plank", make_siding_variants, lib_mats["siding"]),
+                            ("VM_Tiles_Shingle", make_shake_variants, lib_mats["shake"])):
+        col_ = bpy.data.collections[cn]
+        for ob in list(col_.objects):
+            bpy.data.objects.remove(ob)
+        maker(col_, cn.replace("VM_Tiles_", ""), 6, mat_)
+    pack_images()
     keep_obs = set(lib_root.all_objects)
     for ob in list(bpy.data.objects):
         if ob not in keep_obs:
@@ -8747,6 +9316,103 @@ def main():
           f"{len(fl_boards)} boards in {len(fl_rows)} rows, inside footprint={fl_inside}, "
           f"row lengths={sorted({round(v, 3) for v in fl_rows.values()})}, bottom material={fl_mats}")
     results["floor"] = dict(boards=len(fl_boards), rows=len(fl_rows), bottom_materials=fl_mats)
+
+    # ---- v2.11: REAL CLADDING (the user's realism reference: a clapboard house
+    # with a shake roof - walls and roof are NOT flat surfaces). A 6 x 4.5 x 3 m
+    # cottage, Dress Object + Gable, measured in the cottage's local frame.
+    ct_ob = storey_mesh("Cottage211", [(0, 0, 0, 6, 4.5, 3)], 40.0)
+    rc_ = ct_ob.modifiers["VM_RoofCap"]
+    set_params(rc_, rc_.node_group, {"Style": "Gable"})
+    ct_ob.update_tag()
+    dg_ct = bpy.context.evaluated_depsgraph_get()
+    dg_ct.update()
+    ct_off = Vector((40.0, 12.0, 0.0))
+    tan_p = math.tan(math.radians(35.0))
+    shake_names = {o.name for o in bpy.data.collections["VM_Tiles_Shingle"].all_objects}
+    plank_names = {o.name for o in bpy.data.collections["VM_Tiles_Plank"].all_objects}
+    ct_walls, ct_roof = [], []
+    for inst in dg_ct.object_instances:
+        if inst.is_instance and inst.parent is not None and inst.parent.original == ct_ob:
+            nm_ = inst.object.name
+            if nm_ in plank_names or nm_ in shake_names:
+                m_ = inst.matrix_world.copy()
+                cs_ = [m_ @ Vector(c_) - ct_off for c_ in inst.object.bound_box]
+                n_ = m_.col[1].to_3d().normalized()
+                if nm_ in shake_names:
+                    ct_roof.append(cs_)
+                elif abs(n_.z) < 0.3:
+                    # wall boards only - the slab's eave fascia (a strip of
+                    # siding 25 cm out, below the eave) is roof trim
+                    ax_ = 0 if abs(n_.x) > abs(n_.y) else 1
+                    pc_ = sum(c_[ax_] for c_ in cs_) / 8
+                    if min(abs(pc_), abs(pc_ - (6.0, 4.5)[ax_])) < 0.1:
+                        ct_walls.append((cs_, n_))
+    # the gable walls are the ones whose siding rises above the 3 m wall top
+    high = [n_ for cs_, n_ in ct_walls if max(c_.z for c_ in cs_) > 3.05]
+    ga = 0 if high and abs(high[0].x) > abs(high[0].y) else 1      # gable normal axis
+    span = (4.5, 6.0)[ga]                       # the gable's base, across the other axis
+    apex = 3.0 + span / 2 * tan_p
+
+    def rake(c_):
+        return 3.0 + (span / 2 - abs(c_[1 - ga] - span / 2)) * tan_p
+    outside = 0
+    for cs_, n_ in ct_walls:
+        for c_ in cs_:
+            along = c_.y if abs(n_.x) > abs(n_.y) else c_.x
+            length = 4.5 if abs(n_.x) > abs(n_.y) else 6.0
+            on_gable = (abs(n_.x) > abs(n_.y)) == (ga == 0)
+            if not (-0.03 <= along <= length + 0.03 and c_.z >= -0.03
+                    and c_.z <= (rake(c_) if on_gable else 3.0) + 0.03):
+                outside += 1
+                break
+    hts = sorted(max(c_.z for c_ in cs_) - min(c_.z for c_ in cs_) for cs_, _ in ct_walls)
+    ht_med = hts[len(hts) // 2] if hts else 0.0
+    gable_n = sum(1 for cs_, n_ in ct_walls if max(c_.z for c_ in cs_) > 3.05)
+    roof_top = max((c_.z for cs_ in ct_roof for c_ in cs_), default=0.0)
+    check("v2.11(siding): Dress Object clads the walls in LAPPED siding - each board is taller "
+          "than its 17 cm course (it laps the one below), every board is cut to its wall / gable "
+          "outline (nothing past a corner, the wall top or the rake) and the gable triangles are "
+          "sided like the walls below them",
+          len(ct_walls) > 100 and 0.18 < ht_med < 0.25 and outside == 0 and gable_n >= 10,
+          f"{len(ct_walls)} wall boards, median board height={ht_med:.3f} (course 0.17), "
+          f"boards outside the outline={outside}, boards on the gables={gable_n}, gable axis={'xy'[ga]}")
+    ct_ev = ct_ob.evaluated_get(dg_ct)
+    ct_me = ct_ev.data
+    ct_mn = [m_.name if m_ else "" for m_ in ct_me.materials]
+
+    def polys(mat_name):
+        return [p_ for p_ in ct_me.polygons
+                if ct_mn and ct_mn[p_.material_index] == mat_name]
+    roof_ps = polys("VM_RoofUnderlay")
+    roof_zs = [ct_me.vertices[v_].co.z for p_ in roof_ps for v_ in p_.vertices]
+    flush = [p_ for p_ in ct_me.polygons
+             if abs(p_.normal[ga]) > 0.99 and p_.center.z > 3.05
+             and min(abs(p_.center[ga]), abs(p_.center[ga] - (6.0, 4.5)[ga])) < 0.01]
+    check("v2.11(built roof): Gable roof is framed like a real one - the gable triangles sit "
+          "FLUSH in the wall planes, the slopes are a slab of Roof Thickness (top = ridge + 0.12) "
+          "and overhang + drop below the wall top at the eaves; no shake rises past the ridge",
+          len(flush) >= 2 and roof_zs and abs(max(roof_zs) - (apex + 0.12)) < 0.02
+          and min(roof_zs) < 2.9 and len(ct_roof) > 100 and roof_top < apex + 0.12 + 0.06,
+          f"flush gable faces={len(flush)}, slab z {min(roof_zs, default=0):.3f}..{max(roof_zs, default=0):.3f} "
+          f"(apex {apex:.3f} + 0.12), {len(ct_roof)} shakes, top shake z={roof_top:.3f}")
+    cb_vs = [ct_me.vertices[v_].co for p_ in polys("VM_SidingBoard") for v_ in p_.vertices]
+    corners_ok = 0
+    for cx_, cy_ in ((0, 0), (6, 0), (0, 4.5), (6, 4.5)):
+        near = [v_.z for v_ in cb_vs if abs(v_.x - cx_) < 0.2 and abs(v_.y - cy_) < 0.2]
+        if near and min(near) < 0.1 and max(near) > 2.9:
+            corners_ok += 1
+    rc_vs = [ct_me.vertices[v_].co for p_ in polys("VM_Shake") for v_ in p_.vertices]
+    rc_top = [v_ for v_ in rc_vs if v_.z > apex + 0.12]
+    rc_len = (max(v_[ga] for v_ in rc_top) - min(v_[ga] for v_ in rc_top)) if rc_top else 0.0
+    check("v2.11(edge boards): corner boards run the full height of all 4 outside wall corners "
+          "(covering the siding ends) and a ridge cap runs the whole ridge over the top shakes",
+          corners_ok == 4 and rc_len > (6.0, 4.5)[ga] * 0.95,
+          f"corners with a full-height board={corners_ok}/4, ridge cap length={rc_len:.3f} "
+          f"(ridge {(6.0, 4.5)[ga]} m + overhangs)")
+    results["cladding_v211"] = dict(wall_boards=len(ct_walls), board_height=round(ht_med, 4),
+                                    outside=outside, gable_boards=gable_n, shakes=len(ct_roof),
+                                    flush_gable_faces=len(flush), corner_boards=corners_ok,
+                                    ridge_cap=round(rc_len, 3))
 
     results["addon_library"] = dict(fresh_instances=inst_fa, update_instances=inst_after,
                                     datablocks=n_data)

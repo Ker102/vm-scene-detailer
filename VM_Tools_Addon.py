@@ -33,12 +33,16 @@ ID_SOCKETS = {
 AUTO_MATERIALS = {
     "VM_SceneDetailer_Planks": {
         "Wall Material": "VM_WallWeatheredPlanks",
-        "Roof Material": "VM_RoofClayTiles",
+        # v2.11: the roof surface is only ever seen between the shakes - a dark
+        # underlay, not a second roof texture
+        "Roof Material": "VM_RoofUnderlay",
+        "Edge Board Material": "VM_SidingBoard",
         # v2.10: no grass on the building's own bottom - the floor layer below
         # covers it with boards and a wood material
     },
+    "VM_SceneDetailer_Shingles": {"Edge Board Material": "VM_Shake"},
     "VM_SceneDetailer_Floor": {"Floor Material": "VM_WallWeatheredPlanks"},
-    "VM_RoofCap": {"Roof Material": "VM_RoofClayTiles"},
+    "VM_RoofCap": {"Roof Material": "VM_RoofUnderlay"},
 }
 
 # v2.10: the pack collections each layer uses by default - wired BY NAME when
@@ -217,8 +221,8 @@ def count_sockets(snap):
 
 # ------------------------------------------------------------------ v2.7 dress recipe
 def dress_stack():
-    """The FULL default engine stack, layer by layer: wall cladding -> interior
-    floorboards -> VM_RoofCap (Flat by default) -> roof cladding -> doors ->
+    """The FULL default engine stack, layer by layer: interior floorboards ->
+    VM_RoofCap (Flat by default) -> wall cladding -> roof cladding -> doors ->
     windows. Collection sockets stay EMPTY here; dress_object / the library
     presets wire the pack collections by name."""
     base = {
@@ -232,10 +236,18 @@ def dress_stack():
     planks = dict(base, **{
         "Placement Mode": ["val", "", "Cladding"],
         "Face Zone": ["val", "", "Walls"],
-        "Row Height": ["val", "", 0.22], "Row Overlap": ["val", "", 0.05],
-        "Stagger": ["val", "", 0.0], "Jitter": ["val", "", 0.002],
-        "Slot Width": ["val", "", 2.0], "Surface Offset": ["val", "", -0.02],
-        "Max Instances": ["val", "", 2000],
+        # v2.11 lap siding: 17 cm courses, each board laps the one below
+        # (board = row / (1 - overlap) = 21 cm), joints staggered, boards cut
+        # to every wall and gable outline
+        "Row Height": ["val", "", 0.17], "Row Overlap": ["val", "", 0.19],
+        "Stagger": ["val", "", 0.37], "Jitter": ["val", "", 0.0],
+        "Slot Width": ["val", "", 2.4], "Surface Offset": ["val", "", 0.0],
+        "Trim To Face": ["val", "", True],
+        "Max Instances": ["val", "", 6000],
+        # v2.11 corner boards over the siding ends on every outside corner
+        "Edge Boards": ["val", "", True],
+        "Edge Board Width": ["val", "", 0.1], "Edge Board Thickness": ["val", "", 0.025],
+        "Edge Board Offset": ["val", "", 0.024],
     })
     # v2.10: floorboards on the building's bottom, laid from the inside
     floor = dict(base, **{
@@ -253,14 +265,25 @@ def dress_stack():
         "Fascia": ["val", "", 0.12],
         "Pitch": ["val", "", math.radians(35.0)],
         "Overhang": ["val", "", 0.25],
+        # v2.11 Gable/Hip are framed like real roofs (flush gable ends, eave
+        # drop, slab with fascia + soffit); Flat is unaffected
+        "Built Roof": ["val", "", True],
+        "Roof Thickness": ["val", "", 0.12],
     }
     shingles = dict(base, **{
         "Placement Mode": ["val", "", "Cladding"],
         "Face Zone": ["val", "", "Roof"],
-        "Row Height": ["val", "", 0.11], "Row Overlap": ["val", "", 0.35],
-        "Stagger": ["val", "", 0.5], "Jitter": ["val", "", 0.004],
-        "Slot Width": ["val", "", 0.25],
-        "Max Instances": ["val", "", 4000],
+        # v2.11 wooden shakes: 13 cm exposure, each shake 42 cm long (three
+        # layers deep), ~25 cm apart, cut flush at the eave and the ridge
+        "Row Height": ["val", "", 0.13], "Row Overlap": ["val", "", 0.69],
+        "Stagger": ["val", "", 0.5], "Jitter": ["val", "", 0.0],
+        "Slot Width": ["val", "", 0.8], "Surface Offset": ["val", "", 0.0],
+        "Trim To Face": ["val", "", True],
+        "Max Instances": ["val", "", 8000],
+        # v2.11 ridge cap (and hip caps) over the top courses
+        "Edge Boards": ["val", "", True],
+        "Edge Board Width": ["val", "", 0.13], "Edge Board Thickness": ["val", "", 0.025],
+        "Edge Board Offset": ["val", "", 0.045],
     })
     slots = dict(base, **{
         "Placement Mode": ["val", "", "Fit"],
@@ -301,9 +324,12 @@ def dress_stack():
         "Slot Rows": ["val", "", 16], "Row Spacing": ["val", "", 3.0],
     })
     return [
-        ("VM_SceneDetailer_Planks", "VM_SceneDetailer", planks),
+        # v2.11: the roof cap runs BEFORE the wall planks so its gable
+        # triangles get siding too; the floor stays first (the cap's underside
+        # is never mistaken for a floor)
         ("VM_SceneDetailer_Floor", "VM_SceneDetailer", floor),
         ("VM_RoofCap", "VM_RoofCap", roof),
+        ("VM_SceneDetailer_Planks", "VM_SceneDetailer", planks),
         ("VM_SceneDetailer_Shingles", "VM_SceneDetailer", shingles),
         ("VM_SceneDetailer_Door", "VM_SceneDetailer", doors),
         ("VM_SceneDetailer_Windows", "VM_SceneDetailer", wins),

@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.10) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.11) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.10) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.11) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,54 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (244 checks: the original 197 kept
-    green + 47 v2.7-v2.10 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (247 checks: the original 197 kept
+    green + 50 v2.7-v2.11 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.11 (2026-10-31) - REAL CLADDING: walls and roof are no longer flat surfaces
+-------------------------------------------------------------------------------
+Goal: the look of a weathered clapboard house with a shake roof, where every
+board and shake is a real piece of geometry with its own shadow line.
+* NEW TILES in VM_Assets.blend (VM_Tiles_Plank / VM_Tiles_Shingle):
+  - siding boards: 2 m x 20 cm, WEDGE profile (2.2 cm thick at the bottom
+    edge, 6 mm at the top), bevelled edges, 6 variants that bow, twist and cup
+    a little;
+  - split shakes: 42 cm long, 16-24 cm wide, wedge profile, cupped, chipped
+    butt corners, 6 variants.
+  The 3D cladding comes from these tiles. A random tile can be any variant.
+* PER-BOARD WOOD: VM_SidingBoard / VM_Shake map every tile onto ONE whole
+  board of a plank texture (dark_planks), picked at random, at a random offset
+  along the grain, with its own brightness. No two neighbours match and no
+  texture seam runs through a board.
+* LAPPED COURSES ('Trim To Face' now honours 'Row Overlap'): each board is
+  row / (1 - overlap) tall and laps the course below. The base stack uses
+  17 cm siding courses (21 cm boards) and 13 cm shake courses (42 cm shakes,
+  three layers deep).
+* CUT TO THE OUTLINE: with Trim To Face every tile is cut to its face's real
+  outline (triangles and quads), at its bottom and top edge. Gable siding
+  follows the rake, the top shake course stops at the ridge, and the eave
+  course ends flush. (Exact for convex faces.)
+* BUILT ROOF (VM_RoofCap 'Built Roof', ON in the base stack, Gable/Hip only):
+  the roof is framed like a real one. The gable triangles sit IN the wall
+  plane, so the wall siding carries on up to the rake. The slopes overhang
+  and drop below the wall top. They are a slab of 'Roof Thickness' (12 cm),
+  with fascia edges and a soffit underneath. Off = the v2.4 closed prism
+  (older files are unchanged).
+* EDGE BOARDS (new Placement sockets: Edge Boards / Width / Thickness /
+  Offset / Material). Each cladding layer can lay an L-shaped board along
+  every convex edge between two faces of its zone:
+  - wall layer: CORNER BOARDS that cover the siding ends (10 cm legs);
+  - roof layer: a RIDGE CAP and hip caps over the top shakes.
+  The legs open to the edge's own angle (90 deg corner, 110 deg ridge).
+* STACK ORDER: Floor -> RoofCap -> Planks -> Shingles -> Door -> Windows. The
+  roof cap runs before the wall planks so its gable triangles are sided.
+* The roof surface under the shakes is a dark underlay (VM_RoofUnderlay), not
+  a second roof texture.
+* Not done yet (next): movable DAMAGE (missing, broken and tilted boards and
+  shakes; holes, driven by the Proximity Mask), glazed windows that show an
+  INTERIOR, and VINES. The floor layer still uses the siding boards; dedicated
+  floor tiles will follow.
 
 v2.10 (2026-10-30) - THE ADD-ON IS THE INTERFACE: engine + presets in ANY file
 -------------------------------------------------------------------------------
@@ -905,8 +949,15 @@ in-memory:
   * v2.10(upper storeys): stacked boxes, a storey edge loop, a setback storey
     and a single 6 m wall all get windows on both storeys;
   * v2.10(floor): floorboards lie flat inside the footprint, every row spans
-    the floor exactly (edge boards cut), the bottom face is wood, not grass.
-Total for this release: 244 checks, 244 passed (verification_v2.json).
+    the floor exactly (edge boards cut), the bottom face is wood, not grass;
+  * v2.11(siding): a 6 x 4.5 x 3 m cottage gets lapped siding (each board is
+    taller than its 17 cm course), every board is cut to its wall / gable
+    outline, and the gables are sided;
+  * v2.11(built roof): flush gable triangles, a 12 cm slab up to the ridge,
+    eaves dropped below the wall top, no shake past the ridge;
+  * v2.11(edge boards): full-height corner boards on all 4 corners and a ridge
+    cap along the whole ridge.
+Total for this release: 247 checks, 247 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered
