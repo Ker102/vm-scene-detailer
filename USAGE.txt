@@ -12,13 +12,13 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.11) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.12) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.11) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.12) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
-    Copy/Paste Setup, Save Mine, Toggle All Modifiers
+    Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
   pack_ingest.py - GENERIC ZERO-CONFIG asset-pack adapter (see PACK ADAPTER
     below); ingests any glTF/OBJ pack into classified variant collections
@@ -31,10 +31,42 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (247 checks: the original 197 kept
-    green + 50 v2.7-v2.11 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (250 checks: the original 197 kept
+    green + 53 v2.7-v2.12 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.12 (2026-10-31) - MOVABLE DAMAGE
+-------------------------------------------------------------------------------
+* New 'Damage' panel on every VM_SceneDetailer layer (used by Cladding layers):
+  Damage, Damage Amount, Damage Object, Damage Radius, Damage Scale, Damage
+  Seed, Missing Share, Broken Share, Max Tilt.
+* Which tiles: a noise field (patches about Damage Scale across) plus a
+  per-tile random. Damage Amount sets how many tiles are hit:
+  - Damage Radius 0: over the whole building (weathering);
+  - Damage Radius > 0: only around the Damage Object, fading out to zero at
+    the radius. MOVE THE OBJECT AND THE DAMAGE MOVES; tiles it leaves are whole
+    again, exactly as before.
+* What happens to a hit tile depends on how hard it is hit:
+  - worst: MISSING - the sheathing (walls) / dark underlay (roof) shows
+    through like a hole;
+  - next: BROKEN - shortened from one end (30-70 % remains); a shake loses
+    its butt end;
+  - mildest: LOOSE - a shake curls out from its top edge; a siding board
+    hangs from the nail at one end, its free end dropped.
+  Missing Share / Broken Share split the hit tiles; the rest are loose.
+* VM Tools > Object > 'Add Damage Zone': adds an Empty at the 3D cursor
+  (sphere = the 2.5 m radius) and turns on damage around it on both cladding
+  layers of the selected objects (Amount 0.85). Move or duplicate the Empty;
+  scale the radius with 'Damage Radius' on the layers.
+* New library preset 'Base - Weathered gable': the Gable preset with light
+  damage over the whole building (Amount 0.2).
+* The wall layer's Wall Material is now VM_Sheathing (dark old boards) - it is
+  only ever seen where siding is missing.
+* Damage is OFF in the base presets / Dress Object. Off is exactly the
+  undamaged cladding.
+* Not done yet (next): glazed windows that show an INTERIOR (then real holes
+  through the wall), and VINES.
 
 v2.11 (2026-10-31) - REAL CLADDING: walls and roof are no longer flat surfaces
 -------------------------------------------------------------------------------
@@ -956,8 +988,13 @@ in-memory:
   * v2.11(built roof): flush gable triangles, a 12 cm slab up to the ridge,
     eaves dropped below the wall top, no shake past the ridge;
   * v2.11(edge boards): full-height corner boards on all 4 corners and a ridge
-    cap along the whole ridge.
-Total for this release: 247 checks, 247 passed (verification_v2.json).
+    cap along the whole ridge;
+  * v2.12(damage zone): Add Damage Zone damages both cladding layers around
+    the Empty (missing + broken/loose tiles), no tile beyond the radius changes;
+  * v2.12(movable): moving the Empty heals the old spot exactly and damages
+    the new one;
+  * v2.12(damage off): Damage off gives back the identical undamaged tiles.
+Total for this release: 250 checks, 250 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.11"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.12"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -276,8 +276,9 @@ def make_principled(name, color, rough=0.8):
     return mat
 
 
-def make_textured_material(name, tdir, diff_f, rough_f=None, nor_f=None, scale=0.35):
-    """Principled material with Object-coord image textures (read-only asset lib)."""
+def make_textured_material(name, tdir, diff_f, rough_f=None, nor_f=None, scale=0.35, darken=1.0):
+    """Principled material with Object-coord image textures (read-only asset lib).
+    darken < 1 scales the colour's value (v2.12 sheathing behind the siding)."""
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
     nt = mat.node_tree
@@ -289,7 +290,13 @@ def make_textured_material(name, tdir, diff_f, rough_f=None, nor_f=None, scale=0
     diff = bpy.data.images.load(os.path.join(tdir, diff_f), check_existing=True)
     it_d = nt.nodes.new("ShaderNodeTexImage"); it_d.image = diff; it_d.location = (-650, 200)
     nt.links.new(mapping.outputs["Vector"], it_d.inputs["Vector"])
-    nt.links.new(it_d.outputs["Color"], bsdf.inputs["Base Color"])
+    if darken != 1.0:
+        hsv = nt.nodes.new("ShaderNodeHueSaturation"); hsv.location = (-350, 200)
+        hsv.inputs["Value"].default_value = darken
+        nt.links.new(it_d.outputs["Color"], hsv.inputs["Color"])
+        nt.links.new(hsv.outputs["Color"], bsdf.inputs["Base Color"])
+    else:
+        nt.links.new(it_d.outputs["Color"], bsdf.inputs["Base Color"])
     if rough_f:
         rough = bpy.data.images.load(os.path.join(tdir, rough_f), check_existing=True)
         rough.colorspace_settings.name = "Non-Color"
@@ -3925,6 +3932,168 @@ def build_node_group():
     b.L(st_uv.outputs["Geometry"], e_mat.inputs["Geometry"])
     b.L(gi.outputs["Edge Board Material"], e_mat.inputs["Material"])
     b.L(e_mat.outputs["Geometry"], join_all.inputs["Geometry"])
+
+    # ---- v2.12 DAMAGE (movable weathering of the cladding tiles). A noise field
+    # (patch size Damage Scale) plus a per-tile random picks the damaged tiles;
+    # Damage Amount sets how many, and a Damage Object + Damage Radius confines
+    # them to a fading patch around that object - move the object and the
+    # damage moves. Inside a patch the SEVERITY decides each tile's fate: the
+    # centre goes MISSING (the dark underlay shows through like a hole), around
+    # it tiles are BROKEN (shortened from one end - a shake loses its butt) and
+    # at the edge they hang LOOSE (swung out from the top nail line; long
+    # boards also slip on one nail). Only Cladding layers; openings never.
+    p_dmg = b.panel("Damage", "Cladding (v2.12): missing, broken and loose boards / shakes - "
+                              "drive it with a Damage Object to move it over the building")
+    b.sock("Damage", "NodeSocketBool", p_dmg, False,
+           desc="Cladding (v2.12): damage the tiles - missing, broken and loose boards / shakes")
+    b.sock("Damage Amount", "NodeSocketFloat", p_dmg, 0.25, 0.0, 1.0, "FACTOR",
+           "How much of the cladding is damaged (inside the Damage Radius when a radius is set)")
+    b.sock("Damage Object", "NodeSocketObject", p_dmg, None,
+           desc="Centre of the damage patch (an Empty - move it to move the damage). Used when "
+                "Damage Radius > 0")
+    b.sock("Damage Radius", "NodeSocketFloat", p_dmg, 0.0, 0.0, 1000.0, "DISTANCE",
+           "Damage fades out to zero at this distance from the Damage Object (world meters). "
+           "0 = damage over the whole building")
+    b.sock("Damage Scale", "NodeSocketFloat", p_dmg, 1.2, 0.05, 100.0, "DISTANCE",
+           "Size of the damage patches (world meters)")
+    b.sock("Damage Seed", "NodeSocketInt", p_dmg, 0, desc="Reshuffle the damage pattern")
+    b.sock("Missing Share", "NodeSocketFloat", p_dmg, 0.35, 0.0, 1.0, "FACTOR",
+           "Share of the damaged tiles that are MISSING (the worst-hit ones)")
+    b.sock("Broken Share", "NodeSocketFloat", p_dmg, 0.3, 0.0, 1.0, "FACTOR",
+           "Share of the damaged tiles that are BROKEN (shortened); the rest hang loose")
+    b.sock("Max Tilt", "NodeSocketFloat", p_dmg, math.radians(12.0), 0.0, math.radians(90.0), "ANGLE",
+           "Loose tiles: largest angle - a shake curls out from its top edge, a long board "
+           "hangs from the nail at one end")
+
+    d_pos = b.N("GeometryNodeInputPosition", (3200, 600))
+    d_idx = b.N("GeometryNodeInputIndex", (3200, 500))
+    d_seed = gi.outputs["Damage Seed"]
+    d_sv = b.N("ShaderNodeVectorMath", (3350, 700), operation="SCALE")
+    d_sv.inputs[0].default_value = (17.31, 9.73, 5.11)
+    b.L(d_seed, d_sv.inputs["Scale"])
+    d_nv = b.N("ShaderNodeVectorMath", (3500, 650), operation="ADD")
+    b.L(d_pos.outputs["Position"], d_nv.inputs[0]); b.L(d_sv.outputs["Vector"], d_nv.inputs[1])
+    d_noise = b.N("ShaderNodeTexNoise", (3650, 650))
+    b.L(d_nv.outputs["Vector"], d_noise.inputs["Vector"])
+    b.L(em("DIVIDE", geo_f, em("MAXIMUM", gi.outputs["Damage Scale"], 0.01)), d_noise.inputs["Scale"])
+    d_noise.inputs["Detail"].default_value = 2.0
+
+    def d_rand(off):
+        rv = b.N("FunctionNodeRandomValue", (3650, 450), data_type="FLOAT_VECTOR")
+        rv.inputs["Min"].default_value = (0.0, 0.0, 0.0)
+        rv.inputs["Max"].default_value = (1.0, 1.0, 1.0)
+        b.L(d_idx.outputs["Index"], rv.inputs["ID"])
+        b.L(seed_node(b, d_seed, off), rv.inputs["Seed"])
+        sp_ = b.N("ShaderNodeSeparateXYZ", (3800, 450))
+        b.L(rv.outputs["Value"], sp_.inputs["Vector"])
+        return rv.outputs["Value"], sp_.outputs
+    _, r_a = d_rand(101)
+    r_b_vec, _ = d_rand(211)
+    # score: patch noise (contrast-stretched) + a per-tile share for ragged edges
+    d_ns = em("MINIMUM", em("MAXIMUM", tm("MULTIPLY_ADD", em("SUBTRACT", d_noise.outputs["Fac"], 0.5),
+                                          2.5, 0.5), 0.0), 1.0)
+    d_score = tm("MULTIPLY_ADD", d_ns, 0.65, em("MULTIPLY", r_a["X"], 0.35))
+    # mask: 1 everywhere (radius 0) or a smooth fade around the Damage Object
+    d_oi = b.N("GeometryNodeObjectInfo", (3350, 900))
+    d_oi.transform_space = "RELATIVE"
+    b.L(gi.outputs["Damage Object"], d_oi.inputs["Object"])
+    d_dv = b.N("ShaderNodeVectorMath", (3500, 900), operation="DISTANCE")
+    b.L(d_pos.outputs["Position"], d_dv.inputs[0]); b.L(d_oi.outputs["Location"], d_dv.inputs[1])
+    d_rl = em("DIVIDE", gi.outputs["Damage Radius"], geo_f)
+    d_mr = b.N("ShaderNodeMapRange", (3650, 900), interpolation_type="SMOOTHSTEP")
+    b.L(d_dv.outputs["Value"], d_mr.inputs["Value"])
+    b.L(d_rl, d_mr.inputs["From Min"])
+    b.L(em("MULTIPLY", d_rl, 0.3), d_mr.inputs["From Max"])
+    d_mask = tsw(tcmp("GREATER_THAN", gi.outputs["Damage Radius"], 0.0), 1.0, d_mr.outputs["Result"])
+    d_thr = em("SUBTRACT", 1.0, em("MULTIPLY", gi.outputs["Damage Amount"], d_mask))
+    d_on = tand(tand(gi.outputs["Damage"], is_clad), tcmp("GREATER_THAN", d_score, d_thr))
+    # severity: how far past the threshold (saturating 0.3 deep - the heart of a
+    # patch) plus a per-tile random, so the categories mix at their borders
+    d_sev = tm("MULTIPLY_ADD", em("MINIMUM", em("DIVIDE", em("SUBTRACT", d_score, d_thr), 0.3), 1.0),
+               0.6, em("MULTIPLY", r_a["Y"], 0.4))
+    d_lim_m = em("SUBTRACT", 1.0, gi.outputs["Missing Share"])
+    d_lim_b = em("SUBTRACT", d_lim_m, gi.outputs["Broken Share"])
+    # category: 0 intact, 1 missing, 2 broken, 3 loose (stored - the fields
+    # below run after a Delete, where the instance indices have shifted)
+    d_cat = tsw(d_on, 0.0, tsw(tcmp("GREATER_EQUAL", d_sev, d_lim_m), tsw(
+        tcmp("GREATER_EQUAL", d_sev, d_lim_b), 3.0, 2.0), 1.0))
+    st_dc = b.N("GeometryNodeStoreNamedAttribute", (3200, 150), data_type="FLOAT", domain="INSTANCE")
+    st_dc.inputs["Name"].default_value = "vm_dcat"
+    b.L(d_cat, st_dc.inputs["Value"])
+    st_dr = b.N("GeometryNodeStoreNamedAttribute", (3350, 150), data_type="FLOAT_VECTOR",
+                domain="INSTANCE")
+    b.L(st_dc.outputs["Geometry"], st_dr.inputs["Geometry"])
+    st_dr.inputs["Name"].default_value = "vm_drnd"
+    b.L(r_b_vec, st_dr.inputs["Value"])
+    # re-route: store_an -> damage chain -> join_all
+    for lk in list(b.ng.links):
+        if lk.from_node == store_an and lk.to_node == join_all:
+            b.ng.links.remove(lk)
+    b.L(store_an.outputs["Geometry"], st_dc.inputs["Geometry"])
+    dc_rd = b.N("GeometryNodeInputNamedAttribute", (3500, 0))
+    dc_rd.data_type = "FLOAT"
+    dc_rd.inputs["Name"].default_value = "vm_dcat"
+    dr_rd = b.N("GeometryNodeInputNamedAttribute", (3500, -100))
+    dr_rd.data_type = "FLOAT_VECTOR"
+    dr_rd.inputs["Name"].default_value = "vm_drnd"
+    dr_s = b.N("ShaderNodeSeparateXYZ", (3650, -100))
+    b.L(dr_rd.outputs["Attribute"], dr_s.inputs["Vector"])
+
+    def is_cat(k):
+        return tcmp("EQUAL", dc_rd.outputs["Attribute"], float(k))
+    d_del = b.N("GeometryNodeDeleteGeometry", (3500, 150), domain="INSTANCE")
+    b.L(st_dr.outputs["Geometry"], d_del.inputs["Geometry"])
+    b.L(is_cat(1), d_del.inputs["Selection"])
+    # tile frame from the Primary Props bounds: long tiles (siding) break and
+    # slip along X; tall tiles (shakes) break from the butt (bottom)
+    bb_mn = b.N("ShaderNodeSeparateXYZ", (3650, -300))
+    b.L(t_bb.outputs["Min"], bb_mn.inputs["Vector"])
+    bb_mx = b.N("ShaderNodeSeparateXYZ", (3650, -450))
+    b.L(t_bb.outputs["Max"], bb_mx.inputs["Vector"])
+    d_long = tcmp("GREATER_THAN", t_exs.outputs["X"], t_exs.outputs["Z"])
+    d_end = tsw(tcmp("LESS_THAN", dr_s.outputs["Y"], 0.5), bb_mx.outputs["X"], bb_mn.outputs["X"])
+
+    def vsw(cond, if_false, if_true):
+        n_ = b.N("GeometryNodeSwitch", random_loc())
+        n_.input_type = "VECTOR"
+        b.L(cond, n_.inputs["Switch"])
+        b.L(if_false, n_.inputs["False"]); b.L(if_true, n_.inputs["True"])
+        return n_.outputs["Output"]
+
+    def v3(x, y, z):
+        n_ = b.N("ShaderNodeCombineXYZ", random_loc())
+        for k_, val in zip("XYZ", (x, y, z)):
+            if isinstance(val, (int, float)):
+                n_.inputs[k_].default_value = val
+            else:
+                b.L(val, n_.inputs[k_])
+        return n_.outputs["Vector"]
+    d_f = tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.4, 0.3)          # broken: 30-70 % remains
+    d_sc = b.N("GeometryNodeScaleInstances", (3800, 150))
+    b.L(d_del.outputs["Geometry"], d_sc.inputs["Instances"])
+    b.L(is_cat(2), d_sc.inputs["Selection"])
+    b.L(vsw(d_long, v3(1.0, 1.0, d_f), v3(d_f, 1.0, 1.0)), d_sc.inputs["Scale"])
+    b.L(vsw(d_long, v3(0.0, 0.0, bb_mx.outputs["Z"]), v3(d_end, 0.0, 0.0)), d_sc.inputs["Center"])
+    d_sc.inputs["Local Space"].default_value = True
+    # loose: a shake curls out about its top edge (+Y is the face normal); a
+    # long board HANGS from the nail at one end - its free end drops (in-plane
+    # turn) and swings a little off the wall so it rides over the boards below
+    d_tx = em("MULTIPLY", gi.outputs["Max Tilt"],
+              tsw(d_long, tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.7, 0.3),
+                  em("MULTIPLY", dr_s.outputs["X"], 0.3)))
+    d_sgn = tsw(tcmp("LESS_THAN", dr_s.outputs["Y"], 0.5), 1.0, -1.0)   # nail at max X -> -1
+    d_ty = tsw(d_long, 0.0, em("MULTIPLY", d_sgn, em("MULTIPLY", gi.outputs["Max Tilt"],
+                                                     tm("MULTIPLY_ADD", dr_s.outputs["Z"], 0.6, 0.4))))
+    d_tz = tsw(d_long, 0.0, em("MULTIPLY", d_sgn, 0.015))
+    d_eul = b.N("FunctionNodeEulerToRotation", (3800, -150))
+    b.L(v3(d_tx, d_ty, d_tz), d_eul.inputs["Euler"])
+    d_rot = b.N("GeometryNodeRotateInstances", (3950, 150))
+    b.L(d_sc.outputs["Instances"], d_rot.inputs["Instances"])
+    b.L(is_cat(3), d_rot.inputs["Selection"])
+    b.L(d_eul.outputs["Rotation"], d_rot.inputs["Rotation"])
+    b.L(v3(tsw(d_long, 0.0, d_end), 0.0, bb_mx.outputs["Z"]), d_rot.inputs["Pivot Point"])
+    d_rot.inputs["Local Space"].default_value = True
+    b.L(d_rot.outputs["Instances"], join_all.inputs["Geometry"])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -9043,7 +9212,12 @@ def main():
     lib_mats = dict(
         siding=make_board_material("VM_SidingBoard", wood_src, "dark_planks", 8, 0.10, 2.0, 0.7, 1.15),
         shake=make_board_material("VM_Shake", wood_src, "dark_planks", 8, 0.10, 2.0, 0.65, 1.1, 0.6),
-        under=make_principled("VM_RoofUnderlay", (0.03, 0.025, 0.02), rough=0.9))
+        under=make_principled("VM_RoofUnderlay", (0.03, 0.025, 0.02), rough=0.9),
+        # v2.12: what missing siding reveals - old dark sheathing boards
+        sheath=make_textured_material(
+            "VM_Sheathing", os.path.join(ASSET_SRC, "materials", "walls", "weathered_plank_siding"),
+            "weathered_plank_siding_diff.jpg", "weathered_plank_siding_rough.jpg",
+            "weathered_plank_siding_nor.jpg", 0.5, darken=0.3))
     for cn, maker, mat_ in (("VM_Tiles_Plank", make_siding_variants, lib_mats["siding"]),
                             ("VM_Tiles_Shingle", make_shake_variants, lib_mats["shake"])):
         col_ = bpy.data.collections[cn]
@@ -9064,15 +9238,21 @@ def main():
             bpy.data.materials[mname].use_fake_user = True
     probe = make_cube("PresetProbe", 2.0, bpy.context.scene.collection)
     lib_presets = {}
-    for pname, style, desc in (
+    weathered = {"Damage": True, "Damage Amount": 0.2}
+    for pname, style, desc, extra in (
             ("Base - Flat roof", "Flat", "The default pack at default settings: plank walls, flat "
-             "clay-tile roof cap, shingle roof cladding, doors and windows"),
-            ("Base - Gable roof", "Gable", "Base preset with a gable roof cap"),
-            ("Base - Hip roof", "Hip", "Base preset with a hip roof cap")):
+             "clay-tile roof cap, shingle roof cladding, doors and windows", {}),
+            ("Base - Gable roof", "Gable", "Base preset with a gable roof cap", {}),
+            ("Base - Hip roof", "Hip", "Base preset with a hip roof cap", {}),
+            ("Base - Weathered gable", "Gable", "Gable preset with light damage over the whole "
+             "building: missing, broken and loose boards and shakes (v2.12)", weathered)):
         pw = []
         vmt.dress_object(probe, pw)
         rc = probe.modifiers["VM_RoofCap"]
         set_params(rc, rc.node_group, {"Style": style})
+        for mn_ in ("VM_SceneDetailer_Planks", "VM_SceneDetailer_Shingles"):
+            if extra:
+                set_params(probe.modifiers[mn_], probe.modifiers[mn_].node_group, extra)
         lib_presets[pname] = dict(description=desc, modifiers=vmt.snapshot_object(probe))
     bpy.data.objects.remove(probe)
     txt = bpy.data.texts.get(vmt.PRESETS_TEXT) or bpy.data.texts.new(vmt.PRESETS_TEXT)
@@ -9413,6 +9593,65 @@ def main():
                                     outside=outside, gable_boards=gable_n, shakes=len(ct_roof),
                                     flush_gable_faces=len(flush), corner_boards=corners_ok,
                                     ridge_cap=round(rc_len, 3))
+
+    # ---- v2.12: MOVABLE DAMAGE (Add Damage Zone): a second cottage, damage
+    # driven by an Empty; tiles are compared by their exact placement
+    dz_ob = storey_mesh("Cottage212", [(0, 0, 0, 6, 4.5, 3)], 55.0)
+    rc_ = dz_ob.modifiers["VM_RoofCap"]
+    set_params(rc_, rc_.node_group, {"Style": "Gable"})
+    clad_names = plank_names | shake_names
+
+    def tile_keys():
+        dz_ob.update_tag()
+        dg_ = bpy.context.evaluated_depsgraph_get()
+        dg_.update()
+        out = {}
+        for inst in dg_.object_instances:
+            if inst.is_instance and inst.parent is not None and inst.parent.original == dz_ob \
+                    and inst.object.name in clad_names:
+                m_ = inst.matrix_world
+                key = (tuple(round(x, 4) for x in m_.translation)
+                       + tuple(round(x, 3) for x in m_.to_quaternion())
+                       + tuple(round(x, 3) for x in m_.to_scale()))
+                out[key] = m_.translation.copy()
+        return out
+    dz_clean = tile_keys()
+    dz_emp = vmt.add_damage_zone(dz_ob, Vector((61.0, 12.0, 1.6)), fx_scene.collection)
+    dz_r = vmt.DAMAGE_ZONE_RADIUS
+
+    def zone_report(after, centre):
+        gone = [dz_clean[k] for k in dz_clean if k not in after]       # missing / moved
+        new = [after[k] for k in after if k not in dz_clean]           # broken / loose
+        far = [t_ for t_ in gone if (t_ - centre).length > dz_r + 0.01]
+        return gone, new, far
+    dz_a = tile_keys()
+    gone_a, new_a, far_a = zone_report(dz_a, dz_emp.location.copy())
+    n_layers = len(vmt.damage_layers(dz_ob))
+    check("v2.12(damage zone): 'Add Damage Zone' damages BOTH cladding layers around an Empty - "
+          "tiles go missing, break and hang loose there, and NOT ONE tile outside the radius changes",
+          n_layers == 2 and len(dz_a) < len(dz_clean) - 5 and len(new_a) > 5 and len(gone_a) > 15
+          and not far_a,
+          f"layers={n_layers}, tiles {len(dz_clean)} -> {len(dz_a)} ({len(dz_clean) - len(dz_a)} missing), "
+          f"{len(gone_a)} changed, {len(new_a)} broken/loose, changed beyond {dz_r} m={len(far_a)}")
+    dz_emp.location = Vector((55.0, 16.5, 2.0))
+    dz_b = tile_keys()
+    gone_b, new_b, far_b = zone_report(dz_b, dz_emp.location.copy())
+    old_c = Vector((61.0, 12.0, 1.6))
+    healed = all(k in dz_b for k in dz_clean if (dz_clean[k] - old_c).length <= dz_r
+                 and (dz_clean[k] - dz_emp.location).length > dz_r)
+    check("v2.12(movable): moving the Empty moves the damage - the tiles at the old spot are "
+          "whole again (exactly as undamaged) and the new spot is damaged, still inside the radius",
+          healed and len(gone_b) > 15 and not far_b,
+          f"old spot restored={healed}, {len(gone_b)} changed at the new spot, beyond radius={len(far_b)}")
+    for m_ in vmt.damage_layers(dz_ob):
+        set_params(m_, m_.node_group, {"Damage": False})
+    dz_c = tile_keys()
+    check("v2.12(damage off): Damage off gives back EXACTLY the undamaged cladding (every tile "
+          "placement identical)",
+          dz_c.keys() == dz_clean.keys(),
+          f"tiles {len(dz_clean)} -> {len(dz_c)}, identical={dz_c.keys() == dz_clean.keys()}")
+    results["damage_v212"] = dict(clean=len(dz_clean), zone_tiles=len(dz_a), changed=len(gone_a),
+                                  broken_loose=len(new_a), moved_changed=len(gone_b))
 
     results["addon_library"] = dict(fresh_instances=inst_fa, update_instances=inst_after,
                                     datablocks=n_data)

@@ -32,7 +32,9 @@ ID_SOCKETS = {
 # dependency: missing materials are simply left for the user to assign)
 AUTO_MATERIALS = {
     "VM_SceneDetailer_Planks": {
-        "Wall Material": "VM_WallWeatheredPlanks",
+        # v2.12: the wall surface is only seen where siding is missing - old
+        # dark sheathing boards behind it
+        "Wall Material": "VM_Sheathing",
         # v2.11: the roof surface is only ever seen between the shakes - a dark
         # underlay, not a second roof texture
         "Roof Material": "VM_RoofUnderlay",
@@ -248,6 +250,8 @@ def dress_stack():
         "Edge Boards": ["val", "", True],
         "Edge Board Width": ["val", "", 0.1], "Edge Board Thickness": ["val", "", 0.025],
         "Edge Board Offset": ["val", "", 0.024],
+        # v2.12 damage is opt-in (Add Damage Zone / the Weathered preset)
+        "Damage": ["val", "", False], "Max Tilt": ["val", "", math.radians(12.0)],
     })
     # v2.10: floorboards on the building's bottom, laid from the inside
     floor = dict(base, **{
@@ -284,6 +288,7 @@ def dress_stack():
         "Edge Boards": ["val", "", True],
         "Edge Board Width": ["val", "", 0.13], "Edge Board Thickness": ["val", "", 0.025],
         "Edge Board Offset": ["val", "", 0.045],
+        "Damage": ["val", "", False], "Max Tilt": ["val", "", math.radians(8.0)],
     })
     slots = dict(base, **{
         "Placement Mode": ["val", "", "Fit"],
@@ -717,6 +722,69 @@ class VM_OT_dress_object(bpy.types.Operator):
         return {'FINISHED'}
 
 
+DAMAGE_ZONE_RADIUS = 2.5
+
+
+def damage_layers(ob):
+    """v2.12: the object's cladding layers that can take damage (any VM layer in
+    Cladding placement with the Damage panel - the interior floor excluded)."""
+    out = []
+    for m in ob.modifiers:
+        if not is_vm_modifier(m) or m.node_group is None or m.name == "VM_SceneDetailer_Floor":
+            continue
+        it_d = find_input(m.node_group, "Damage Object")
+        it_m = find_input(m.node_group, "Placement Mode")
+        if it_d is None or it_m is None:
+            continue
+        sock = getattr(m.properties.inputs, it_m.identifier, None)
+        if sock is not None and str(sock.value) == "Cladding":
+            out.append(m)
+    return out
+
+
+def add_damage_zone(ob, location, collection, radius=DAMAGE_ZONE_RADIUS, amount=0.85):
+    """Create an Empty that drives the damage of every cladding layer of `ob`
+    (move / scale the empty's position to move the damage). Returns the empty."""
+    emp = bpy.data.objects.new(f"VM_DamageZone_{ob.name}", None)
+    emp.empty_display_type = 'SPHERE'
+    emp.empty_display_size = radius          # the sphere shows where damage fades out
+    emp.location = location
+    collection.objects.link(emp)
+    warnings = []
+    for m in damage_layers(ob):
+        for key, payload in (("Damage", ["val", "", True]),
+                             ("Damage Object", ["id", "NodeSocketObject", emp.name]),
+                             ("Damage Radius", ["val", "", float(radius)]),
+                             ("Damage Amount", ["val", "", float(amount)])):
+            write_socket(m, m.node_group, key, payload, warnings)
+    ob.update_tag()
+    return emp
+
+
+class VM_OT_add_damage_zone(bpy.types.Operator):
+    bl_idname = "vm.add_damage_zone"
+    bl_label = "VM: Add Damage Zone"
+    bl_description = ("Damage the selected objects' cladding around a new Empty at the 3D cursor: "
+                      "missing boards and shakes at the centre, broken and loose ones around "
+                      "them. Move the Empty to move the damage; its sphere is the radius")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return any(o.type == 'MESH' for o in context.selected_objects)
+
+    def execute(self, context):
+        targets = [o for o in context.selected_objects if o.type == 'MESH' and damage_layers(o)]
+        if not targets:
+            self.report({'WARNING'}, "No VM cladding layers on the selection - Dress Object first")
+            return {'CANCELLED'}
+        for ob in targets:
+            add_damage_zone(ob, context.scene.cursor.location.copy(), context.collection)
+        self.report({'INFO'}, f"Damage zone added to {len(targets)} object(s) - move the Empty "
+                              f"to move the damage")
+        return {'FINISHED'}
+
+
 class VM_OT_copy_engine_setup(bpy.types.Operator):
     bl_idname = "vm.copy_engine_setup"
     bl_label = "VM: Copy Engine Setup"
@@ -881,6 +949,7 @@ def _draw_buttons(layout, context):
     row.operator(VM_OT_copy_engine_setup.bl_idname, text="Copy Setup", icon='COPYDOWN')
     row.operator(VM_OT_paste_engine_setup.bl_idname, text="Paste Setup", icon='PASTEDOWN')
     col.operator(VM_OT_toggle_all_modifiers.bl_idname, icon='RESTRICT_VIEW_OFF')
+    col.operator(VM_OT_add_damage_zone.bl_idname, text="Add Damage Zone", icon='MOD_EXPLODE')
 
 
 class VM_PT_panel_modifiers(bpy.types.Panel):
@@ -921,7 +990,7 @@ class VM_AddonPreferences(bpy.types.AddonPreferences):
 
 classes = (VM_AddonPreferences, VM_OT_toggle_all_modifiers, VM_OT_dress_object,
            VM_OT_copy_engine_setup, VM_OT_paste_engine_setup, VM_OT_save_preset,
-           VM_OT_load_preset, VM_OT_import_engine, VM_OT_apply_preset,
+           VM_OT_load_preset, VM_OT_import_engine, VM_OT_apply_preset, VM_OT_add_damage_zone,
            VM_PT_panel_modifiers, VM_PT_panel_view3d)
 
 
