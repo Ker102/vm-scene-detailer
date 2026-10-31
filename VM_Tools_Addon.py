@@ -45,6 +45,11 @@ AUTO_MATERIALS = {
     "VM_SceneDetailer_Shingles": {"Edge Board Material": "VM_Shake"},
     "VM_SceneDetailer_Floor": {"Floor Material": "VM_WallWeatheredPlanks"},
     "VM_RoofCap": {"Roof Material": "VM_RoofUnderlay"},
+    # v2.15: the windows layer cuts every opening - board jambs, weathered
+    # bare boards inside
+    "VM_SceneDetailer_Windows": {"Jamb Material": "VM_SidingBoard",
+                                 "Interior Material": "VM_WallWeatheredPlanks",
+                                 "Interior Floor Material": "VM_WallWeatheredPlanks"},
 }
 
 # v2.10: the pack collections each layer uses by default - wired BY NAME when
@@ -332,6 +337,10 @@ def dress_stack():
         # row per 3 m storey on a tall wall (rows that do not fit are dropped)
         "Max Base Height": ["val", "", 1000.0],
         "Slot Rows": ["val", "", 16], "Row Spacing": ["val", "", 3.0],
+        # v2.15: the LAST opening layer cuts the door's and the windows'
+        # openings through the wall (jambs, interior, siding cut around them)
+        "Cut Openings": ["val", "", True],
+        "Opening Inset": ["val", "", 0.03], "Wall Depth": ["val", "", 0.15],
     })
     return [
         # v2.11: the roof cap runs BEFORE the wall planks so its gable

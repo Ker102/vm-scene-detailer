@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.14) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.15) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.14) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.15) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,31 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (253 checks: the original 197 kept
-    green + 56 v2.7-v2.14 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (256 checks: the original 197 kept
+    green + 59 v2.7-v2.15 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.15 (2026-11-01) - REAL OPENINGS, AN INTERIOR BEHIND THEM
+-------------------------------------------------------------------------------
+* New 'Openings' panel on every layer (Fit mode): 'Cut Openings' cuts every
+  door / window placed so far (this layer's AND the earlier layers') through
+  the wall. Turn it on on the LAST opening layer - the add-on stack does that
+  on VM_SceneDetailer_Windows, so the door is cut too.
+  - the hole is the prop's outline minus 'Opening Inset' (0.03 m: the frame
+    laps the wall), with wood JAMBS 'Wall Depth' deep (0.15 m, 'Jamb
+    Material' = VM_SidingBoard);
+  - behind it is an INTERIOR: the building's faces turned inward ('Interior
+    Material' = VM_WallWeatheredPlanks), the interior floorboards of the
+    Floor layer, the roof underside;
+  - the SIDING is cut around each opening: boards stop at its sides, boards
+    running into its head / sill are notched to it - no board crosses it.
+* In daylight a closed room seen through a small window reads dark, as a
+  real one does; damage holes and open doors let light in. For a showcase
+  shot put a light inside.
+* Cut Openings off = exactly the v2.14 wall.
+* Still to do: ragged damage holes through the wall into the interior,
+  glass (broken panes in damage zones), VINES.
 
 v2.14 (2026-10-31) - DAMAGED AROUND EVERY HOLE, MORE VARIETY
 -------------------------------------------------------------------------------
@@ -1037,8 +1058,12 @@ in-memory:
     board's end or the wall outline;
   * v2.14(hole edges): no intact board shows a clean flat end at a hole -
     every end meets another board, a broken board's nailed end or the
-    outline.
-Total for this release: 253 checks, 253 passed (verification_v2.json).
+    outline;
+  * v2.15(openings cut): a ray through every opening passes the wall and
+    reaches the interior;
+  * v2.15(siding cut): no board crosses an opening, boards are cut at it;
+  * v2.15(cut off): Cut Openings off gives back the solid v2.14 wall.
+Total for this release: 256 checks, 256 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

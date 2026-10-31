@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.14"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.15"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -4133,7 +4133,11 @@ def build_node_group():
     e_mat = b.N("GeometryNodeSetMaterial", (6900, -5800))
     b.L(st_uv.outputs["Geometry"], e_mat.inputs["Geometry"])
     b.L(gi.outputs["Edge Board Material"], e_mat.inputs["Material"])
-    b.L(e_mat.outputs["Geometry"], join_all.inputs["Geometry"])
+    st_trim = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="FACE")
+    b.L(e_mat.outputs["Geometry"], st_trim.inputs["Geometry"])
+    st_trim.inputs["Name"].default_value = "vm_trim"
+    st_trim.inputs["Value"].default_value = 1.0
+    b.L(st_trim.outputs["Geometry"], join_all.inputs["Geometry"])
 
     # ---- v2.12 DAMAGE (movable weathering of the cladding tiles). A noise field
     # (patch size Damage Scale) plus a per-tile random picks the damaged tiles;
@@ -4520,6 +4524,301 @@ def build_node_group():
     # exactly like the plain tile would
     b.L(loosen(replace(sel_wo, wo_inst, wo_n, wo_k, None, dnamed("vm_iscl", "FLOAT_VECTOR")),
                is_c(cat, 3)), join_all.inputs["Geometry"])
+
+    # ---- v2.15 REAL OPENINGS + INTERIOR (the user's 'a window where there is
+    # no wall', 'with the damage holes we are supposed to see the interior').
+    # A Fit layer with Cut Openings ON cuts every opening placed so far that no
+    # earlier layer cut (its own + the earlier layers' - turn it on on the LAST
+    # opening layer):
+    # - the host mesh gets a real hole the size of the prop (minus Opening
+    #   Inset, so the frame laps the wall) with jambs Wall Depth deep;
+    # - an INTERIOR shell (the host's faces turned inward, Interior Material /
+    #   Interior Floor Material) is what you see through it;
+    # - every incoming cladding tile that crosses an opening is cut back to
+    #   the opening's sides (split in two when it spans it).
+    p_cut = b.panel("Openings", "Fit (v2.15): cut real openings through the wall - jambs, an "
+                    "interior behind them, cladding cut around them")
+    b.sock("Cut Openings", "NodeSocketBool", p_cut, False,
+           desc="Fit (v2.15): cut every opening placed so far (this layer's and the earlier "
+                "layers') through the host mesh, show the interior through it and cut the "
+                "cladding around it. Turn it on on the LAST opening layer")
+    b.sock("Opening Inset", "NodeSocketFloat", p_cut, 0.03, 0.0, 1.0, "DISTANCE",
+           "Openings: the hole is the prop's outline shrunk by this (world m) - the frame "
+           "laps the wall")
+    b.sock("Wall Depth", "NodeSocketFloat", p_cut, 0.15, 0.0, 5.0, "DISTANCE",
+           "Openings: jamb depth into the wall (world m)")
+    b.sock("Jamb Material", "NodeSocketMaterial", p_cut, None,
+           desc="Openings: material of the jambs (empty = none assigned)")
+    b.sock("Interior Material", "NodeSocketMaterial", p_cut, None,
+           desc="Openings: inside walls and ceiling (empty = none assigned)")
+    b.sock("Interior Floor Material", "NodeSocketMaterial", p_cut, None,
+           desc="Openings: inside floor (empty = the Interior Material)")
+    for lk in list(b.ng.links):
+        if lk.from_node == join_all and lk.to_node == go:
+            b.ng.links.remove(lk)
+    c_sep = b.N("GeometryNodeSeparateComponents", random_loc())
+    b.L(join_all.outputs["Geometry"], c_sep.inputs["Geometry"])
+    c_inst0 = c_sep.outputs["Instances"]
+    ib_ = b.N("GeometryNodeInputInstanceBounds", random_loc())
+    is_new = tand(tcmp("GREATER_THAN", dnamed("vm_openmark", "FLOAT"), 0.5),
+                  tcmp("LESS_THAN", dnamed("vm_cutdone", "FLOAT"), 0.5))
+    c_chain = c_inst0
+    for nm_, dt_, val_ in (("vm_obmin", "FLOAT_VECTOR", ib_.outputs["Min"]),
+                           ("vm_obmax", "FLOAT_VECTOR", ib_.outputs["Max"]),
+                           ("vm_orot", "QUATERNION", i_rot), ("vm_oscl", "FLOAT_VECTOR", i_scl)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="INSTANCE")
+        b.L(c_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        c_chain = st_.outputs["Geometry"]
+    c_inst = c_chain
+
+    def rot(vec_, rot_):
+        rv_ = b.N("FunctionNodeRotateVector", random_loc())
+        b.L(vec_, rv_.inputs["Vector"]); b.L(rot_, rv_.inputs["Rotation"])
+        return rv_.outputs["Vector"]
+
+    def vmul(a_, b_):
+        return vmath("MULTIPLY", a_, b_)
+
+    def sxyz(v_):
+        n_ = b.N("ShaderNodeSeparateXYZ", random_loc())
+        b.L(v_, n_.inputs["Vector"])
+        return n_.outputs["X"], n_.outputs["Y"], n_.outputs["Z"]
+    # one point per new opening, at its cut box centre
+    o_pts = b.N("GeometryNodeInstancesToPoints", random_loc())
+    b.L(c_inst, o_pts.inputs["Instances"])
+    b.L(is_new, o_pts.inputs["Selection"])
+    o_cnt = b.N("GeometryNodeAttributeDomainSize", random_loc())
+    o_cnt.component = "POINTCLOUD"
+    b.L(o_pts.outputs["Points"], o_cnt.inputs["Geometry"])
+    has_open = tcmp("GREATER_THAN", o_cnt.outputs["Point Count"], 0.5)
+    o_rot = dnamed("vm_orot", "QUATERNION")
+    o_lo = vmul(dnamed("vm_obmin", "FLOAT_VECTOR"), dnamed("vm_oscl", "FLOAT_VECTOR"))
+    o_hi = vmul(dnamed("vm_obmax", "FLOAT_VECTOR"), dnamed("vm_oscl", "FLOAT_VECTOR"))
+    lx, _ly, lz = sxyz(o_lo)
+    hx, _hy, hz = sxyz(o_hi)
+    ins_l = em("DIVIDE", gi.outputs["Opening Inset"], geo_f)
+    dep_l = em("DIVIDE", gi.outputs["Wall Depth"], geo_f)
+    out_l = em("DIVIDE", 0.05, geo_f)
+    o_hu = em("MAXIMUM", em("SUBTRACT", em("MULTIPLY", em("SUBTRACT", hx, lx), 0.5), ins_l), 0.001)
+    o_hz = em("MAXIMUM", em("SUBTRACT", em("MULTIPLY", em("SUBTRACT", hz, lz), 0.5), ins_l), 0.001)
+    o_ctr_l = v3(em("MULTIPLY", em("ADD", lx, hx), 0.5), em("MULTIPLY", em("SUBTRACT", out_l, dep_l), 0.5),
+                 em("MULTIPLY", em("ADD", lz, hz), 0.5))
+    o_pos = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    o_ctr = vmath("ADD", o_pos, rot(o_ctr_l, o_rot))
+    o_chain = o_pts.outputs["Points"]
+    for nm_, val_ in (("vm_cctr", o_ctr), ("vm_cu", rot(v3(1.0, 0.0, 0.0), o_rot)),
+                      ("vm_cn", rot(v3(0.0, 1.0, 0.0), o_rot)), ("vm_cup", rot(v3(0.0, 0.0, 1.0), o_rot)),
+                      ("vm_csize", v3(em("MULTIPLY", o_hu, 2.0), em("ADD", dep_l, out_l),
+                                      em("MULTIPLY", o_hz, 2.0))),
+                      ("vm_chalf", v3(o_hu, 0.0, o_hz))):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+        b.L(o_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        o_chain = st_.outputs["Geometry"]
+    o_cloud = o_chain
+    # the cut boxes: a unit cube per opening; its inner (-Y) face is marked so
+    # the hole opens into the interior once the boolean is done
+    cube_ = b.N("GeometryNodeMeshCube", random_loc())
+    cube_.inputs["Size"].default_value = (1.0, 1.0, 1.0)
+    cb_n = sxyz(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"])[1]
+    cb_chain = cube_.outputs["Mesh"]
+    for nm_, val_ in (("vm_cutback", tsw(tcmp("LESS_THAN", cb_n, -0.5), 0.0, 1.0)), ("vm_cutter", 1.0)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="FACE")
+        b.L(cb_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        if isinstance(val_, float):
+            st_.inputs["Value"].default_value = val_
+        else:
+            b.L(val_, st_.inputs["Value"])
+        cb_chain = st_.outputs["Geometry"]
+    o_mv = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(o_cloud, o_mv.inputs["Geometry"])
+    b.L(dnamed("vm_cctr", "FLOAT_VECTOR"), o_mv.inputs["Position"])
+    o_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(o_mv.outputs["Geometry"], o_iop.inputs["Points"])
+    b.L(cb_chain, o_iop.inputs["Instance"])
+    b.L(o_rot, o_iop.inputs["Rotation"])
+    b.L(dnamed("vm_csize", "FLOAT_VECTOR"), o_iop.inputs["Scale"])
+    o_real = b.N("GeometryNodeRealizeInstances", random_loc())
+    b.L(o_iop.outputs["Instances"], o_real.inputs["Geometry"])
+    # the host: every mesh face but the edge boards and the old interior
+    # shell (rebuilt below, so a second cutting layer stays clean)
+    c_mesh = c_sep.outputs["Mesh"]
+    is_trim = tcmp("GREATER_THAN", dnamed("vm_trim", "FLOAT"), 0.5)
+    c_host = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="FACE")
+    b.L(c_mesh, c_host.inputs["Geometry"])
+    b.L(bor(is_trim, tcmp("GREATER_THAN", dnamed("vm_inner", "FLOAT"), 0.5)), c_host.inputs["Selection"])
+    c_trims = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="FACE")
+    b.L(c_mesh, c_trims.inputs["Geometry"])
+    b.L(bnot(is_trim), c_trims.inputs["Selection"])
+    c_bool = b.N("GeometryNodeMeshBoolean", random_loc(), operation="DIFFERENCE", solver="EXACT")
+    b.L(c_host.outputs["Geometry"], c_bool.inputs["Mesh 1"])
+    b.L(o_real.outputs["Geometry"], c_bool.inputs["Mesh 2"])
+    c_bool.inputs["Hole Tolerant"].default_value = True
+    c_open = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="FACE")
+    b.L(c_bool.outputs["Mesh"], c_open.inputs["Geometry"])
+    b.L(tcmp("GREATER_THAN", dnamed("vm_cutback", "FLOAT"), 0.5), c_open.inputs["Selection"])
+    is_jamb = tcmp("GREATER_THAN", dnamed("vm_cutter", "FLOAT"), 0.5)
+    # jamb boards get wood UVs in meters, the grain along each jamb's length
+    # (up the side jambs, along the wall on the head and the sill)
+    j_eval = b.N("GeometryNodeFieldOnDomain", random_loc(), domain="FACE", data_type="FLOAT_VECTOR")
+    b.L(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"], j_eval.inputs[0])
+    jnx, jny, jnz = sxyz(j_eval.outputs[0])
+    jpx, jpy, jpz = sxyz(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"])
+    j_flat = tcmp("GREATER_THAN", em("ABSOLUTE", jnz), 0.5)
+    j_along = em("SUBTRACT", em("MULTIPLY", jpy, jnx), em("MULTIPLY", jpx, jny))   # along the wall
+    j_wall_u = tsw(tcmp("GREATER_THAN", em("ABSOLUTE", jnx), em("ABSOLUTE", jny)), jpx, jpy)
+    j_uv = v3(em("MULTIPLY", tsw(j_flat, jpz, j_wall_u), geo_f),
+              em("MULTIPLY", tsw(j_flat, j_along, em("ADD", jpx, jpy)), geo_f), 0.0)
+    j_st = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT2", domain="CORNER")
+    b.L(c_open.outputs["Geometry"], j_st.inputs["Geometry"])
+    j_st.inputs["Name"].default_value = "UVMap"
+    b.L(is_jamb, j_st.inputs["Selection"])
+    b.L(j_uv, j_st.inputs["Value"])
+    c_walls = material_gate(b, j_st.outputs["Geometry"], gi.outputs["Jamb Material"], is_jamb,
+                            random_loc())
+    # the interior: the host's own faces turned inward a hair inside the wall
+    sh_ = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="FACE")
+    b.L(c_open.outputs["Geometry"], sh_.inputs["Geometry"])
+    b.L(is_jamb, sh_.inputs["Selection"])
+    sh_n = b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"]
+    sh_mv = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(sh_.outputs["Geometry"], sh_mv.inputs["Geometry"])
+    b.L(vmath("SCALE", sh_n, em("DIVIDE", -0.004, geo_f)), sh_mv.inputs["Offset"])
+    sh_fl = b.N("GeometryNodeFlipFaces", random_loc())
+    b.L(sh_mv.outputs["Geometry"], sh_fl.inputs["Mesh"])
+    sh_st = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="FACE")
+    b.L(sh_fl.outputs["Mesh"], sh_st.inputs["Geometry"])
+    sh_st.inputs["Name"].default_value = "vm_inner"
+    sh_st.inputs["Value"].default_value = 1.0
+    sh_m1 = material_gate(b, sh_st.outputs["Geometry"], gi.outputs["Interior Material"],
+                          bnot(is_jamb), random_loc())
+    sh_up = tcmp("GREATER_THAN", sxyz(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"])[2], 0.7)
+    sh_m2 = material_gate(b, sh_m1, gi.outputs["Interior Floor Material"], sh_up, random_loc())
+
+    # cladding cut around the openings: a tile crossing its nearest opening is
+    # split into the piece left of it and the piece right of it (each scaled
+    # about its own outer end); two passes catch a tile spanning two openings
+    def trim_pass(geo_):
+        sn_ = b.N("GeometryNodeSampleNearest", random_loc(), domain="POINT")
+        b.L(o_cloud, sn_.inputs["Geometry"])
+        t_p = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+        b.L(t_p, sn_.inputs["Sample Position"])
+
+        def o_at(name_):
+            si_ = b.N("GeometryNodeSampleIndex", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+            b.L(o_cloud, si_.inputs["Geometry"])
+            b.L(dnamed(name_, "FLOAT_VECTOR"), si_.inputs["Value"])
+            b.L(sn_.outputs["Index"], si_.inputs["Index"])
+            return si_.outputs["Value"]
+        oc, ou, on, oup, ohalf = (o_at("vm_cctr"), o_at("vm_cu"), o_at("vm_cn"), o_at("vm_cup"),
+                                  o_at("vm_chalf"))
+        hu_, _hy, hz_ = sxyz(ohalf)
+        ib2 = b.N("GeometryNodeInputInstanceBounds", random_loc())
+        bmn_x, _bmy, bmn_z = sxyz(ib2.outputs["Min"])
+        bmx_x, _bxy, bmx_z = sxyz(ib2.outputs["Max"])
+        isx, _isy, isz = sxyz(i_scl)
+        rel = vmath("SUBTRACT", t_p, oc)
+
+        def dot(a_, b_):
+            return vmath("DOT_PRODUCT", a_, b_, out="Value")
+        tx_ = rot(v3(1.0, 0.0, 0.0), i_rot)
+        e_lo = vmath("ADD", rel, vmath("SCALE", tx_, em("MULTIPLY", bmn_x, isx)))
+        e_hi = vmath("ADD", rel, vmath("SCALE", tx_, em("MULTIPLY", bmx_x, isx)))
+        a_l, a_h = dot(e_lo, ou), dot(e_hi, ou)
+        a0, a1 = em("MINIMUM", a_l, a_h), em("MAXIMUM", a_l, a_h)
+        zc = dot(rel, oup)
+        z0 = em("ADD", zc, em("MULTIPLY", bmn_z, isz))
+        z1 = em("ADD", zc, em("MULTIPLY", bmx_z, isz))
+        z_ov = em("SUBTRACT", em("MINIMUM", z1, hz_), em("MAXIMUM", z0, em("MULTIPLY", hz_, -1.0)))
+        eps_ = em("DIVIDE", 0.005, geo_f)
+        hit = tand(tand(has_open, tcmp("LESS_THAN", dnamed("vm_openmark", "FLOAT"), 0.5)),
+                   tand(tand(tcmp("GREATER_THAN", a1, em("SUBTRACT", eps_, hu_)),
+                             tcmp("LESS_THAN", a0, em("SUBTRACT", hu_, eps_))),
+                        tand(tcmp("GREATER_THAN", z_ov, eps_),
+                             tand(tcmp("LESS_THAN", em("ABSOLUTE", dot(rel, on)), em("DIVIDE", 0.3, geo_f)),
+                                  tcmp("GREATER_THAN", dot(rot(v3(0.0, 1.0, 0.0), i_rot), on), 0.7)))))
+        g_ = geo_
+        for nm_, dt_, val_ in (("vm_ta0", "FLOAT", a0), ("vm_ta1", "FLOAT", a1), ("vm_thu", "FLOAT", hu_),
+                               ("vm_tz0", "FLOAT", z0), ("vm_tz1", "FLOAT", z1), ("vm_thz", "FLOAT", hz_),
+                               ("vm_tsg", "FLOAT", dot(tx_, ou)), ("vm_tou", "FLOAT_VECTOR", ou),
+                               ("vm_thit", "FLOAT", tsw(hit, 0.0, 1.0))):
+            st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="INSTANCE")
+            b.L(g_, st_.inputs["Geometry"])
+            st_.inputs["Name"].default_value = nm_
+            b.L(val_, st_.inputs["Value"])
+            g_ = st_.outputs["Geometry"]
+        t_hit = tcmp("GREATER_THAN", dnamed("vm_thit", "FLOAT"), 0.5)
+        keep_ = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="INSTANCE")
+        b.L(g_, keep_.inputs["Geometry"])
+        b.L(t_hit, keep_.inputs["Selection"])
+        # pieces: 0 = left of the hole, 1 = right of it, 2 = the part of the
+        # board above / below the hole across its width (a notched board)
+        dup_ = b.N("GeometryNodeDuplicateElements", random_loc(), domain="INSTANCE")
+        b.L(g_, dup_.inputs["Geometry"])
+        b.L(t_hit, dup_.inputs["Selection"])
+        dup_.inputs["Amount"].default_value = 3
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+        b.L(dup_.outputs["Geometry"], st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = "vm_tside"
+        b.L(dup_.outputs["Duplicate Index"], st_.inputs["Value"])
+        ta0, ta1 = dnamed("vm_ta0", "FLOAT"), dnamed("vm_ta1", "FLOAT")
+        thu, thz = dnamed("vm_thu", "FLOAT"), dnamed("vm_thz", "FLOAT")
+        tz0, tz1 = dnamed("vm_tz0", "FLOAT"), dnamed("vm_tz1", "FLOAT")
+        side_ = dnamed("vm_tside", "FLOAT")
+        right = tcmp("GREATER_THAN", side_, 0.5)
+        mid = tcmp("GREATER_THAN", side_, 1.5)
+        nhu = em("MULTIPLY", thu, -1.0)
+        p0 = tsw(mid, tsw(right, ta0, thu), em("MAXIMUM", ta0, nhu))
+        p1 = tsw(mid, tsw(right, nhu, ta1), em("MINIMUM", ta1, thu))
+        p_len = em("SUBTRACT", p1, p0)
+        f_ = em("DIVIDE", p_len, em("MAXIMUM", em("SUBTRACT", ta1, ta0), 1e-6))
+        k_bot = em("SUBTRACT", em("MULTIPLY", thz, -1.0), tz0)      # board left below the hole
+        k_top = em("SUBTRACT", tz1, thz)                            # ... and above it
+        bot_ = tcmp("GREATER_EQUAL", k_bot, k_top)
+        k_z = tsw(mid, em("SUBTRACT", tz1, tz0), em("MAXIMUM", k_bot, k_top))
+        fz = em("DIVIDE", k_z, em("MAXIMUM", em("SUBTRACT", tz1, tz0), 1e-6))
+        pos_sg = tcmp("GREATER_THAN", dnamed("vm_tsg", "FLOAT"), 0.0)
+        ib3 = b.N("GeometryNodeInputInstanceBounds", random_loc())
+        b3n_x, _b3ny, b3n_z = sxyz(ib3.outputs["Min"])
+        b3x_x, _b3xy, b3x_z = sxyz(ib3.outputs["Max"])
+        # every piece is the board scaled about its a0 end (+ its kept edge),
+        # then slid along the wall to where the piece starts
+        sc_ = b.N("GeometryNodeScaleInstances", random_loc())
+        b.L(st_.outputs["Geometry"], sc_.inputs["Instances"])
+        b.L(v3(f_, 1.0, fz), sc_.inputs["Scale"])
+        b.L(v3(tsw(pos_sg, b3x_x, b3n_x), 0.0, tsw(bot_, b3x_z, b3n_z)), sc_.inputs["Center"])
+        sc_.inputs["Local Space"].default_value = True
+        tr_ = b.N("GeometryNodeTranslateInstances", random_loc())
+        b.L(sc_.outputs["Instances"], tr_.inputs["Instances"])
+        b.L(vmath("SCALE", dnamed("vm_tou", "FLOAT_VECTOR"), em("SUBTRACT", p0, ta0)), tr_.inputs["Translation"])
+        tr_.inputs["Local Space"].default_value = False
+        drop_ = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="INSTANCE")
+        b.L(tr_.outputs["Instances"], drop_.inputs["Geometry"])
+        b.L(bor(tcmp("LESS_THAN", p_len, em("DIVIDE", 0.02, geo_f)),
+                tcmp("LESS_THAN", k_z, em("DIVIDE", 0.01, geo_f))), drop_.inputs["Selection"])
+        j_ = b.N("GeometryNodeJoinGeometry", random_loc())
+        b.L(keep_.outputs["Geometry"], j_.inputs["Geometry"])
+        b.L(drop_.outputs["Geometry"], j_.inputs["Geometry"])
+        return j_.outputs["Geometry"]
+    c_tiles = trim_pass(trim_pass(c_inst))
+    c_done = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+    b.L(c_tiles, c_done.inputs["Geometry"])
+    c_done.inputs["Name"].default_value = "vm_cutdone"
+    b.L(tsw(is_new, dnamed("vm_cutdone", "FLOAT"), 1.0), c_done.inputs["Value"])
+    c_join = b.N("GeometryNodeJoinGeometry", random_loc())
+    for g_ in (c_walls, sh_m2, c_trims.outputs["Geometry"], c_done.outputs["Geometry"],
+               c_sep.outputs["Curve"], c_sep.outputs["Point Cloud"], c_sep.outputs["Volume"]):
+        b.L(g_, c_join.inputs["Geometry"])
+    c_sw = b.N("GeometryNodeSwitch", random_loc())
+    c_sw.input_type = "GEOMETRY"
+    b.L(tand(tand(gi.outputs["Cut Openings"], is_fit), has_open), c_sw.inputs["Switch"])
+    b.L(join_all.outputs["Geometry"], c_sw.inputs["False"])
+    b.L(c_join.outputs["Geometry"], c_sw.inputs["True"])
+    b.L(c_sw.outputs["Output"], go.inputs["Geometry"])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -10035,6 +10334,10 @@ def main():
     dz_ob = storey_mesh("Cottage212", [(0, 0, 0, 6, 4.5, 3)], 55.0)
     rc_ = dz_ob.modifiers["VM_RoofCap"]
     set_params(rc_, rc_.node_group, {"Style": "Gable"})
+    # the damage checks measure the cladding itself: openings stay uncut here
+    # (v2.15 cuts are checked on their own house below)
+    wl_ = dz_ob.modifiers["VM_SceneDetailer_Windows"]
+    set_params(wl_, wl_.node_group, {"Cut Openings": False})
     # v2.14: hanging / broken tiles are pieces from the Broken / Worn collections
     clad_names = plank_names | shake_names | {
         o_.name for cn_ in ("VM_Tiles_PlankBroken", "VM_Tiles_PlankWorn", "VM_Tiles_ShingleBroken",
@@ -10194,6 +10497,86 @@ def main():
     results["damage_v214"] = dict(intact_ends=len(owned), flat=len(flat),
                                   broken_boards=n_kind["VM_Tiles_PlankBroken"],
                                   broken_outlines=len(outlines))
+
+    # ---- v2.15: REAL OPENINGS + INTERIOR (the user's 'a window where there is
+    # no wall', 'we are supposed to see the interior of the house')
+    op_ob = storey_mesh("Cottage215", [(0, 0, 0, 6, 4.5, 3)], 70.0)
+    rc_ = op_ob.modifiers["VM_RoofCap"]
+    set_params(rc_, rc_.node_group, {"Style": "Gable"})
+    board_kinds = {o_.name for cn_ in ("VM_Tiles_Plank", "VM_Tiles_PlankBroken", "VM_Tiles_PlankWorn")
+                   for o_ in bpy.data.collections[cn_].all_objects}
+
+    def opening_scan():
+        op_ob.update_tag()
+        dg_o = bpy.context.evaluated_depsgraph_get()
+        dg_o.update()
+        ev_o = op_ob.evaluated_get(dg_o)
+        me_o = ev_o.data
+        mats_o = [m_.name if m_ else None for m_ in me_o.materials]
+        inner_ = me_o.attributes.get("vm_inner")
+        n_inner = sum(1 for d_ in inner_.data if d_.value > 0.5) if inner_ else 0
+        bvh_o = BVHTree.FromObject(ev_o, dg_o)
+        opens_, boards_ = [], []
+        for inst in dg_o.object_instances:
+            if not (inst.is_instance and inst.parent is not None and inst.parent.original == op_ob):
+                continue
+            m_ = inst.matrix_world.copy()
+            bb_ = [Vector(c_) for c_ in inst.object.bound_box]
+            lo_ = Vector([min(c_[i] for c_ in bb_) for i in range(3)])
+            hi_ = Vector([max(c_[i] for c_ in bb_) for i in range(3)])
+            if inst.object.name.startswith(("Window", "Door")):
+                sc_ = m_.to_scale()
+                opens_.append(dict(name=inst.object.name, c=m_ @ ((lo_ + hi_) / 2),
+                                   u=(m_.to_3x3() @ Vector((1, 0, 0))).normalized(),
+                                   n=(m_.to_3x3() @ Vector((0, 1, 0))).normalized(),
+                                   up=(m_.to_3x3() @ Vector((0, 0, 1))).normalized(),
+                                   hu=(hi_.x - lo_.x) / 2 * sc_.x - 0.03, hz=(hi_.z - lo_.z) / 2 * sc_.z - 0.03))
+            elif inst.object.name in board_kinds:
+                zm_ = (lo_.z + hi_.z) / 2
+                boards_.append([m_ @ Vector((lo_.x + (hi_.x - lo_.x) * k_ / 8, 0.0, zm_)) for k_ in range(9)])
+        rays_ = []
+        w2l_ = op_ob.matrix_world.inverted()              # the BVH is in object space
+        for o_ in opens_:
+            hit_ = bvh_o.ray_cast(w2l_ @ (o_["c"] + o_["n"] * 1.0), w2l_.to_3x3() @ -o_["n"], 30.0)
+            rays_.append((o_["name"], None if hit_[0] is None else round(hit_[3], 2),
+                          None if hit_[0] is None else mats_o[me_o.polygons[hit_[2]].material_index]))
+        return opens_, boards_, rays_, n_inner, mats_o
+    opens_o, boards_o, rays_o, inner_o, mats_on = opening_scan()
+    # through every opening: nothing at the wall (1 m in front of the opening)
+    # - the ray runs on into the interior (or out through an opening opposite)
+    through = [r_ for r_ in rays_o if r_[1] is None or r_[1] > 1.2]
+    sees_in = [r_ for r_ in rays_o if r_[2] == "VM_WallWeatheredPlanks"]
+    check("v2.15(openings cut): every door and window opening is cut THROUGH the wall - jambs, and "
+          "behind it the INTERIOR (inside walls / floor), not a solid wall",
+          len(opens_o) >= 3 and len(through) == len(rays_o) and sees_in and inner_o > 0
+          and "VM_SidingBoard" in mats_on,
+          f"{len(opens_o)} openings, rays (first hit m, material)={rays_o}, interior faces={inner_o}")
+    inside_hole = 0
+    for pts_ in boards_o:
+        for p_ in pts_:
+            if any(abs((p_ - o_["c"]).dot(o_["u"])) < o_["hu"] - 0.01
+                   and abs((p_ - o_["c"]).dot(o_["up"])) < o_["hz"] - 0.01
+                   and abs((p_ - o_["c"]).dot(o_["n"])) < 0.3 for o_ in opens_o):
+                inside_hole += 1
+                break
+    near_open = sum(1 for pts_ in boards_o if any(
+        abs((pts_[4] - o_["c"]).dot(o_["n"])) < 0.3 and abs((pts_[4] - o_["c"]).dot(o_["up"])) < o_["hz"] + 0.3
+        and min(abs((p_ - o_["c"]).dot(o_["u"])) for p_ in (pts_[0], pts_[8])) < o_["hu"] + 0.05
+        for o_ in opens_o))
+    check("v2.15(siding cut): the siding is cut around every opening - boards stop at its sides, "
+          "boards above / below are notched, NO board crosses an opening",
+          inside_hole == 0 and near_open > 0,
+          f"{len(boards_o)} boards, crossing an opening={inside_hole}, cut at an opening={near_open}")
+    wl_ = op_ob.modifiers["VM_SceneDetailer_Windows"]
+    set_params(wl_, wl_.node_group, {"Cut Openings": False})
+    opens_f, boards_f, rays_f, inner_f, _m = opening_scan()
+    set_params(wl_, wl_.node_group, {"Cut Openings": True})
+    solid = [r_ for r_ in rays_f if r_[1] is not None and r_[1] < 1.2]
+    check("v2.15(cut off): Cut Openings off = the v2.14 wall (solid behind the openings, no interior)",
+          len(solid) == len(rays_f) and inner_f == 0,
+          f"rays={rays_f}, interior faces={inner_f}, boards {len(boards_o)} cut / {len(boards_f)} uncut")
+    results["openings_v215"] = dict(openings=len(opens_o), rays=rays_o, interior_faces=inner_o,
+                                    boards_crossing=inside_hole, boards_cut=near_open)
 
     results["addon_library"] = dict(fresh_instances=inst_fa, update_instances=inst_after,
                                     datablocks=n_data)
