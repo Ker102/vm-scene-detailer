@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.15"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.16"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -1200,6 +1200,26 @@ def exterior_face_field(b, target, loc):
     return ext.outputs["Boolean"]
 
 
+def own_face_field(b, loc):
+    """v2.16: 1.0 on faces of the building's own mesh, 0.0 on faces an earlier
+    layer made (edge boards vm_trim, the opening interior shell vm_inner)."""
+    acc = None
+    for k, nm in enumerate(("vm_trim", "vm_inner")):
+        rd = b.N("GeometryNodeInputNamedAttribute", (loc[0], loc[1] - 150 * k))
+        rd.data_type = "FLOAT"
+        rd.inputs["Name"].default_value = nm
+        lt = b.N("ShaderNodeMath", (loc[0] + 150, loc[1] - 150 * k), operation="LESS_THAN")
+        b.L(rd.outputs["Attribute"], lt.inputs[0])
+        lt.inputs[1].default_value = 0.5
+        if acc is None:
+            acc = lt.outputs["Value"]
+        else:
+            mul = b.N("ShaderNodeMath", (loc[0] + 300, loc[1]), operation="MULTIPLY")
+            b.L(acc, mul.inputs[0]); b.L(lt.outputs["Value"], mul.inputs[1])
+            acc = mul.outputs["Value"]
+    return acc
+
+
 def store_exterior(b, geo, name, loc):
     """Materialize exterior_face_field as a FACE float attribute (evaluation-
     context contract: selections read it back as a plain named attribute).
@@ -1213,9 +1233,11 @@ def store_exterior(b, geo, name, loc):
     b.L(geo, sep.inputs["Geometry"])
     mesh = sep.outputs["Mesh"]
     ext = exterior_face_field(b, mesh, loc)
-    conv = b.N("ShaderNodeMath", (loc[0] + 1250, loc[1]), operation="ADD")
+    # v2.16: faces an earlier layer made (edge boards, interior shell) belong
+    # to no zone - they never take cladding, openings or a zone material
+    conv = b.N("ShaderNodeMath", (loc[0] + 1250, loc[1]), operation="MULTIPLY")
     b.L(ext, conv.inputs[0])
-    conv.inputs[1].default_value = 0.0
+    b.L(own_face_field(b, (loc[0] + 900, loc[1] - 400)), conv.inputs[1])
     st = b.N("GeometryNodeStoreNamedAttribute", (loc[0] + 1400, loc[1]), data_type="FLOAT", domain="FACE")
     b.L(mesh, st.inputs["Geometry"])
     st.inputs["Name"].default_value = name
@@ -1805,6 +1827,8 @@ def build_node_group():
 
     # store frame data on faces -> transfer to face points / read for selection
     store_chain = mesh_only
+    own_idx = b.N("GeometryNodeAccumulateField", (-600, -2600), domain="FACE")
+    b.L(own_face_field(b, (-900, -2600)), own_idx.inputs["Value"])
     stores = [("vm_normal", "FLOAT_VECTOR", nrm.outputs["Normal"]),
               ("vm_u", "FLOAT_VECTOR", u_out),
               ("vm_v", "FLOAT_VECTOR", v_out),
@@ -1818,7 +1842,9 @@ def build_node_group():
               ("vm_fz", "FLOAT", face_min_z),
               # v2.5 Slots: the face index feeds the deterministic no-repeat
               # variant pick (adjacent columns of a face never share a variant)
-              ("vm_fi", "FLOAT", idx.outputs["Index"]),
+              # v2.16: the index counts the building's OWN faces only - edge
+              # boards split into damage pieces must not reshuffle the picks
+              ("vm_fi", "FLOAT", own_idx.outputs["Trailing"]),
               # v2.4.1 world-space factors materialized here too: fields derived
               # from the Normal INPUT are only valid on the mesh domain (they
               # evaluate as garbage on POINT domains - the same class of problem
@@ -4818,7 +4844,179 @@ def build_node_group():
     b.L(tand(tand(gi.outputs["Cut Openings"], is_fit), has_open), c_sw.inputs["Switch"])
     b.L(join_all.outputs["Geometry"], c_sw.inputs["False"])
     b.L(c_join.outputs["Geometry"], c_sw.inputs["True"])
-    b.L(c_sw.outputs["Output"], go.inputs["Geometry"])
+
+    # ---- v2.16 DAMAGE REACHES THE TRIM AND THE OPENINGS (the user's 'the
+    # damage should have affected those corner boards as well', 'adding damage
+    # should affect the windows - damage them or remove them, they can't float
+    # on a few planks').
+    # (a) corner boards / ridge caps: with Damage on each edge board is laid in
+    # ~1 m pieces and every piece takes the siding's own damage field - gone,
+    # broken short (keeps its upper nail) or hanging loose from its upper end.
+    # Damage off = one board per edge, exactly as before.
+    for lk in list(b.ng.links):
+        if lk.from_node == e_sp and lk.to_node == e_iop:
+            b.ng.links.remove(lk)
+    e_wlen = em("MULTIPLY", e_len.outputs["Value"], geo_f)
+    e_n = tsw(d_live, 1.0, em("MAXIMUM", em("FLOOR", em("ADD", e_wlen, 0.5)), 1.0))
+    e_dup = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
+    b.L(e_sp.outputs["Geometry"], e_dup.inputs["Geometry"])
+    b.L(e_n, e_dup.inputs["Amount"])
+    e_k = e_dup.outputs["Duplicate Index"]
+    e_chain2 = e_dup.outputs["Geometry"]
+    for nm_, val_ in (("vm_esk", e_k), ("vm_esn", e_n)):        # (vm_en is the slots' own)
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="POINT")
+        b.L(e_chain2, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        e_chain2 = st_.outputs["Geometry"]
+    ek_, en_ = dnamed("vm_esk", "FLOAT"), dnamed("vm_esn", "FLOAT")
+
+    def e_at(frac_):
+        return vmath("ADD", ep1, vmath("SCALE", e_dir.outputs["Vector"], em("DIVIDE", frac_, en_)))
+    # the damage field is read at each piece's centre
+    e_mid = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(e_chain2, e_mid.inputs["Geometry"])
+    b.L(e_at(em("ADD", ek_, 0.5)), e_mid.inputs["Position"])
+    e_up = tcmp("GREATER_EQUAL", sxyz(e_dir.outputs["Vector"])[2], 0.0)     # local +Z end is the upper
+    e_top = tsw(tcmp("GREATER_THAN", em("ABSOLUTE", sxyz(e_dn.outputs["Vector"])[2]), 0.3),
+                tsw(tcmp("LESS_THAN", r_a["Z"], 0.5), 0.0, 1.0), tsw(e_up, 0.0, 1.0))
+    e_chain3 = e_mid.outputs["Geometry"]
+    for nm_, val_ in (("vm_ecat", tsw(d_live, 0.0, d_cat)), ("vm_etop", e_top),
+                      ("vm_efr", tm("MULTIPLY_ADD", r_a["Y"], 0.45, 0.35)),
+                      ("vm_etl", tm("MULTIPLY_ADD", r_a["X"], 0.7, 0.3))):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="POINT")
+        b.L(e_chain3, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        e_chain3 = st_.outputs["Geometry"]
+    e_start = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(e_chain3, e_start.inputs["Geometry"])
+    b.L(e_at(ek_), e_start.inputs["Position"])
+    b.L(e_start.outputs["Geometry"], e_iop.inputs["Points"])
+    b.L(v3(e_f, 1.0, em("DIVIDE", e_len.outputs["Value"], en_)), e_iop.inputs["Scale"])
+    for lk in list(b.ng.links):
+        if lk.from_node == e_iop and lk.to_node == st_ed:
+            b.ng.links.remove(lk)
+    ecat = dnamed("vm_ecat", "FLOAT")
+    etop = tcmp("GREATER_THAN", dnamed("vm_etop", "FLOAT"), 0.5)
+    e_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="INSTANCE")
+    b.L(e_iop.outputs["Instances"], e_del.inputs["Geometry"])
+    b.L(is_c(ecat, 1), e_del.inputs["Selection"])
+    e_cz = tsw(etop, 0.0, 1.0)                                  # the kept (upper) end, local z
+    e_br = b.N("GeometryNodeScaleInstances", random_loc())
+    b.L(e_del.outputs["Geometry"], e_br.inputs["Instances"])
+    b.L(is_c(ecat, 2), e_br.inputs["Selection"])
+    b.L(v3(1.0, 1.0, dnamed("vm_efr", "FLOAT")), e_br.inputs["Scale"])
+    b.L(v3(0.0, 0.0, e_cz), e_br.inputs["Center"])
+    e_br.inputs["Local Space"].default_value = True
+    # broken or loose: the free end swings off the corner (+Y = outward)
+    e_ang = em("MULTIPLY", em("MULTIPLY", gi.outputs["Max Tilt"], dnamed("vm_etl", "FLOAT")),
+               tsw(etop, -1.0, 1.0))
+    e_ang = em("MULTIPLY", e_ang, tsw(is_c(ecat, 3), 0.35, 1.0))
+    e_eul = b.N("FunctionNodeEulerToRotation", random_loc())
+    b.L(v3(e_ang, 0.0, 0.0), e_eul.inputs["Euler"])
+    e_rt = b.N("GeometryNodeRotateInstances", random_loc())
+    b.L(e_br.outputs["Instances"], e_rt.inputs["Instances"])
+    b.L(bor(is_c(ecat, 2), is_c(ecat, 3)), e_rt.inputs["Selection"])
+    b.L(e_eul.outputs["Rotation"], e_rt.inputs["Rotation"])
+    b.L(v3(0.0, 0.0, e_cz), e_rt.inputs["Pivot Point"])
+    e_rt.inputs["Local Space"].default_value = True
+    b.L(e_rt.outputs["Instances"], st_ed.inputs["Geometry"])
+
+    # (b) openings: the cutting layer reads the damage around every opening it
+    # cut (the same field, sampled on a ring just outside the frame). Heavy
+    # damage -> the prop is GONE (the raw opening + jambs stay) or HANGS off
+    # one top corner (a door swings open on its hinge); some damage -> it sits
+    # LOOSE, a few degrees off. Damage off / no cut = untouched.
+    o_live = tand(tand(gi.outputs["Damage"], is_fit), gi.outputs["Cut Openings"])
+
+    def dmg_at(vec_):
+        nv_ = vmath("ADD", vec_, d_sv.outputs["Vector"])
+        nz_ = b.N("ShaderNodeTexNoise", random_loc())
+        b.L(nv_, nz_.inputs["Vector"])
+        b.L(em("DIVIDE", geo_f, em("MAXIMUM", gi.outputs["Damage Scale"], 0.01)), nz_.inputs["Scale"])
+        nz_.inputs["Detail"].default_value = 2.0
+        ns_ = em("MINIMUM", em("MAXIMUM", tm("MULTIPLY_ADD", em("SUBTRACT", nz_.outputs["Fac"], 0.5),
+                                             2.5, 0.5), 0.0), 1.0)
+        dv_ = vmath("DISTANCE", vec_, d_oi.outputs["Location"], out="Value")
+        mr_ = b.N("ShaderNodeMapRange", random_loc(), interpolation_type="SMOOTHSTEP")
+        b.L(dv_, mr_.inputs["Value"])
+        b.L(d_rl, mr_.inputs["From Min"])
+        b.L(em("MULTIPLY", d_rl, 0.3), mr_.inputs["From Max"])
+        mk_ = tsw(tcmp("GREATER_THAN", gi.outputs["Damage Radius"], 0.0), 1.0, mr_.outputs["Result"])
+        thr_ = em("SUBTRACT", 1.0, em("MULTIPLY", gi.outputs["Damage Amount"], mk_))
+        # the tiles' per-tile random share averages 0.5 on a ring of samples
+        return tsw(tcmp("GREATER_THAN", tm("MULTIPLY_ADD", ns_, 0.65, 0.175), thr_), 0.0, 1.0)
+    ob_ib = b.N("GeometryNodeInputInstanceBounds", random_loc())
+    obx_n, _oby, obz_n = sxyz(vmul(ob_ib.outputs["Min"], i_scl))
+    obx_x, _obyx, obz_x = sxyz(vmul(ob_ib.outputs["Max"], i_scl))
+    ring_ = em("DIVIDE", 0.15, geo_f)
+    o_ip = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    samples_ = []
+    for fx_, fz_ in ((0.0, -0.1), (0.5, -0.1), (1.0, -0.1), (1.1, 0.5), (1.0, 1.1), (0.5, 1.1),
+                     (0.0, 1.1), (-0.1, 0.5), (0.5, 0.5)):
+        lx_ = tm("MULTIPLY_ADD", em("SUBTRACT", obx_x, obx_n), fx_, obx_n)
+        lz_ = tm("MULTIPLY_ADD", em("SUBTRACT", obz_x, obz_n), fz_, obz_n)
+        lx_ = em("ADD", lx_, em("MULTIPLY", ring_, (fx_ > 1.0) - (fx_ < 0.0)))
+        lz_ = em("ADD", lz_, em("MULTIPLY", ring_, (fz_ > 1.0) - (fz_ < 0.0)))
+        samples_.append(dmg_at(vmath("ADD", o_ip, rot(v3(lx_, 0.0, lz_), i_rot))))
+    while len(samples_) > 1:
+        samples_ = [em("ADD", samples_[i], samples_[i + 1]) if i + 1 < len(samples_) else samples_[i]
+                    for i in range(0, len(samples_), 2)]
+    o_frac = em("DIVIDE", samples_[0], 9.0)
+    o_rv = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT_VECTOR")
+    o_rv.inputs["Min"].default_value = (0.0, 0.0, 0.0)
+    o_rv.inputs["Max"].default_value = (1.0, 1.0, 1.0)
+    b.L(seed_node(b, d_seed, 307), o_rv.inputs["Seed"])
+    o_rx, o_ry, o_rz = sxyz(o_rv.outputs["Value"])
+    is_open = tand(o_live, tcmp("GREATER_THAN", dnamed("vm_openmark", "FLOAT"), 0.5))
+    o_gone_share = em("DIVIDE", gi.outputs["Missing Share"],
+                      em("MAXIMUM", em("ADD", gi.outputs["Missing Share"], gi.outputs["Broken Share"]), 0.01))
+    heavy = tcmp("GREATER_EQUAL", o_frac, 0.35)
+    some = tcmp("GREATER_EQUAL", o_frac, 0.12)
+    # category: 0 intact, 1 gone, 3 hanging, 4 loose
+    o_cat = tsw(tand(is_open, some), 0.0,
+                tsw(heavy, tsw(tcmp("LESS_THAN", o_rx, 0.5), 4.0, 3.0),
+                    tsw(tcmp("LESS_THAN", o_rx, o_gone_share), 3.0, 1.0)))
+    o_chain = c_sw.outputs["Output"]
+    for nm_, val_ in (("vm_ocat", o_cat), ("vm_ofrac", o_frac)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+        b.L(o_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        o_chain = st_.outputs["Geometry"]
+    ocat = dnamed("vm_ocat", "FLOAT")
+    o_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="INSTANCE")
+    b.L(o_chain, o_del.inputs["Geometry"])
+    b.L(is_c(ocat, 1), o_del.inputs["Selection"])
+    # door (tall opening): swings open on a side hinge; window: drops about a
+    # top corner, in the wall plane, pulled a hair off the wall
+    o_door = tcmp("GREATER_THAN", em("SUBTRACT", obz_x, obz_n),
+                  em("MULTIPLY", em("SUBTRACT", obx_x, obx_n), 1.8))
+    o_left = tcmp("LESS_THAN", o_ry, 0.5)                      # hinge / nail at min X
+    o_sg = tsw(o_left, -1.0, 1.0)
+    o_hang = is_c(ocat, 3)
+    o_a = tsw(o_hang, em("MULTIPLY", gi.outputs["Max Tilt"], tm("MULTIPLY_ADD", o_rz, 0.4, 0.35)),
+              tsw(o_door, tm("MULTIPLY_ADD", o_rz, 0.9, 0.5), tm("MULTIPLY_ADD", o_rz, 0.35, 0.2)))
+    o_a = em("MULTIPLY", o_a, o_sg)
+    ob_ib2 = b.N("GeometryNodeInputInstanceBounds", random_loc())
+    pb_n_x, pb_n_y, pb_n_z = sxyz(ob_ib2.outputs["Min"])
+    pb_x_x, pb_x_y, pb_x_z = sxyz(ob_ib2.outputs["Max"])
+    o_px = tsw(o_left, pb_x_x, pb_n_x)
+    o_eul = b.N("FunctionNodeEulerToRotation", random_loc())
+    b.L(vsw(tand(o_door, o_hang), v3(0.0, o_a, 0.0), v3(0.0, 0.0, o_a)), o_eul.inputs["Euler"])
+    o_rot = b.N("GeometryNodeRotateInstances", random_loc())
+    b.L(o_del.outputs["Geometry"], o_rot.inputs["Instances"])
+    b.L(bor(o_hang, is_c(ocat, 4)), o_rot.inputs["Selection"])
+    b.L(o_eul.outputs["Rotation"], o_rot.inputs["Rotation"])
+    b.L(v3(o_px, 0.0, pb_x_z), o_rot.inputs["Pivot Point"])          # top corner / hinge side
+    o_rot.inputs["Local Space"].default_value = True
+    o_off = b.N("GeometryNodeTranslateInstances", random_loc())
+    b.L(o_rot.outputs["Instances"], o_off.inputs["Instances"])
+    b.L(tand(o_hang, bnot(o_door)), o_off.inputs["Selection"])
+    o_off.inputs["Translation"].default_value = (0.0, 0.012, 0.0)
+    o_off.inputs["Local Space"].default_value = True
+    b.L(o_off.outputs["Instances"], go.inputs["Geometry"])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -9985,7 +10183,8 @@ def main():
         vmt.dress_object(probe, pw)
         rc = probe.modifiers["VM_RoofCap"]
         set_params(rc, rc.node_group, {"Style": style})
-        for mn_ in ("VM_SceneDetailer_Planks", "VM_SceneDetailer_Shingles"):
+        # v2.16: the windows layer (it cuts the openings) damages them too
+        for mn_ in ("VM_SceneDetailer_Planks", "VM_SceneDetailer_Shingles", "VM_SceneDetailer_Windows"):
             if extra:
                 set_params(probe.modifiers[mn_], probe.modifiers[mn_].node_group, extra)
         lib_presets[pname] = dict(description=desc, modifiers=vmt.snapshot_object(probe))
@@ -10577,6 +10776,69 @@ def main():
           f"rays={rays_f}, interior faces={inner_f}, boards {len(boards_o)} cut / {len(boards_f)} uncut")
     results["openings_v215"] = dict(openings=len(opens_o), rays=rays_o, interior_faces=inner_o,
                                     boards_crossing=inside_hole, boards_cut=near_open)
+
+    # ---- v2.16: damage reaches the corner boards and the openings (the
+    # user's 'the damage should have affected those corner boards', 'the
+    # windows can't float on a few planks')
+    def corner_cover(ob_, cx_, cy_):
+        ob_.update_tag()
+        dg_e = bpy.context.evaluated_depsgraph_get()
+        dg_e.update()
+        me_e = ob_.evaluated_get(dg_e).data
+        mn_e = [m_.name if m_ else None for m_ in me_e.materials]
+        w_ = ob_.matrix_world
+        spans_ = []
+        for p_ in me_e.polygons:
+            if not mn_e or mn_e[p_.material_index] != "VM_SidingBoard":
+                continue
+            vs_ = [w_ @ me_e.vertices[v_].co for v_ in p_.vertices]
+            if all(abs(v_.x - cx_) < 0.2 and abs(v_.y - cy_) < 0.2 for v_ in vs_):
+                spans_.append((min(v_.z for v_ in vs_), max(v_.z for v_ in vs_)))
+        zs_ = [0.15 + 0.1 * k_ for k_ in range(27)]
+        return sum(1 for z_ in zs_ if any(a_ - 0.01 <= z_ <= b_ + 0.01 for a_, b_ in spans_)) / len(zs_)
+    # the v2.13 zone (Empty at the cottage's (6, 0) corner) is still on dz_ob
+    cov_hit = corner_cover(dz_ob, 61.0, 12.0)
+    cov_far = corner_cover(dz_ob, 55.0, 16.5)
+    check("v2.16(corner boards): a damage zone on a corner breaks its corner board - pieces gone, "
+          "broken short or hanging loose - while a corner outside the zone keeps its full board",
+          cov_hit < 0.75 and cov_far > 0.95,
+          f"corner board height covered: in the zone {cov_hit:.0%}, outside {cov_far:.0%}")
+    # a zone on one window of the cutting house: that window is gone or hangs,
+    # windows well outside the radius stay exactly where they were
+    def open_keys():
+        op_ob.update_tag()
+        dg_k = bpy.context.evaluated_depsgraph_get()
+        dg_k.update()
+        out_ = {}
+        for inst in dg_k.object_instances:
+            if inst.is_instance and inst.parent is not None and inst.parent.original == op_ob \
+                    and inst.object.name.startswith(("Window", "Door")):
+                m_ = inst.matrix_world
+                out_[(inst.object.name,) + tuple(round(x_, 3) for x_ in m_.translation)
+                     + tuple(round(x_, 3) for x_ in m_.to_quaternion())] = m_.translation.copy()
+        return out_
+    ok_clean = open_keys()
+    tgt_ = next(o_ for o_ in opens_o if o_["name"].startswith("Window"))
+    oz_emp = vmt.add_damage_zone(op_ob, tgt_["c"].copy(), fx_scene.collection, amount=0.95)
+    n_olayers = len(vmt.opening_damage_layers(op_ob))
+    ok_dmg = open_keys()
+    changed_ = [k_ for k_ in ok_clean if k_ not in ok_dmg]
+    hit_ = [k_ for k_ in changed_ if (ok_clean[k_] - tgt_["c"]).length < 1.2]
+    far_moved = [k_ for k_ in changed_ if (ok_clean[k_] - tgt_["c"]).length > vmt.DAMAGE_ZONE_RADIUS + 1.5]
+    check("v2.16(openings damaged): a damage zone on a window removes it or leaves it hanging off a "
+          "corner (a door swings open) - no opening sits untouched in a stripped wall; openings "
+          "outside the zone stay exactly in place",
+          n_olayers == 1 and hit_ and not far_moved,
+          f"opening layers damaged={n_olayers}, {len(ok_clean)} openings -> {len(ok_dmg)} intact or "
+          f"moved, changed near the zone={len(hit_)}, changed far away={len(far_moved)}")
+    for m_ in vmt.damage_layers(op_ob) + vmt.opening_damage_layers(op_ob):
+        set_params(m_, m_.node_group, {"Damage": False})
+    bpy.data.objects.remove(oz_emp)
+    ok_back = open_keys()
+    check("v2.16(openings heal): Damage off puts every opening back exactly",
+          ok_back.keys() == ok_clean.keys(), f"identical={ok_back.keys() == ok_clean.keys()}")
+    results["damage_v216"] = dict(corner_cover_zone=round(cov_hit, 3), corner_cover_far=round(cov_far, 3),
+                                  openings_changed=len(changed_), near=len(hit_), far=len(far_moved))
 
     results["addon_library"] = dict(fresh_instances=inst_fa, update_instances=inst_after,
                                     datablocks=n_data)

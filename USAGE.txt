@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.15) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.16) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.15) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.16) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,27 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (256 checks: the original 197 kept
-    green + 59 v2.7-v2.15 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (259 checks: the original 197 kept
+    green + 62 v2.7-v2.16 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.16 (2026-11-01) - DAMAGE REACHES THE CORNER BOARDS AND THE OPENINGS
+-------------------------------------------------------------------------------
+* CORNER BOARDS / RIDGE CAPS: with Damage on, each edge board is laid in
+  ~1 m pieces and every piece takes the same damage as the siding around
+  it - gone, broken short (it keeps its upper nail) or hanging loose off the
+  corner from its upper end. Damage off = one board per edge as before.
+* DOORS / WINDOWS: the layer that cuts the openings (Cut Openings on - the
+  add-on's Windows layer) reads the damage on a ring just outside every
+  frame. Heavy damage: the prop is GONE (the raw opening with its jambs
+  stays) or HANGS off one top corner - a door swings open on its hinge.
+  Some damage: it sits LOOSE, a few degrees crooked (Max Tilt). The
+  Missing / Broken Share split gone vs hanging.
+* 'Add Damage Zone' and the 'Weathered gable' preset now drive that layer
+  too, so one Empty damages siding, shakes, trim and openings together.
+* Still to do: ragged damage holes through the wall into the interior,
+  glass (broken panes in damage zones), VINES.
 
 v2.15 (2026-11-01) - REAL OPENINGS, AN INTERIOR BEHIND THEM
 -------------------------------------------------------------------------------
@@ -1062,8 +1079,13 @@ in-memory:
   * v2.15(openings cut): a ray through every opening passes the wall and
     reaches the interior;
   * v2.15(siding cut): no board crosses an opening, boards are cut at it;
-  * v2.15(cut off): Cut Openings off gives back the solid v2.14 wall.
-Total for this release: 256 checks, 256 passed (verification_v2.json).
+  * v2.15(cut off): Cut Openings off gives back the solid v2.14 wall;
+  * v2.16(corner boards): a zone on a corner breaks its corner board, a
+    corner outside keeps its full board;
+  * v2.16(openings damaged): a zone on a window removes it or leaves it
+    hanging, openings far away stay in place;
+  * v2.16(openings heal): Damage off puts every opening back exactly.
+Total for this release: 259 checks, 259 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

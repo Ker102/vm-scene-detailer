@@ -756,6 +756,25 @@ def damage_layers(ob):
     return out
 
 
+def opening_damage_layers(ob):
+    """v2.16: the object's opening layers that cut their openings (Fit with
+    Cut Openings on) - they damage the doors / windows they cut with the same
+    damage field as the cladding."""
+    out = []
+    for m in ob.modifiers:
+        if not is_vm_modifier(m) or m.node_group is None:
+            continue
+        it_c = find_input(m.node_group, "Cut Openings")
+        it_m = find_input(m.node_group, "Placement Mode")
+        if it_c is None or it_m is None:
+            continue
+        sock_c = getattr(m.properties.inputs, it_c.identifier, None)
+        sock_m = getattr(m.properties.inputs, it_m.identifier, None)
+        if sock_c is not None and sock_m is not None and sock_c.value and str(sock_m.value) == "Fit":
+            out.append(m)
+    return out
+
+
 def add_damage_zone(ob, location, collection, radius=DAMAGE_ZONE_RADIUS, amount=0.85):
     """Create an Empty that drives the damage of every cladding layer of `ob`
     (move / scale the empty's position to move the damage). Returns the empty."""
@@ -765,7 +784,7 @@ def add_damage_zone(ob, location, collection, radius=DAMAGE_ZONE_RADIUS, amount=
     emp.location = location
     collection.objects.link(emp)
     warnings = []
-    for m in damage_layers(ob):
+    for m in damage_layers(ob) + opening_damage_layers(ob):
         for key, payload in (("Damage", ["val", "", True]),
                              ("Damage Object", ["id", "NodeSocketObject", emp.name]),
                              ("Damage Radius", ["val", "", float(radius)]),
