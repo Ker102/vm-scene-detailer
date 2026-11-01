@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.16"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.17"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -4930,7 +4930,7 @@ def build_node_group():
     # LOOSE, a few degrees off. Damage off / no cut = untouched.
     o_live = tand(tand(gi.outputs["Damage"], is_fit), gi.outputs["Cut Openings"])
 
-    def dmg_at(vec_):
+    def dmg_margin(vec_):
         nv_ = vmath("ADD", vec_, d_sv.outputs["Vector"])
         nz_ = b.N("ShaderNodeTexNoise", random_loc())
         b.L(nv_, nz_.inputs["Vector"])
@@ -4946,7 +4946,10 @@ def build_node_group():
         mk_ = tsw(tcmp("GREATER_THAN", gi.outputs["Damage Radius"], 0.0), 1.0, mr_.outputs["Result"])
         thr_ = em("SUBTRACT", 1.0, em("MULTIPLY", gi.outputs["Damage Amount"], mk_))
         # the tiles' per-tile random share averages 0.5 on a ring of samples
-        return tsw(tcmp("GREATER_THAN", tm("MULTIPLY_ADD", ns_, 0.65, 0.175), thr_), 0.0, 1.0)
+        return em("SUBTRACT", tm("MULTIPLY_ADD", ns_, 0.65, 0.175), thr_)
+
+    def dmg_at(vec_):
+        return tsw(tcmp("GREATER_THAN", dmg_margin(vec_), 0.0), 0.0, 1.0)
     ob_ib = b.N("GeometryNodeInputInstanceBounds", random_loc())
     obx_n, _oby, obz_n = sxyz(vmul(ob_ib.outputs["Min"], i_scl))
     obx_x, _obyx, obz_x = sxyz(vmul(ob_ib.outputs["Max"], i_scl))
@@ -4978,7 +4981,114 @@ def build_node_group():
     o_cat = tsw(tand(is_open, some), 0.0,
                 tsw(heavy, tsw(tcmp("LESS_THAN", o_rx, 0.5), 4.0, 3.0),
                     tsw(tcmp("LESS_THAN", o_rx, o_gone_share), 3.0, 1.0)))
+    # ---- v2.17 WALL HOLES: at the heart of a damage patch (where the siding is
+    # long gone) the wall itself is broken through - a ragged hole made of
+    # small tilted plank-shaped cuts, its broken edges in the Interior
+    # Material, the interior seen through it. Wall Holes 0 = none.
+    p_hole = b.panel("Wall Holes", "Fit (v2.17): the cutting layer breaks holes through the wall at "
+                     "the heart of the damage")
+    b.sock("Wall Holes", "NodeSocketFloat", p_hole, 0.5, 0.0, 1.0, "FACTOR",
+           "How readily the wall breaks through at the heart of the damage (0 = never; needs "
+           "Damage and Cut Openings)")
+    h_live = tand(o_live, tcmp("GREATER_THAN", gi.outputs["Wall Holes"], 0.001))
+    h_nz = sxyz(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"])[2]
+    h_dist = b.N("GeometryNodeDistributePointsOnFaces", random_loc(), distribute_method="RANDOM")
+    b.L(c_host.outputs["Geometry"], h_dist.inputs["Mesh"])
+    b.L(tand(h_live, tand(tcmp("LESS_THAN", em("ABSOLUTE", h_nz), 0.5),
+                          tcmp("GREATER_THAN", dnamed("vm_ext", "FLOAT"), 0.5))), h_dist.inputs["Selection"])
+    b.L(em("MULTIPLY", 45.0, em("MULTIPLY", geo_f, geo_f)), h_dist.inputs["Density"])
+    b.L(seed_node(b, d_seed, 409), h_dist.inputs["Seed"])
+    h_st = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(h_dist.outputs["Points"], h_st.inputs["Geometry"])
+    h_st.inputs["Name"].default_value = "vm_hn"
+    b.L(h_dist.outputs["Normal"], h_st.inputs["Value"])
+    h_pos = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    h_lim = tm("MULTIPLY_ADD", gi.outputs["Wall Holes"], -0.4, 0.65)
+    # how deep in the heart: full-size cuts there (they merge into one hole),
+    # small ones at its fringe (the torn edge)
+    h_st2 = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="POINT")
+    b.L(h_st.outputs["Geometry"], h_st2.inputs["Geometry"])
+    h_st2.inputs["Name"].default_value = "vm_hdeep"
+    b.L(em("MINIMUM", em("DIVIDE", em("SUBTRACT", dmg_margin(h_pos), h_lim), 0.12), 1.0),
+        h_st2.inputs["Value"])
+    h_keep = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(h_st2.outputs["Geometry"], h_keep.inputs["Geometry"])
+    # (the outermost fringe would only scatter lone specks)
+    b.L(tcmp("LESS_THAN", dnamed("vm_hdeep", "FLOAT"), 0.4), h_keep.inputs["Selection"])
+    h_cnt = b.N("GeometryNodeAttributeDomainSize", random_loc())
+    h_cnt.component = "POINTCLOUD"
+    b.L(h_keep.outputs["Geometry"], h_cnt.inputs["Geometry"])
+    has_hole = tcmp("GREATER_THAN", h_cnt.outputs["Point Count"], 0.5)
+    h_rv = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT_VECTOR")
+    h_rv.inputs["Min"].default_value = (0.0, 0.0, 0.0)
+    h_rv.inputs["Max"].default_value = (1.0, 1.0, 1.0)
+    b.L(seed_node(b, d_seed, 419), h_rv.inputs["Seed"])
+    h_rx, h_ry, h_rz = sxyz(h_rv.outputs["Value"])
+    h_n = dnamed("vm_hn", "FLOAT_VECTOR")
+    # each cut: a plank-shaped box 0.18-0.45 m long, 0.08-0.22 m tall, tilted
+    # up to ~30 degrees in the wall plane, through the sheathing (+Y outward;
+    # 2-3 cm deep - a full Wall Depth per cut terraces where the cuts overlap)
+    h_dep = em("DIVIDE", tm("MULTIPLY_ADD", h_rz, 0.01, 0.02), geo_f)
+    h_out = em("DIVIDE", 0.05, geo_f)
+    h_dp = tm("MULTIPLY_ADD", dnamed("vm_hdeep", "FLOAT"), 0.5, 0.5)
+    h_size = v3(em("DIVIDE", em("MULTIPLY", tm("MULTIPLY_ADD", h_rx, 0.3, 0.3), h_dp), geo_f),
+                em("ADD", h_dep, h_out),
+                em("DIVIDE", em("MULTIPLY", tm("MULTIPLY_ADD", h_ry, 0.14, 0.12), h_dp), geo_f))
+    h_al = b.N("FunctionNodeAlignRotationToVector", random_loc())
+    h_al.axis = "Y"
+    b.L(h_n, h_al.inputs["Vector"])
+    h_al.inputs["Factor"].default_value = 1.0
+    h_tilt = b.N("FunctionNodeEulerToRotation", random_loc())
+    b.L(v3(0.0, tm("MULTIPLY_ADD", h_rx, 1.04, -0.52), 0.0), h_tilt.inputs["Euler"])
+    h_rot = b.N("FunctionNodeRotateRotation", random_loc())
+    h_rot.rotation_space = "LOCAL"
+    b.L(h_al.outputs["Rotation"], h_rot.inputs["Rotation"])
+    b.L(h_tilt.outputs["Rotation"], h_rot.inputs["Rotate By"])
+    h_mv = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(h_keep.outputs["Geometry"], h_mv.inputs["Geometry"])
+    b.L(vmath("SCALE", h_n, em("MULTIPLY", em("SUBTRACT", h_out, h_dep), 0.5)), h_mv.inputs["Offset"])
+    h_cube = cube_.outputs["Mesh"]
+    h_cb = h_cube
+    for nm_, val_ in (("vm_cutback", tsw(tcmp("LESS_THAN", cb_n, -0.5), 0.0, 1.0)), ("vm_cutter", 2.0)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="FACE")
+        b.L(h_cb, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        if isinstance(val_, float):
+            st_.inputs["Value"].default_value = val_
+        else:
+            b.L(val_, st_.inputs["Value"])
+        h_cb = st_.outputs["Geometry"]
+    h_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(h_mv.outputs["Geometry"], h_iop.inputs["Points"])
+    b.L(h_cb, h_iop.inputs["Instance"])
+    b.L(h_rot.outputs["Rotation"], h_iop.inputs["Rotation"])
+    b.L(h_size, h_iop.inputs["Scale"])
+    # the cuts overlap each other: as INSTANCES each one is its own boolean
+    # operand (no costly Self Intersection pass over one realized mesh)
+    b.L(h_iop.outputs["Instances"], c_bool.inputs["Mesh 2"])
+    # the broken edges of a hole are the wall's own boards, not jambs
+    is_hole = tcmp("GREATER_THAN", dnamed("vm_cutter", "FLOAT"), 1.5)
+    for lk in list(b.ng.links):
+        if lk.to_node == c_join and lk.from_socket == c_walls:
+            b.ng.links.remove(lk)
+    b.L(material_gate(b, c_walls, gi.outputs["Interior Material"], is_hole, random_loc()),
+        c_join.inputs["Geometry"])
+    # holes alone (no opening on the building) also need the cut
+    for lk in list(b.ng.links):
+        if lk.to_node == c_sw and lk.to_socket.name == "Switch":
+            b.ng.links.remove(lk)
+    b.L(tand(tand(gi.outputs["Cut Openings"], is_fit), bor(has_open, has_hole)), c_sw.inputs["Switch"])
+    # cladding still lying over a hole falls with it
+    h_prox = b.N("GeometryNodeProximity", random_loc())
+    h_prox.target_element = "POINTS"
+    b.L(h_keep.outputs["Geometry"], h_prox.inputs["Geometry"])
     o_chain = c_sw.outputs["Output"]
+    h_fall = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="INSTANCE")
+    b.L(o_chain, h_fall.inputs["Geometry"])
+    b.L(tand(tand(has_hole, tcmp("LESS_THAN", dnamed("vm_openmark", "FLOAT"), 0.5)),
+             tcmp("LESS_THAN", h_prox.outputs["Distance"], em("DIVIDE", 0.12, geo_f))),
+        h_fall.inputs["Selection"])
+    o_chain = h_fall.outputs["Geometry"]
     for nm_, val_ in (("vm_ocat", o_cat), ("vm_ofrac", o_frac)):
         st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
         b.L(o_chain, st_.inputs["Geometry"])
@@ -10822,6 +10932,18 @@ def main():
     oz_emp = vmt.add_damage_zone(op_ob, tgt_["c"].copy(), fx_scene.collection, amount=0.95)
     n_olayers = len(vmt.opening_damage_layers(op_ob))
     ok_dmg = open_keys()
+
+    def hole_faces():
+        # v2.17: the broken edges of the wall holes (cut faces marked vm_cutter 2)
+        dg_h = bpy.context.evaluated_depsgraph_get()
+        dg_h.update()
+        me_h = op_ob.evaluated_get(dg_h).data
+        a_ = me_h.attributes.get("vm_cutter")
+        if a_ is None or a_.domain != "FACE":
+            return []
+        return [op_ob.matrix_world @ me_h.polygons[i_].center for i_, d_ in enumerate(a_.data)
+                if d_.value > 1.5]
+    holes_dmg = hole_faces()
     changed_ = [k_ for k_ in ok_clean if k_ not in ok_dmg]
     hit_ = [k_ for k_ in changed_ if (ok_clean[k_] - tgt_["c"]).length < 1.2]
     far_moved = [k_ for k_ in changed_ if (ok_clean[k_] - tgt_["c"]).length > vmt.DAMAGE_ZONE_RADIUS + 1.5]
@@ -10837,8 +10959,16 @@ def main():
     ok_back = open_keys()
     check("v2.16(openings heal): Damage off puts every opening back exactly",
           ok_back.keys() == ok_clean.keys(), f"identical={ok_back.keys() == ok_clean.keys()}")
+    holes_off = hole_faces()
+    h_far = max(((c_ - tgt_["c"]).length for c_ in holes_dmg), default=0.0)
+    check("v2.17(wall holes): the heart of a damage zone breaks THROUGH the wall (ragged holes, "
+          "their broken edges in the interior boards) - only inside the zone, none with Damage off",
+          len(holes_dmg) > 0 and h_far < vmt.DAMAGE_ZONE_RADIUS and not holes_off,
+          f"hole edge faces: zone {len(holes_dmg)} (farthest {h_far:.2f} m from its centre), "
+          f"damage off {len(holes_off)}")
     results["damage_v216"] = dict(corner_cover_zone=round(cov_hit, 3), corner_cover_far=round(cov_far, 3),
-                                  openings_changed=len(changed_), near=len(hit_), far=len(far_moved))
+                                  openings_changed=len(changed_), near=len(hit_), far=len(far_moved),
+                                  hole_faces=len(holes_dmg), hole_far=round(h_far, 2))
 
     results["addon_library"] = dict(fresh_instances=inst_fa, update_instances=inst_after,
                                     datablocks=n_data)
