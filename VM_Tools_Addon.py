@@ -49,7 +49,11 @@ AUTO_MATERIALS = {
     # bare boards inside
     "VM_SceneDetailer_Windows": {"Jamb Material": "VM_SidingBoard",
                                  "Interior Material": "VM_WallWeatheredPlanks",
-                                 "Interior Floor Material": "VM_WallWeatheredPlanks"},
+                                 "Interior Floor Material": "VM_WallWeatheredPlanks",
+                                 # v2.18: glass in every window, broken in damage
+                                 "Glass Material": "VM_WindowGlass",
+                                 # v2.19: vines (off until turned on)
+                                 "Stem Material": "VM_VineStem", "Leaf Material": "VM_VineLeaf"},
 }
 
 # v2.10: the pack collections each layer uses by default - wired BY NAME when
@@ -341,6 +345,7 @@ def dress_stack():
         # openings through the wall (jambs, interior, siding cut around them)
         "Cut Openings": ["val", "", True],
         "Opening Inset": ["val", "", 0.03], "Wall Depth": ["val", "", 0.15],
+        "Window Glass": ["val", "", True],
     })
     return [
         # v2.11: the roof cap runs BEFORE the wall planks so its gable

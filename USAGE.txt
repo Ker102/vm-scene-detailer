@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.17) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.19) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.17) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.19) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,39 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (260 checks: the original 197 kept
-    green + 63 v2.7-v2.17 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (263 checks: the original 197 kept
+    green + 66 v2.7-v2.19 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.19 (2026-11-01) - VINES
+-------------------------------------------------------------------------------
+* New 'Vines' panel (any mode): 'Vines' grows climbers up the walls from
+  the ground - a wandering main stem per vine with side shoots ('Vine
+  Branches'), laid back onto the nearest wall just in front of the
+  cladding (they wrap round corners), stopping at the eaves and at the
+  doors / windows the layer cut (never through a frame), tapering to
+  the tip and leafy along their length ('Leaf Density').
+  'Vine Count' (8), 'Vine Height' (2.4 m), 'Vine Seed' for another set.
+* Materials: VM_VineStem and VM_VineLeaf (the leaf shape is cut from a
+  quad: a pointed oval with a midrib, greens varied per leaf with a few
+  yellowing, lit through). The add-on assigns them on the Windows layer;
+  turn 'Vines' on there. The 'Weathered gable' preset is overgrown.
+* Use Vines on ONE layer - each layer that has it on grows its own set.
+
+v2.18 (2026-11-01) - WINDOW GLASS, BROKEN IN DAMAGE
+-------------------------------------------------------------------------------
+* New 'Glass' panel (Fit): 'Window Glass' puts one pane in every window
+  the layer cut (Cut Openings on), just in front of the window's back and
+  the size of the hole; it moves with a loose or hanging window. The add-on
+  turns it on for the Windows layer with the new VM_WindowGlass material
+  (thin old glass: a little green, grimy, reflective).
+* The glass BREAKS by damage: a hanging window is mostly smashed, a loose
+  one half broken, and 'Broken Panes' (0.2) of the other windows have a
+  few shards out (Damage on). Shards nearest the frame hold on longest;
+  what is left shows its cracks. Damage off = every pane whole.
+* The breakage lives in the material (each pane's vm_gbrk attribute), so
+  it renders in Cycles and EEVEE without extra geometry.
 
 v2.17 (2026-11-01) - HOLES THROUGH THE WALL
 -------------------------------------------------------------------------------
@@ -48,7 +77,6 @@ v2.17 (2026-11-01) - HOLES THROUGH THE WALL
 * Siding still lying over a hole falls with it.
 * Opening variant picks no longer change under damage (the pick counted
   the corner-board pieces as faces).
-* Still to do: glass (broken panes in damage zones), VINES.
 
 v2.16 (2026-11-01) - DAMAGE REACHES THE CORNER BOARDS AND THE OPENINGS
 -------------------------------------------------------------------------------
@@ -1100,8 +1128,13 @@ in-memory:
     hanging, openings far away stay in place;
   * v2.16(openings heal): Damage off puts every opening back exactly;
   * v2.17(wall holes): a zone's heart breaks through the wall, only inside
-    the zone, and Damage off closes every hole.
-Total for this release: 260 checks, 260 passed (verification_v2.json).
+    the zone, and Damage off closes every hole;
+  * v2.18(glass): every window cut is glazed, whole with Damage off;
+  * v2.18(glass broken): the damaged window's glass is smashed (or gone with
+    it), Damage off makes every pane whole;
+  * v2.19(vines): Vines on grows leafy climbers up the walls, in front of
+    the wall and never inside it; Vines off = none.
+Total for this release: 263 checks, 263 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

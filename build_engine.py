@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.17"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.19"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -273,6 +273,162 @@ def make_principled(name, color, rough=0.8):
     bsdf = mat.node_tree.nodes["Principled BSDF"]
     bsdf.inputs["Base Color"].default_value = (*color, 1.0)
     bsdf.inputs["Roughness"].default_value = rough
+    return mat
+
+
+def make_glass_material(name):
+    """v2.18 old window glass: thin (no refraction offset - a Fresnel mix of a
+    tinted Transparent and a Glossy), a little grime, and BROKEN by the pane's
+    Instancer attribute vm_gbrk (0 whole - 1 smashed): Voronoi shards (in
+    meters, from vm_gsize) drop out where their random < vm_gbrk, those along
+    the frame hold on longer, and the remaining glass shows its cracks."""
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    for n_ in list(nt.nodes):
+        nt.nodes.remove(n_)
+    N = nt.nodes.new
+    L = nt.links.new
+
+    def attr(nm_, x_, y_):
+        a_ = N("ShaderNodeAttribute"); a_.attribute_type = "INSTANCER"; a_.attribute_name = nm_
+        a_.location = (x_, y_)
+        return a_
+
+    def math_(op_, a_, b_, x_, y_):
+        m_ = N("ShaderNodeMath"); m_.operation = op_; m_.location = (x_, y_)
+        for k_, v_ in enumerate((a_, b_)):
+            if isinstance(v_, (int, float)):
+                m_.inputs[k_].default_value = v_
+            else:
+                L(v_, m_.inputs[k_])
+        return m_.outputs[0]
+    uv = N("ShaderNodeUVMap"); uv.uv_map = "UVMap"; uv.location = (-1600, 0)
+    a_brk = attr("vm_gbrk", -1600, -300)
+    a_seed = attr("vm_gseed", -1600, -450)
+    a_size = attr("vm_gsize", -1600, -600)
+    uvs = N("ShaderNodeSeparateXYZ"); uvs.location = (-1400, 0)
+    L(uv.outputs["UV"], uvs.inputs["Vector"])
+    szs = N("ShaderNodeSeparateXYZ"); szs.location = (-1400, -600)
+    L(a_size.outputs["Vector"], szs.inputs["Vector"])
+    u_m = math_("MULTIPLY", uvs.outputs["X"], szs.outputs["X"], -1200, 50)
+    v_m = math_("MULTIPLY", uvs.outputs["Y"], szs.outputs["Z"], -1200, -50)
+    w_m = math_("MULTIPLY", a_seed.outputs["Fac"], 37.0, -1200, -150)
+    co = N("ShaderNodeCombineXYZ"); co.location = (-1050, 0)
+    L(u_m, co.inputs["X"]); L(v_m, co.inputs["Y"]); L(w_m, co.inputs["Z"])
+    vor = N("ShaderNodeTexVoronoi"); vor.location = (-850, 100)
+    vor.inputs["Scale"].default_value = 7.0
+    vor.inputs["Randomness"].default_value = 1.0
+    L(co.outputs["Vector"], vor.inputs["Vector"])
+    vor_e = N("ShaderNodeTexVoronoi"); vor_e.feature = "DISTANCE_TO_EDGE"; vor_e.location = (-850, -200)
+    vor_e.inputs["Scale"].default_value = 7.0
+    vor_e.inputs["Randomness"].default_value = 1.0
+    L(co.outputs["Vector"], vor_e.inputs["Vector"])
+    cell = N("ShaderNodeSeparateColor"); cell.location = (-650, 100)
+    L(vor.outputs["Color"], cell.inputs["Color"])
+    # distance to the nearest frame edge (m): shards there hold on
+    d_u = math_("MINIMUM", u_m, math_("SUBTRACT", szs.outputs["X"], u_m, -1050, 200), -900, 250)
+    d_v = math_("MINIMUM", v_m, math_("SUBTRACT", szs.outputs["Z"], v_m, -1050, 300), -900, 350)
+    d_e = math_("MINIMUM", d_u, d_v, -750, 300)
+    near = N("ShaderNodeMapRange"); near.location = (-600, 350)
+    L(d_e, near.inputs["Value"])
+    near.inputs["From Min"].default_value = 0.0
+    near.inputs["From Max"].default_value = 0.12
+    near.inputs["To Min"].default_value = 0.35
+    near.inputs["To Max"].default_value = 1.0
+    brk_eff = math_("MULTIPLY", a_brk.outputs["Fac"], near.outputs["Result"], -450, 300)
+    gone = math_("LESS_THAN", cell.outputs["Red"], brk_eff, -300, 200)
+    # cracks: thin lines along the shard edges, only on broken panes
+    crack_l = math_("LESS_THAN", vor_e.outputs["Distance"], 0.012, -650, -200)
+    crack = math_("MULTIPLY", crack_l, math_("GREATER_THAN", a_brk.outputs["Fac"], 0.05, -650, -350),
+                  -450, -250)
+    # the glass itself: thin, a touch green, grimy
+    tr = N("ShaderNodeBsdfTransparent"); tr.location = (-300, -50)
+    tr.inputs["Color"].default_value = (0.78, 0.84, 0.8, 1.0)
+    gl = N("ShaderNodeBsdfGlossy"); gl.location = (-300, -180)
+    gl.inputs["Roughness"].default_value = 0.06
+    fr = N("ShaderNodeFresnel"); fr.location = (-300, 80)
+    fr.inputs["IOR"].default_value = 1.5
+    mix_g = N("ShaderNodeMixShader"); mix_g.location = (-100, -50)
+    L(fr.outputs["Fac"], mix_g.inputs["Fac"])
+    L(tr.outputs["BSDF"], mix_g.inputs[1]); L(gl.outputs["BSDF"], mix_g.inputs[2])
+    grime_n = N("ShaderNodeTexNoise"); grime_n.location = (-650, -500)
+    grime_n.inputs["Scale"].default_value = 3.0
+    L(co.outputs["Vector"], grime_n.inputs["Vector"])
+    grime = N("ShaderNodeMapRange"); grime.location = (-450, -500)
+    L(grime_n.outputs["Fac"], grime.inputs["Value"])
+    grime.inputs["From Min"].default_value = 0.35
+    grime.inputs["From Max"].default_value = 0.75
+    grime.inputs["To Min"].default_value = 0.08
+    grime.inputs["To Max"].default_value = 0.4
+    dirt = N("ShaderNodeBsdfDiffuse"); dirt.location = (-300, -350)
+    dirt.inputs["Color"].default_value = (0.32, 0.3, 0.25, 1.0)
+    mix_d = N("ShaderNodeMixShader"); mix_d.location = (50, -100)
+    L(math_("MAXIMUM", grime.outputs["Result"], math_("MULTIPLY", crack, 0.85, -300, -600), -150, -550),
+      mix_d.inputs["Fac"])
+    L(mix_g.outputs["Shader"], mix_d.inputs[1]); L(dirt.outputs["BSDF"], mix_d.inputs[2])
+    hole = N("ShaderNodeBsdfTransparent"); hole.location = (50, 100)
+    mix_h = N("ShaderNodeMixShader"); mix_h.location = (250, 0)
+    L(gone, mix_h.inputs["Fac"])
+    L(mix_d.outputs["Shader"], mix_h.inputs[1]); L(hole.outputs["BSDF"], mix_h.inputs[2])
+    out = N("ShaderNodeOutputMaterial"); out.location = (450, 0)
+    L(mix_h.outputs["Shader"], out.inputs["Surface"])
+    return mat
+
+
+def make_leaf_material(name):
+    """v2.19 vine leaf: the leaf shape is cut from the quad (UV v along the
+    leaf, a pointed oval with a darker midrib), greens varied per leaf with a
+    few yellowing ones (Object Info Random), lit through (translucent)."""
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    for n_ in list(nt.nodes):
+        nt.nodes.remove(n_)
+    N = nt.nodes.new
+    L = nt.links.new
+
+    def math_(op_, a_, b_, x_, y_):
+        m_ = N("ShaderNodeMath"); m_.operation = op_; m_.location = (x_, y_)
+        for k_, v_ in enumerate((a_, b_)):
+            if isinstance(v_, (int, float)):
+                m_.inputs[k_].default_value = v_
+            else:
+                L(v_, m_.inputs[k_])
+        return m_.outputs[0]
+    uv = N("ShaderNodeUVMap"); uv.uv_map = "UVMap"; uv.location = (-1200, 0)
+    sp = N("ShaderNodeSeparateXYZ"); sp.location = (-1000, 0)
+    L(uv.outputs["UV"], sp.inputs["Vector"])
+    du = math_("ABSOLUTE", math_("SUBTRACT", sp.outputs["X"], 0.5, -850, 100), 0.0, -700, 100)
+    half = math_("MULTIPLY", math_("POWER", math_("SINE", math_("MULTIPLY", sp.outputs["Y"], 3.14159, -850, -50),
+                                                  0.0, -700, -50), 0.8, -550, -50), 0.48, -400, -50)
+    inside = math_("LESS_THAN", du, half, -250, 50)
+    rib = math_("LESS_THAN", du, 0.02, -250, -100)
+    oi = N("ShaderNodeObjectInfo"); oi.location = (-800, -300)
+    ramp = N("ShaderNodeValToRGB"); ramp.location = (-600, -300)
+    L(oi.outputs["Random"], ramp.inputs["Fac"])
+    els = ramp.color_ramp.elements
+    els[0].position = 0.0; els[0].color = (0.035, 0.09, 0.02, 1.0)
+    els[1].position = 0.85; els[1].color = (0.09, 0.16, 0.03, 1.0)
+    e3 = els.new(1.0); e3.color = (0.3, 0.24, 0.05, 1.0)
+    dark = N("ShaderNodeMix"); dark.data_type = "RGBA"; dark.location = (-300, -300)
+    L(rib, dark.inputs["Factor"])
+    L(ramp.outputs["Color"], dark.inputs["A"])
+    dark.inputs["B"].default_value = (0.03, 0.05, 0.015, 1.0)
+    bsdf = N("ShaderNodeBsdfPrincipled"); bsdf.location = (-50, -250)
+    L(dark.outputs["Result"], bsdf.inputs["Base Color"])
+    bsdf.inputs["Roughness"].default_value = 0.55
+    tl = N("ShaderNodeBsdfTranslucent"); tl.location = (-50, -500)
+    L(ramp.outputs["Color"], tl.inputs["Color"])
+    mix_t = N("ShaderNodeMixShader"); mix_t.location = (200, -300)
+    mix_t.inputs["Fac"].default_value = 0.3
+    L(bsdf.outputs["BSDF"], mix_t.inputs[1]); L(tl.outputs["BSDF"], mix_t.inputs[2])
+    tr = N("ShaderNodeBsdfTransparent"); tr.location = (200, 0)
+    mix_a = N("ShaderNodeMixShader"); mix_a.location = (400, -100)
+    L(inside, mix_a.inputs["Fac"])
+    L(tr.outputs["BSDF"], mix_a.inputs[1]); L(mix_t.outputs["Shader"], mix_a.inputs[2])
+    out = N("ShaderNodeOutputMaterial"); out.location = (600, -100)
+    L(mix_a.outputs["Shader"], out.inputs["Surface"])
     return mat
 
 
@@ -5126,7 +5282,344 @@ def build_node_group():
     b.L(tand(o_hang, bnot(o_door)), o_off.inputs["Selection"])
     o_off.inputs["Translation"].default_value = (0.0, 0.012, 0.0)
     o_off.inputs["Local Space"].default_value = True
-    b.L(o_off.outputs["Instances"], go.inputs["Geometry"])
+
+    # ---- v2.18 GLASS: the cutting layer glazes every window it cut - one pane
+    # just in front of the window's back, the size of the hole. The pane
+    # carries how broken it is (vm_gbrk, read by the glass material as an
+    # Instancer attribute): hanging windows are mostly smashed, loose ones
+    # half, intact ones only on the Broken Panes share (Damage on).
+    p_gl = b.panel("Glass", "Fit (v2.18): glaze the windows this layer cut, broken in damage")
+    b.sock("Window Glass", "NodeSocketBool", p_gl, False,
+           desc="Fit (v2.18): a glass pane in every window cut by this layer (Cut Openings on)")
+    b.sock("Glass Material", "NodeSocketMaterial", p_gl, None,
+           desc="Glass: the pane material (VM_WindowGlass breaks by the pane's vm_gbrk)")
+    b.sock("Broken Panes", "NodeSocketFloat", p_gl, 0.2, 0.0, 1.0, "FACTOR",
+           "Glass: share of the undamaged windows that still have some broken panes (Damage on)")
+    g_on = tand(tand(gi.outputs["Window Glass"], tand(gi.outputs["Cut Openings"], is_fit)), has_open)
+    g_win = tand(g_on, tand(tcmp("GREATER_THAN", dnamed("vm_openmark", "FLOAT"), 0.5), bnot(o_door)))
+    g_ip = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    g_px, g_py, g_pz = sxyz(g_ip)
+    g_rv = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT_VECTOR")
+    g_rv.inputs["Min"].default_value = (0.0, 0.0, 0.0)
+    g_rv.inputs["Max"].default_value = (1.0, 1.0, 1.0)
+    # keyed on where the window is, not on its index (damage deletes instances)
+    b.L(em("FLOOR", tm("MULTIPLY_ADD", g_px, 731.0, tm("MULTIPLY_ADD", g_py, 1237.0,
+                                                       em("MULTIPLY", g_pz, 389.0)))), g_rv.inputs["ID"])
+    b.L(seed_node(b, d_seed, 503), g_rv.inputs["Seed"])
+    g_rx, g_ry, g_rz = sxyz(g_rv.outputs["Value"])
+    g_brk = tsw(gi.outputs["Damage"], 0.0,
+                tsw(is_c(ocat, 3),
+                    tsw(is_c(ocat, 4),
+                        tsw(tcmp("LESS_THAN", g_rx, gi.outputs["Broken Panes"]), 0.0,
+                            tm("MULTIPLY_ADD", g_ry, 0.25, 0.12)),
+                        tm("MULTIPLY_ADD", g_ry, 0.3, 0.4)),
+                    tm("MULTIPLY_ADD", g_ry, 0.2, 0.75)))
+    g_ib = b.N("GeometryNodeInputInstanceBounds", random_loc())
+    g_lo = vmul(g_ib.outputs["Min"], i_scl)
+    g_hi = vmul(g_ib.outputs["Max"], i_scl)
+    glx, gly, glz = sxyz(g_lo)
+    ghx, _ghy, ghz = sxyz(g_hi)
+    g_chain = o_off.outputs["Instances"]
+    for nm_, dt_, val_ in (("vm_grot", "QUATERNION", i_rot),
+                           ("vm_gctr", "FLOAT_VECTOR", vmath("ADD", g_ip, rot(v3(
+                               em("MULTIPLY", em("ADD", glx, ghx), 0.5),
+                               em("ADD", gly, em("DIVIDE", 0.004, geo_f)),
+                               em("MULTIPLY", em("ADD", glz, ghz), 0.5)), i_rot))),
+                           ("vm_gsz", "FLOAT_VECTOR", v3(
+                               em("MAXIMUM", em("SUBTRACT", em("SUBTRACT", ghx, glx), em("MULTIPLY", ins_l, 2.0)),
+                                  0.01),
+                               1.0,
+                               em("MAXIMUM", em("SUBTRACT", em("SUBTRACT", ghz, glz), em("MULTIPLY", ins_l, 2.0)),
+                                  0.01))),
+                           ("vm_gbrk", "FLOAT", g_brk), ("vm_gseed", "FLOAT", g_rz)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="INSTANCE")
+        b.L(g_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        g_chain = st_.outputs["Geometry"]
+    g_pts = b.N("GeometryNodeInstancesToPoints", random_loc())
+    b.L(g_chain, g_pts.inputs["Instances"])
+    b.L(g_win, g_pts.inputs["Selection"])
+    g_mv = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(g_pts.outputs["Points"], g_mv.inputs["Geometry"])
+    b.L(dnamed("vm_gctr", "FLOAT_VECTOR"), g_mv.inputs["Position"])
+    # the pane: a unit quad in the window's XZ plane facing +Y (outward), UVs 0-1
+    g_grid = b.N("GeometryNodeMeshGrid", random_loc())
+    g_grid.inputs["Size X"].default_value = 1.0
+    g_grid.inputs["Size Y"].default_value = 1.0
+    g_grid.inputs["Vertices X"].default_value = 2
+    g_grid.inputs["Vertices Y"].default_value = 2
+    g_uv = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT2", domain="CORNER")
+    b.L(g_grid.outputs["Mesh"], g_uv.inputs["Geometry"])
+    g_uv.inputs["Name"].default_value = "UVMap"
+    b.L(g_grid.outputs["UV Map"], g_uv.inputs["Value"])
+    g_tf = b.N("GeometryNodeTransform", random_loc())
+    b.L(g_uv.outputs["Geometry"], g_tf.inputs["Geometry"])
+    g_tf.inputs["Rotation"].default_value = (-1.5707963, 0.0, 0.0)
+    g_mat = b.N("GeometryNodeSetMaterial", random_loc())
+    b.L(g_tf.outputs["Geometry"], g_mat.inputs["Geometry"])
+    b.L(gi.outputs["Glass Material"], g_mat.inputs["Material"])
+    g_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(g_mv.outputs["Geometry"], g_iop.inputs["Points"])
+    b.L(g_mat.outputs["Geometry"], g_iop.inputs["Instance"])
+    b.L(dnamed("vm_grot", "QUATERNION"), g_iop.inputs["Rotation"])
+    b.L(dnamed("vm_gsz", "FLOAT_VECTOR"), g_iop.inputs["Scale"])
+    # world size of the pane (the material lays its shards in meters)
+    g_ws = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="INSTANCE")
+    b.L(g_iop.outputs["Instances"], g_ws.inputs["Geometry"])
+    g_ws.inputs["Name"].default_value = "vm_gsize"
+    b.L(vmath("SCALE", dnamed("vm_gsz", "FLOAT_VECTOR"), geo_f), g_ws.inputs["Value"])
+    g_chain2 = g_ws.outputs["Geometry"]
+    for nm_ in ("vm_gbrk", "vm_gseed"):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+        b.L(g_chain2, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(dnamed(nm_, "FLOAT"), st_.inputs["Value"])
+        g_chain2 = st_.outputs["Geometry"]
+    g_join = b.N("GeometryNodeJoinGeometry", random_loc())
+    b.L(o_off.outputs["Instances"], g_join.inputs["Geometry"])
+    b.L(g_chain2, g_join.inputs["Geometry"])
+    b.L(g_join.outputs["Geometry"], go.inputs["Geometry"])
+
+    # ---- v2.19 VINES: climbers grow up the walls from the ground - a wandering
+    # main stem per vine with side shoots, clinging just in front of the
+    # cladding (each point is laid back onto the nearest wall), stopping at
+    # the eaves, tapering to the tip, leafed along its length.
+    p_vn = b.panel("Vines", "Any mode (v2.19): climbing vines up the walls from the ground")
+    b.sock("Vines", "NodeSocketBool", p_vn, False,
+           desc="v2.19: grow climbing vines up the walls (use it on ONE layer - the add-on's Windows layer)")
+    b.sock("Vine Count", "NodeSocketInt", p_vn, 8, 0, 500, desc="Vines: about how many climbers")
+    b.sock("Vine Height", "NodeSocketFloat", p_vn, 2.4, 0.1, 100.0, "DISTANCE",
+           "Vines: how high the tallest climb (world m; they stop at the eaves)")
+    b.sock("Vine Branches", "NodeSocketInt", p_vn, 9, 0, 50, desc="Vines: side shoots per vine")
+    b.sock("Leaf Density", "NodeSocketFloat", p_vn, 0.9, 0.0, 1.0, "FACTOR",
+           "Vines: how leafy (share of the stem points that carry a leaf)")
+    b.sock("Vine Seed", "NodeSocketInt", p_vn, 0, desc="Vines: another set of climbers")
+    b.sock("Stem Material", "NodeSocketMaterial", p_vn, None, desc="Vines: the stems")
+    b.sock("Leaf Material", "NodeSocketMaterial", p_vn, None,
+           desc="Vines: the leaves (VM_VineLeaf cuts the leaf shape from the quad)")
+    v_seed = gi.outputs["Vine Seed"]
+
+    def vnorm(v_):
+        return vmath("NORMALIZE", v_, v_)
+
+    def v_rand(off_, id_=None):
+        rv_ = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT_VECTOR")
+        rv_.inputs["Min"].default_value = (0.0, 0.0, 0.0)
+        rv_.inputs["Max"].default_value = (1.0, 1.0, 1.0)
+        if id_ is not None:
+            b.L(id_, rv_.inputs["ID"])
+        b.L(seed_node(b, v_seed, off_), rv_.inputs["Seed"])
+        return sxyz(rv_.outputs["Value"])
+    # the walls they cling to: the host with its face normals stored
+    v_host = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="FACE")
+    b.L(mesh_only, v_host.inputs["Geometry"])
+    v_host.inputs["Name"].default_value = "vm_vn"
+    b.L(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"], v_host.inputs["Value"])
+    v_nz = sxyz(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"])[2]
+    v_dist = b.N("GeometryNodeDistributePointsOnFaces", random_loc(), distribute_method="RANDOM")
+    b.L(v_host.outputs["Geometry"], v_dist.inputs["Mesh"])
+    b.L(tand(gi.outputs["Vines"], tand(tcmp("LESS_THAN", em("ABSOLUTE", v_nz), 0.3),
+                                         tcmp("GREATER_THAN", dnamed("vm_ext", "FLOAT"), 0.5))),
+        v_dist.inputs["Selection"])
+    b.L(em("MULTIPLY", 20.0, em("MULTIPLY", geo_f, geo_f)), v_dist.inputs["Density"])
+    b.L(seed_node(b, v_seed, 601), v_dist.inputs["Seed"])
+    v_cnt = b.N("GeometryNodeAttributeDomainSize", random_loc())
+    v_cnt.component = "POINTCLOUD"
+    b.L(v_dist.outputs["Points"], v_cnt.inputs["Geometry"])
+    v_r1x, v_r1y, v_r1z = v_rand(611)
+    v_pick = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(v_dist.outputs["Points"], v_pick.inputs["Geometry"])
+    b.L(tcmp("GREATER_EQUAL", v_r1x, em("DIVIDE", gi.outputs["Vine Count"],
+                                         em("MAXIMUM", v_cnt.outputs["Point Count"], 1.0))),
+        v_pick.inputs["Selection"])
+    # every vine: start on the ground under its point, a direction, a length,
+    # how much it wanders and its noise key (all host-local)
+    v_n0 = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(v_pick.outputs["Geometry"], v_n0.inputs["Geometry"])
+    v_n0.inputs["Name"].default_value = "vm_vn0"
+    b.L(v_dist.outputs["Normal"], v_n0.inputs["Value"])
+    v_pos = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    v_px, v_py, _v_pz = sxyz(v_pos)
+    v_n = dnamed("vm_vn0", "FLOAT_VECTOR")
+    v_up = v3(0.0, 0.0, 1.0)
+    v_side = vnorm(vmath("CROSS_PRODUCT", v_up, v_n))
+    v_r2x, v_r2y, v_r2z = v_rand(621)
+    v_chain = v_n0.outputs["Geometry"]
+    for nm_, dt_, val_ in (("vm_vp0", "FLOAT_VECTOR", v3(v_px, v_py, em("ADD", bb_sep.outputs["Z"],
+                                                                         em("DIVIDE", 0.01, geo_f)))),
+                           ("vm_vd", "FLOAT_VECTOR", v_up), ("vm_vsd", "FLOAT_VECTOR", v_side),
+                           ("vm_vl", "FLOAT", em("DIVIDE", em("MULTIPLY", gi.outputs["Vine Height"],
+                                                               tm("MULTIPLY_ADD", v_r2x, 0.45, 0.55)), sz_g)),
+                           ("vm_vw", "FLOAT", em("DIVIDE", tm("MULTIPLY_ADD", v_r2y, 0.35, 0.25), geo_f)),
+                           ("vm_vk", "FLOAT", em("MULTIPLY", v_r2z, 97.0)),
+                           ("vm_vr", "FLOAT", em("DIVIDE", 0.011, geo_f))):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="POINT")
+        b.L(v_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        v_chain = st_.outputs["Geometry"]
+    v_mains = v_chain
+
+    def v_path(t_, p0_, d_, sd_, l_, w_, k_):
+        # p0 + d*t*l + sd*w*t*(noise-0.5)*2 : wanders more the higher it gets
+        nz_ = b.N("ShaderNodeTexNoise", random_loc())
+        nz_.noise_dimensions = "1D"
+        b.L(tm("MULTIPLY_ADD", t_, 2.5, k_), nz_.inputs["W"])
+        nz_.inputs["Scale"].default_value = 1.0          # ~2.5 slow bends over a vine
+        nz_.inputs["Detail"].default_value = 0.5
+        wob_ = em("MULTIPLY", em("MULTIPLY", em("SUBTRACT", nz_.outputs["Fac"], 0.5), 2.0), em("MULTIPLY", w_, t_))
+        return vmath("ADD", vmath("ADD", p0_, vmath("SCALE", d_, em("MULTIPLY", t_, l_))), vmath("SCALE", sd_, wob_))
+    # side shoots: from a point along the main stem, out to one side and up
+    vb_dup = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
+    b.L(v_mains, vb_dup.inputs["Geometry"])
+    b.L(gi.outputs["Vine Branches"], vb_dup.inputs["Amount"])
+    vb_ix, vb_iy, vb_iz = v_rand(631)
+    vb_f = tm("MULTIPLY_ADD", vb_ix, 0.7, 0.15)
+    vb_sg = tsw(tcmp("LESS_THAN", vb_iy, 0.5), 1.0, -1.0)
+    vb_d = vnorm(vmath("ADD", vmath("SCALE", dnamed("vm_vsd", "FLOAT_VECTOR"), vb_sg),
+                                    vmath("SCALE", v_up, tm("MULTIPLY_ADD", vb_iz, 0.9, 0.3))))
+    vb_p0 = v_path(vb_f, dnamed("vm_vp0", "FLOAT_VECTOR"), dnamed("vm_vd", "FLOAT_VECTOR"),
+                   dnamed("vm_vsd", "FLOAT_VECTOR"), dnamed("vm_vl", "FLOAT"), dnamed("vm_vw", "FLOAT"),
+                   dnamed("vm_vk", "FLOAT"))
+    vb_chain = vb_dup.outputs["Geometry"]
+    for nm_, dt_, val_ in (("vm_vp0", "FLOAT_VECTOR", vb_p0), ("vm_vd", "FLOAT_VECTOR", vb_d),
+                           ("vm_vsd", "FLOAT_VECTOR", vnorm(vmath("CROSS_PRODUCT", vb_d,
+                                                                               dnamed("vm_vn0", "FLOAT_VECTOR")))),
+                           ("vm_vl", "FLOAT", em("MULTIPLY", dnamed("vm_vl", "FLOAT"),
+                                                 em("MULTIPLY", tm("MULTIPLY_ADD", vb_iy, 0.4, 0.3),
+                                                    em("SUBTRACT", 1.15, vb_f)))),
+                           ("vm_vw", "FLOAT", em("MULTIPLY", dnamed("vm_vw", "FLOAT"), 0.6)),
+                           ("vm_vk", "FLOAT", em("ADD", dnamed("vm_vk", "FLOAT"), em("MULTIPLY", vb_iz, 53.0))),
+                           ("vm_vr", "FLOAT", em("DIVIDE", 0.006, geo_f))):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="POINT")
+        b.L(vb_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        vb_chain = st_.outputs["Geometry"]
+    v_all = b.N("GeometryNodeJoinGeometry", random_loc())
+    b.L(v_mains, v_all.inputs["Geometry"])
+    b.L(vb_chain, v_all.inputs["Geometry"])
+    v_id = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="POINT")
+    b.L(v_all.outputs["Geometry"], v_id.inputs["Geometry"])
+    v_id.inputs["Name"].default_value = "vm_vid"
+    b.L(b.N("GeometryNodeInputIndex", random_loc()).outputs["Index"], v_id.inputs["Value"])
+    # one 41-point curve per vine, laid along its path
+    v_line = b.N("GeometryNodeCurvePrimitiveLine", random_loc())
+    v_line.inputs["End"].default_value = (0.0, 0.0, 1.0)
+    v_sub = b.N("GeometryNodeSubdivideCurve", random_loc())
+    b.L(v_line.outputs["Curve"], v_sub.inputs["Curve"])
+    v_sub.inputs["Cuts"].default_value = 39
+    v_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(v_id.outputs["Geometry"], v_iop.inputs["Points"])
+    b.L(v_sub.outputs["Curve"], v_iop.inputs["Instance"])
+    v_real = b.N("GeometryNodeRealizeInstances", random_loc())
+    b.L(v_iop.outputs["Instances"], v_real.inputs["Geometry"])
+    v_t = b.N("GeometryNodeSplineParameter", random_loc()).outputs["Factor"]
+    v_lay = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(v_real.outputs["Geometry"], v_lay.inputs["Geometry"])
+    b.L(v_path(v_t, dnamed("vm_vp0", "FLOAT_VECTOR"), dnamed("vm_vd", "FLOAT_VECTOR"),
+               dnamed("vm_vsd", "FLOAT_VECTOR"), dnamed("vm_vl", "FLOAT"), dnamed("vm_vw", "FLOAT"),
+               dnamed("vm_vk", "FLOAT")), v_lay.inputs["Position"])
+    # ... then laid back onto the nearest wall, a little in front of the cladding
+    v_prox = b.N("GeometryNodeProximity", random_loc())
+    v_prox.target_element = "FACES"
+    b.L(v_host.outputs["Geometry"], v_prox.inputs["Geometry"])
+    v_sn = b.N("GeometryNodeSampleNearestSurface", random_loc(), data_type="FLOAT_VECTOR")
+    b.L(v_host.outputs["Geometry"], v_sn.inputs["Mesh"])
+    b.L(dnamed("vm_vn", "FLOAT_VECTOR"), v_sn.inputs["Value"])
+    v_st_n = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(v_lay.outputs["Geometry"], v_st_n.inputs["Geometry"])
+    v_st_n.inputs["Name"].default_value = "vm_vnp"
+    b.L(v_sn.outputs["Value"], v_st_n.inputs["Value"])
+    v_cl = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(v_st_n.outputs["Geometry"], v_cl.inputs["Geometry"])
+    b.L(vmath("ADD", v_prox.outputs["Position"],
+              vmath("SCALE", dnamed("vm_vnp", "FLOAT_VECTOR"), em("DIVIDE", 0.075, geo_f))),
+        v_cl.inputs["Position"])
+    # it stops where the wall does (the first point laid on a roof / top face)
+    # and where it reaches a door or window this layer cut (never through a frame)
+    vo_p = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    vo_sn = b.N("GeometryNodeSampleNearest", random_loc(), domain="POINT")
+    b.L(o_cloud, vo_sn.inputs["Geometry"])
+    b.L(vo_p, vo_sn.inputs["Sample Position"])
+
+    def vo_at(name_):
+        si_ = b.N("GeometryNodeSampleIndex", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+        b.L(o_cloud, si_.inputs["Geometry"])
+        b.L(dnamed(name_, "FLOAT_VECTOR"), si_.inputs["Value"])
+        b.L(vo_sn.outputs["Index"], si_.inputs["Index"])
+        return si_.outputs["Value"]
+    vo_rel = vmath("SUBTRACT", vo_p, vo_at("vm_cctr"))
+    vo_hu, _vo_hy, vo_hz = sxyz(vo_at("vm_chalf"))
+    vo_mg = em("DIVIDE", 0.06, geo_f)
+    vo_in = tand(tand(has_open, tand(gi.outputs["Cut Openings"], is_fit)),
+                 tand(tcmp("LESS_THAN", em("ABSOLUTE", vmath("DOT_PRODUCT", vo_rel, vo_at("vm_cu"), out="Value")),
+                           em("ADD", vo_hu, vo_mg)),
+                      tcmp("LESS_THAN", em("ABSOLUTE", vmath("DOT_PRODUCT", vo_rel, vo_at("vm_cup"), out="Value")),
+                           em("ADD", vo_hz, vo_mg))))
+    v_roof = tsw(bor(vo_in, tcmp("GREATER_THAN", em("ABSOLUTE", sxyz(dnamed("vm_vnp", "FLOAT_VECTOR"))[2]), 0.5)),
+                 0.0, 1.0)
+    v_acc = b.N("GeometryNodeAccumulateField", random_loc(), domain="POINT")
+    b.L(v_roof, v_acc.inputs["Value"])
+    b.L(dnamed("vm_vid", "FLOAT"), v_acc.inputs["Group ID"])
+    v_trim = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(v_cl.outputs["Geometry"], v_trim.inputs["Geometry"])
+    b.L(tcmp("GREATER_THAN", v_acc.outputs["Leading"], 0.5), v_trim.inputs["Selection"])
+    v_curves = v_trim.outputs["Geometry"]
+    # stems: tapering tubes
+    v_prof = b.N("GeometryNodeCurvePrimitiveCircle", random_loc())
+    v_prof.inputs["Resolution"].default_value = 5
+    v_prof.inputs["Radius"].default_value = 1.0
+    v_tube = b.N("GeometryNodeCurveToMesh", random_loc())
+    b.L(v_curves, v_tube.inputs["Curve"])
+    b.L(v_prof.outputs["Curve"], v_tube.inputs["Profile Curve"])
+    b.L(em("MULTIPLY", dnamed("vm_vr", "FLOAT"), tm("MULTIPLY_ADD", v_t, -0.7, 1.0)), v_tube.inputs["Scale"])
+    v_smat = b.N("GeometryNodeSetMaterial", random_loc())
+    b.L(v_tube.outputs["Mesh"], v_smat.inputs["Geometry"])
+    b.L(gi.outputs["Stem Material"], v_smat.inputs["Material"])
+    v_sinst = b.N("GeometryNodeGeometryToInstance", random_loc())
+    b.L(v_smat.outputs["Geometry"], v_sinst.inputs["Geometry"])
+    # leaves: a quad (base at its origin, +Y along the leaf, facing +Z) on the
+    # stem points, facing out from the wall, turned every way, standing off it
+    v_leaf = b.N("GeometryNodeMeshGrid", random_loc())
+    v_leaf.inputs["Size X"].default_value = 1.0
+    v_leaf.inputs["Size Y"].default_value = 1.0
+    v_leaf.inputs["Vertices X"].default_value = 2
+    v_leaf.inputs["Vertices Y"].default_value = 2
+    v_luv = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT2", domain="CORNER")
+    b.L(v_leaf.outputs["Mesh"], v_luv.inputs["Geometry"])
+    v_luv.inputs["Name"].default_value = "UVMap"
+    b.L(v_leaf.outputs["UV Map"], v_luv.inputs["Value"])
+    v_ltf = b.N("GeometryNodeTransform", random_loc())
+    b.L(v_luv.outputs["Geometry"], v_ltf.inputs["Geometry"])
+    v_ltf.inputs["Translation"].default_value = (0.0, 0.5, 0.0)
+    v_lmat = b.N("GeometryNodeSetMaterial", random_loc())
+    b.L(v_ltf.outputs["Geometry"], v_lmat.inputs["Geometry"])
+    b.L(gi.outputs["Leaf Material"], v_lmat.inputs["Material"])
+    v_pid = b.N("GeometryNodeInputIndex", random_loc()).outputs["Index"]
+    v_lx, v_ly, v_lz = v_rand(641, v_pid)
+    v_al = b.N("FunctionNodeAlignRotationToVector", random_loc())
+    v_al.axis = "Z"
+    b.L(dnamed("vm_vnp", "FLOAT_VECTOR"), v_al.inputs["Vector"])
+    v_spin = b.N("FunctionNodeEulerToRotation", random_loc())
+    b.L(v3(tm("MULTIPLY_ADD", v_ly, -0.6, -0.25), 0.0, em("MULTIPLY", v_lx, 6.2832)), v_spin.inputs["Euler"])
+    v_lrot = b.N("FunctionNodeRotateRotation", random_loc())
+    v_lrot.rotation_space = "LOCAL"
+    b.L(v_al.outputs["Rotation"], v_lrot.inputs["Rotation"])
+    b.L(v_spin.outputs["Rotation"], v_lrot.inputs["Rotate By"])
+    v_lsz = em("DIVIDE", em("MULTIPLY", tm("MULTIPLY_ADD", v_lz, 0.06, 0.06), tm("MULTIPLY_ADD", v_t, -0.4, 1.0)),
+               geo_f)
+    v_liop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(v_curves, v_liop.inputs["Points"])
+    b.L(tcmp("LESS_THAN", v_lx, gi.outputs["Leaf Density"]), v_liop.inputs["Selection"])
+    b.L(v_lmat.outputs["Geometry"], v_liop.inputs["Instance"])
+    b.L(v_lrot.outputs["Rotation"], v_liop.inputs["Rotation"])
+    b.L(v3(em("MULTIPLY", v_lsz, 0.7), v_lsz, v_lsz), v_liop.inputs["Scale"])
+    v_join = b.N("GeometryNodeJoinGeometry", random_loc())
+    b.L(v_sinst.outputs["Instances"], v_join.inputs["Geometry"])
+    b.L(v_liop.outputs["Instances"], v_join.inputs["Geometry"])
+    b.L(v_join.outputs["Geometry"], g_join.inputs["Geometry"])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -10246,6 +10739,11 @@ def main():
         siding=make_board_material("VM_SidingBoard", wood_src, "dark_planks", 8, 0.10, 2.0, 0.7, 1.15),
         shake=make_board_material("VM_Shake", wood_src, "dark_planks", 8, 0.10, 2.0, 0.65, 1.1, 0.6),
         under=make_principled("VM_RoofUnderlay", (0.03, 0.025, 0.02), rough=0.9),
+        # v2.18: the windows' glass (breaks by each pane's vm_gbrk)
+        glass=make_glass_material("VM_WindowGlass"),
+        # v2.19: the vines
+        vstem=make_principled("VM_VineStem", (0.09, 0.06, 0.035), rough=0.85),
+        vleaf=make_leaf_material("VM_VineLeaf"),
         # v2.12: what missing siding reveals - old dark sheathing boards
         sheath=make_textured_material(
             "VM_Sheathing", os.path.join(ASSET_SRC, "materials", "walls", "weathered_plank_siding"),
@@ -10297,6 +10795,9 @@ def main():
         for mn_ in ("VM_SceneDetailer_Planks", "VM_SceneDetailer_Shingles", "VM_SceneDetailer_Windows"):
             if extra:
                 set_params(probe.modifiers[mn_], probe.modifiers[mn_].node_group, extra)
+        if extra:                       # v2.19: and it is overgrown
+            wl_p = probe.modifiers["VM_SceneDetailer_Windows"]
+            set_params(wl_p, wl_p.node_group, {"Vines": True})
         lib_presets[pname] = dict(description=desc, modifiers=vmt.snapshot_object(probe))
     bpy.data.objects.remove(probe)
     txt = bpy.data.texts.get(vmt.PRESETS_TEXT) or bpy.data.texts.new(vmt.PRESETS_TEXT)
@@ -10928,6 +11429,21 @@ def main():
                      + tuple(round(x_, 3) for x_ in m_.to_quaternion())] = m_.translation.copy()
         return out_
     ok_clean = open_keys()
+
+    def panes():
+        # v2.18: the glass panes (instances carrying a pane size) and how broken
+        dg_g = bpy.context.evaluated_depsgraph_get()
+        dg_g.update()
+        gs_ = op_ob.evaluated_get(dg_g).evaluated_geometry()     # keep it alive while reading
+        pc_ = gs_.instances_pointcloud()
+        if pc_ is None or "vm_gsize" not in pc_.attributes:
+            return []
+        sz_, bk_ = pc_.attributes["vm_gsize"].data, pc_.attributes["vm_gbrk"].data
+        xf_ = pc_.attributes["instance_transform"].data            # (point .co is not the place)
+        return [(op_ob.matrix_world @ xf_[i_].value.to_translation(), bk_[i_].value)
+                for i_ in range(len(pc_.points)) if sz_[i_].vector.length > 0.01]
+    gl_clean = panes()
+    n_win = sum(1 for k_ in ok_clean if k_[0].startswith("Window"))
     tgt_ = next(o_ for o_ in opens_o if o_["name"].startswith("Window"))
     oz_emp = vmt.add_damage_zone(op_ob, tgt_["c"].copy(), fx_scene.collection, amount=0.95)
     n_olayers = len(vmt.opening_damage_layers(op_ob))
@@ -10944,6 +11460,7 @@ def main():
         return [op_ob.matrix_world @ me_h.polygons[i_].center for i_, d_ in enumerate(a_.data)
                 if d_.value > 1.5]
     holes_dmg = hole_faces()
+    gl_dmg = panes()
     changed_ = [k_ for k_ in ok_clean if k_ not in ok_dmg]
     hit_ = [k_ for k_ in changed_ if (ok_clean[k_] - tgt_["c"]).length < 1.2]
     far_moved = [k_ for k_ in changed_ if (ok_clean[k_] - tgt_["c"]).length > vmt.DAMAGE_ZONE_RADIUS + 1.5]
@@ -10960,12 +11477,76 @@ def main():
     check("v2.16(openings heal): Damage off puts every opening back exactly",
           ok_back.keys() == ok_clean.keys(), f"identical={ok_back.keys() == ok_clean.keys()}")
     holes_off = hole_faces()
+    gl_off = panes()
     h_far = max(((c_ - tgt_["c"]).length for c_ in holes_dmg), default=0.0)
     check("v2.17(wall holes): the heart of a damage zone breaks THROUGH the wall (ragged holes, "
           "their broken edges in the interior boards) - only inside the zone, none with Damage off",
           len(holes_dmg) > 0 and h_far < vmt.DAMAGE_ZONE_RADIUS and not holes_off,
           f"hole edge faces: zone {len(holes_dmg)} (farthest {h_far:.2f} m from its centre), "
           f"damage off {len(holes_off)}")
+    check("v2.18(glass): every window cut by the layer is glazed - one pane per window, whole "
+          "while Damage is off",
+          n_win >= 3 and len(gl_clean) == n_win and all(b_ == 0.0 for _p, b_ in gl_clean),
+          f"{n_win} windows, {len(gl_clean)} panes, broken={[round(b_, 2) for _p, b_ in gl_clean]}")
+    gl_near = [b_ for p_, b_ in gl_dmg if (p_ - tgt_["c"]).length < 1.2]
+    check("v2.18(glass broken): in a damage zone the window's glass is smashed (or gone with the "
+          "window); Damage off makes every pane whole again",
+          all(b_ >= 0.4 for b_ in gl_near) and len(gl_off) == n_win
+          and all(b_ == 0.0 for _p, b_ in gl_off),
+          f"panes at the damaged window={[round(b_, 2) for b_ in gl_near]}, panes after Damage off="
+          f"{len(gl_off)} (broken {sum(1 for _p, b_ in gl_off if b_ > 0)})")
+    # v2.19: vines climb the walls, cling to them, stop at the eaves
+    def vine_scan():
+        op_ob.update_tag()                      # a socket write alone does not re-evaluate
+        dg_v = bpy.context.evaluated_depsgraph_get()
+        dg_v.update()
+        ev_v = op_ob.evaluated_get(dg_v)
+        gs_v = ev_v.evaluated_geometry()
+        pc_v = gs_v.instances_pointcloud()
+        refs_v = list(gs_v.instance_references())
+        ri_v = pc_v.attributes[".reference_index"].data if pc_v is not None and             ".reference_index" in pc_v.attributes else []
+        stem_pts, n_leaf = [], 0
+        for i_, r_ in enumerate(refs_v):
+            me_r = getattr(r_, "mesh", None)
+            if me_r is None or not me_r.materials:
+                continue
+            mn_r = {m_.name for m_ in me_r.materials if m_}
+            n_use = sum(1 for d_ in ri_v if d_.value == i_)
+            if "VM_VineStem" in mn_r:
+                stem_pts += [op_ob.matrix_world @ v_.co for v_ in me_r.vertices][::7]
+            if "VM_VineLeaf" in mn_r:
+                n_leaf += n_use
+        bvh_v = BVHTree.FromObject(ev_v, dg_v)
+        w2l_v = op_ob.matrix_world.inverted()
+        off_ = []
+        for p_ in stem_pts:
+            loc_, nrm_, _i, d_ = bvh_v.find_nearest(w2l_v @ p_)
+            if loc_ is not None:
+                off_.append(d_ if (w2l_v @ p_ - loc_).dot(nrm_) >= 0 else -d_)
+        return stem_pts, n_leaf, off_
+    wl_v = op_ob.modifiers["VM_SceneDetailer_Windows"]
+    # (-5 mm: a root vertex measured against the floor face it starts on)
+    # this stage's file has no library materials yet: the scan tells stems
+    # and leaves apart by theirs
+    v_mats = {"Stem Material": bpy.data.materials.get("VM_VineStem")
+              or make_principled("VM_VineStem", (0.09, 0.06, 0.035), rough=0.85),
+              "Leaf Material": bpy.data.materials.get("VM_VineLeaf") or make_leaf_material("VM_VineLeaf")}
+    set_params(wl_v, wl_v.node_group, dict(v_mats, Vines=True))
+    vs_pts, vs_leaf, vs_off = vine_scan()
+    set_params(wl_v, wl_v.node_group, {"Vines": False})
+    vo_pts, vo_leaf, _vo = vine_scan()
+    vs_top = max((p_.z for p_ in vs_pts), default=0.0)
+    check("v2.19(vines): Vines on grows climbers up the walls - leafy stems reaching up from the "
+          "ground, clinging just in front of the wall (never inside it); Vines off = none",
+          len(vs_pts) > 50 and vs_leaf >= 100 and vs_top > 1.2 and vs_off
+          and min(vs_off) > -0.005 and max(vs_off) < 0.3 and not vo_pts and vo_leaf == 0,
+          f"stem samples={len(vs_pts)}, leaves={vs_leaf}, top={vs_top:.2f} m, off the wall "
+          f"{min(vs_off, default=0):.3f}-{max(vs_off, default=0):.3f} m, off: {len(vo_pts)} / {vo_leaf}")
+    results["vines_v219"] = dict(stem_samples=len(vs_pts), leaves=vs_leaf, top=round(vs_top, 2),
+                                 off_min=round(min(vs_off, default=0), 3),
+                                 off_max=round(max(vs_off, default=0), 3))
+    results["glass_v218"] = dict(windows=n_win, panes=len(gl_clean), near_broken=gl_near,
+                                 panes_off=len(gl_off))
     results["damage_v216"] = dict(corner_cover_zone=round(cov_hit, 3), corner_cover_far=round(cov_far, 3),
                                   openings_changed=len(changed_), near=len(hit_), far=len(far_moved),
                                   hole_faces=len(holes_dmg), hole_far=round(h_far, 2))
