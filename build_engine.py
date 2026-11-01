@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.20"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.21"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -4364,6 +4364,11 @@ def build_node_group():
                 "band around the damage. Empty = no wear")
     b.sock("Wear", "NodeSocketFloat", p_dmg, 0.12, 0.0, 1.0, "FACTOR",
            "How far beyond the damage the tiles are worn (cracked, split, chipped)")
+    # v2.21 sockets are created LAST (identifier order); placeholders here
+    rh_ph = b.N("ShaderNodeMath", random_loc(), operation="ADD")
+    rh_ph.inputs[1].default_value = 0.0
+    hb_ph = b.N("ShaderNodeMath", random_loc(), operation="ADD")
+    hb_ph.inputs[1].default_value = 0.0
 
     d_pos = b.N("GeometryNodeInputPosition", (3200, 600))
     d_idx = b.N("GeometryNodeInputIndex", (3200, 500))
@@ -4406,6 +4411,33 @@ def build_node_group():
     b.L(em("MULTIPLY", d_rl, 0.3), d_mr.inputs["From Max"])
     d_mask = tsw(tcmp("GREATER_THAN", gi.outputs["Damage Radius"], 0.0), 1.0, d_mr.outputs["Result"])
     d_thr = em("SUBTRACT", 1.0, em("MULTIPLY", gi.outputs["Damage Amount"], d_mask))
+    def dmg_margin(vec_):
+        nv_ = vmath("ADD", vec_, d_sv.outputs["Vector"])
+        nz_ = b.N("ShaderNodeTexNoise", random_loc())
+        b.L(nv_, nz_.inputs["Vector"])
+        b.L(em("DIVIDE", geo_f, em("MAXIMUM", gi.outputs["Damage Scale"], 0.01)), nz_.inputs["Scale"])
+        nz_.inputs["Detail"].default_value = 2.0
+        ns_ = em("MINIMUM", em("MAXIMUM", tm("MULTIPLY_ADD", em("SUBTRACT", nz_.outputs["Fac"], 0.5),
+                                             2.5, 0.5), 0.0), 1.0)
+        dv_ = vmath("DISTANCE", vec_, d_oi.outputs["Location"], out="Value")
+        mr_ = b.N("ShaderNodeMapRange", random_loc(), interpolation_type="SMOOTHSTEP")
+        b.L(dv_, mr_.inputs["Value"])
+        b.L(d_rl, mr_.inputs["From Min"])
+        b.L(em("MULTIPLY", d_rl, 0.3), mr_.inputs["From Max"])
+        mk_ = tsw(tcmp("GREATER_THAN", gi.outputs["Damage Radius"], 0.0), 1.0, mr_.outputs["Result"])
+        thr_ = em("SUBTRACT", 1.0, em("MULTIPLY", gi.outputs["Damage Amount"], mk_))
+        # the tiles' per-tile random share averages 0.5 on a ring of samples
+        return em("SUBTRACT", tm("MULTIPLY_ADD", ns_, 0.65, 0.175), thr_)
+
+
+    def calm_pts(geo_):
+        # v2.20 keep only the points well outside the damage (a trim / outline
+        # end there still holds a board; inside a patch it may be gone)
+        dl_ = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+        b.L(geo_, dl_.inputs["Geometry"])
+        b.L(tcmp("GREATER_THAN", dmg_margin(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]), -0.1),
+            dl_.inputs["Selection"])
+        return dl_.outputs["Geometry"]
     d_live = tand(gi.outputs["Damage"], is_clad)
     d_on = tand(d_live, tcmp("GREATER_THAN", d_score, d_thr))
     # v2.13 the wear band: just short of the damage threshold (inside the mask)
@@ -4516,8 +4548,6 @@ def build_node_group():
     d_pitch = em("MULTIPLY", em("MULTIPLY", t_exs.outputs["Z"], i_scs.outputs["Z"]),
                  em("SUBTRACT", 1.0, gi.outputs["Row Overlap"]))
 
-    d_calm_i = tcmp("LESS_THAN", em("SUBTRACT", tm("MULTIPLY_ADD", d_ns, 0.65, 0.175), d_thr), 0.0)
-
     def iso_pass(chain_):
         hold_ = bor(is_c(cat0, 0), is_c(cat0, 4))
         elo_, ehi_ = dnamed("vm_elo", "FLOAT_VECTOR"), dnamed("vm_ehi", "FLOAT_VECTOR")
@@ -4560,13 +4590,14 @@ def build_node_group():
         # outline (a corner / rake end sits under trim)
         for mine_, theirs_ in (("vm_elo", "vm_ehi"), ("vm_ehi", "vm_elo")):
             j_ = b.N("GeometryNodeJoinGeometry", random_loc())
-            for sel_, attr_ in ((hold_, theirs_), (d_calm_i, "vm_pe_lo"), (d_calm_i, "vm_pe_hi")):
+            for sel_, attr_ in ((hold_, theirs_), (None, "vm_pe_lo"), (None, "vm_pe_hi")):
                 i2p_ = b.N("GeometryNodeInstancesToPoints", random_loc())
                 b.L(chain_, i2p_.inputs["Instances"])
                 if sel_ is not None:
                     b.L(sel_, i2p_.inputs["Selection"])
                 b.L(dnamed(attr_, "FLOAT_VECTOR"), i2p_.inputs["Position"])
-                b.L(i2p_.outputs["Points"], j_.inputs["Geometry"])
+                b.L(i2p_.outputs["Points"] if sel_ is not None else calm_pts(i2p_.outputs["Points"]),
+                    j_.inputs["Geometry"])
             n_ = em("ADD", n_, tsw(hit_(j_.outputs["Geometry"], dnamed(mine_, "FLOAT_VECTOR"),
                                         em("DIVIDE", 0.04, geo_f)), 0.0, 1.0))
         iso_ = tand(tand(tand(d_live, d_long), hold_),
@@ -4600,7 +4631,7 @@ def build_node_group():
             sp_ = b.N("GeometryNodeSetPosition", random_loc())
             b.L(i2p.outputs["Points"], sp_.inputs["Geometry"])
             b.L(dnamed(attr_k, "FLOAT_VECTOR"), sp_.inputs["Position"])
-            parts.append(sp_.outputs["Geometry"])
+            parts.append(calm_pts(sp_.outputs["Geometry"]) if attr_k.startswith("vm_pe_") else sp_.outputs["Geometry"])
         j_ = b.N("GeometryNodeJoinGeometry", random_loc())
         for g_ in parts:
             b.L(g_, j_.inputs["Geometry"])
@@ -4613,9 +4644,9 @@ def build_node_group():
         b.L(pos_, px_.inputs["Sample Position"])
         return tcmp("LESS_THAN", px_.outputs["Distance"], em("DIVIDE", dist_, geo_f))
     # v2.20 an end cut at the outline is held by the trim there - but not
-    # inside a damaged patch, where that corner board may be gone with the wall
-    d_calm = tcmp("LESS_THAN", em("SUBTRACT", tm("MULTIPLY_ADD", d_ns, 0.65, 0.175), d_thr), 0.0)
-    outline_ends = (d_calm, "vm_pe_lo"), (d_calm, "vm_pe_hi")
+    # inside a damaged patch, where that corner board may be gone with the
+    # wall (judged at the outline end itself, not at the board offering it)
+    outline_ends = (None, "vm_pe_lo"), (None, "vm_pe_hi")
     holds = bor(is_c(cat0, 0), is_c(cat0, 4))                 # intact or worn
     sup_lo = near(end_cloud(holds, "vm_ehi", outline_ends), dnamed("vm_elo", "FLOAT_VECTOR"), 0.04)
     sup_hi = near(end_cloud(holds, "vm_elo", outline_ends), dnamed("vm_ehi", "FLOAT_VECTOR"), 0.04)
@@ -4638,17 +4669,17 @@ def build_node_group():
     # points along the tiles of a category set (9 per tile, end to end) + a
     # guard: Proximity to an EMPTY cloud reads distance 0, so an empty cloud
     # must never count as 'near' (Damage off / no gaps -> no rule fires)
-    def span_cloud(sel_):
+    def span_cloud(sel_, n_pts=9):
         p_ = b.N("GeometryNodeInstancesToPoints", random_loc())
         b.L(d_chain, p_.inputs["Instances"])
         b.L(sel_, p_.inputs["Selection"])
         d_ = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
         b.L(p_.outputs["Points"], d_.inputs["Geometry"])
-        d_.inputs["Amount"].default_value = 9
+        d_.inputs["Amount"].default_value = n_pts
         t_ = b.N("ShaderNodeVectorMath", random_loc(), operation="SCALE")
         b.L(vmath("SUBTRACT", dnamed("vm_ehi", "FLOAT_VECTOR"), dnamed("vm_elo", "FLOAT_VECTOR")),
             t_.inputs[0])
-        b.L(em("DIVIDE", d_.outputs["Duplicate Index"], 8.0), t_.inputs["Scale"])
+        b.L(em("DIVIDE", d_.outputs["Duplicate Index"], float(n_pts - 1)), t_.inputs["Scale"])
         sp_ = b.N("GeometryNodeSetPosition", random_loc())
         b.L(d_.outputs["Geometry"], sp_.inputs["Geometry"])
         b.L(vmath("ADD", dnamed("vm_elo", "FLOAT_VECTOR"), t_.outputs["Vector"]), sp_.inputs["Position"])
@@ -4681,7 +4712,27 @@ def build_node_group():
                 bor(near_any(miss_c, top_pt(0.0), 0.16), near_any(miss_c, top_pt(0.6), 0.16)))
     d_bare = tand(is_c(cat0, 0), tsw(d_long, near_any(miss_c, d_pos.outputs["Position"], 0.3), bared))
     d_side = tsw(d_long, side_r, tsw(d_edge, side_h, tsw(cov_hi, 0.0, 1.0)))
-    d_fall = bor(tand(d_hang, bnot(bor(sup_lo, sup_hi))), d_lone)
+    # v2.21 a swinging board hangs from a nail under the course above: with
+    # that course gone over its kept end (and no calm wall there - the top
+    # course sits under the eaves) it would hang in the air, so it falls
+    sw_k = dnamed("vm_ekept", "FLOAT_VECTOR")
+    sw_far = vsw(tcmp("LESS_THAN", vmath("DISTANCE", sw_k, dnamed("vm_elo", "FLOAT_VECTOR"), out="Value"),
+                      em("DIVIDE", 0.01, geo_f)),
+                 dnamed("vm_elo", "FLOAT_VECTOR"), dnamed("vm_ehi", "FLOAT_VECTOR"))
+    sw_hold = span_cloud(holds, 17)
+    sw_tuck = None
+    for f_ in (0.04, 0.12):
+        at_ = vmath("ADD", vmath("ADD", sw_k, vmath("SCALE", vmath("SUBTRACT", sw_far, sw_k), f_)),
+                    vmath("SCALE", d_upv, d_pitch))
+        px_ = b.N("GeometryNodeProximity", random_loc())
+        px_.target_element = "POINTS"
+        b.L(sw_hold[0], px_.inputs["Geometry"])
+        b.L(at_, px_.inputs["Sample Position"])
+        x_ = bor(tand(sw_hold[1], tcmp("LESS_THAN", px_.outputs["Distance"], em("MULTIPLY", d_pitch, 0.6))),
+                 tcmp("LESS_THAN", dmg_margin(at_), -0.1))
+        sw_tuck = x_ if sw_tuck is None else bor(sw_tuck, x_)
+    d_fall = bor(bor(tand(d_hang, bnot(bor(sup_lo, sup_hi))), d_lone),
+                 tand(tand(d_long, is_c(cat0, 3)), bnot(sw_tuck)))
     d_cat2 = tsw(d_fall, tsw(d_edge, tsw(d_bare, cat0, 4.0), 2.0), 1.0)
     # remaining length of a broken tile: a hole-edge break loses only its end
     # (70-95 %), a broken tile in the damage anything from a stub to most of it
@@ -4717,7 +4768,9 @@ def build_node_group():
     k_keep = vsw(side_hi, k_lo, k_hi)
     k_free = vsw(side_hi, k_hi, k_lo)
     k_len = em("MAXIMUM", vmath("DISTANCE", k_lo, k_hi, out="Value"), 1e-6)
-    k_kl = tsw(is_c(cat, 2), em("DIVIDE", 0.15, geo_f),
+    # (v2.21 a hanging board's gap opens its whole length: when the cutting
+    # layer drops the board, no strip of wall may stay behind its nail end)
+    k_kl = tsw(is_c(cat, 2), 0.0,
                em("SUBTRACT", em("MULTIPLY", dnamed("vm_dfrac", "FLOAT"), k_len), em("DIVIDE", 0.05, geo_f)))
     k_c = tsw(is_c(cat, 1), em("MINIMUM", em("DIVIDE", em("SUBTRACT", k_len, em("MAXIMUM", k_kl, 0.0)), k_len),
                                1.0), 1.0)
@@ -4754,6 +4807,44 @@ def build_node_group():
     b.L(k_sel, k_pts.inputs["Selection"])
     b.L(k_ctr, k_pts.inputs["Position"])
     gap_markers(k_pts.outputs["Points"])
+    # v2.21 ROOF HOLES: a missing shake deep in the damage leaves a marker too
+    # - its whole footprint, from 30 cm under the roof face (through the
+    # deck) to just over it. vm_kroof flags it (the cutting layer puts the
+    # rafters and battens under it) and vm_kb is the point on the deck under
+    # the shake's centre
+    rf_dep = em("DIVIDE", 0.3, geo_f)
+    rf_cx = em("MULTIPLY", em("MULTIPLY", em("ADD", bb_mn.outputs["X"], bb_mx.outputs["X"]), 0.5), i_scs.outputs["X"])
+    # (the box tops out a hair over the deck: the course above lies on the
+    # missing shake's thickness and must not be cut)
+    rf_h = em("MULTIPLY", em("SUBTRACT", bb_mx.outputs["Z"], bb_mn.outputs["Z"]), i_scs.outputs["Z"])
+    rf_cz = em("MULTIPLY", em("MULTIPLY", em("ADD", bb_mn.outputs["Z"], bb_mx.outputs["Z"]), 0.5), i_scs.outputs["Z"])
+    rf_out = em("DIVIDE", 0.006, geo_f)
+    rf_kb = vmath("ADD", d_pos.outputs["Position"],
+                  d_rotv(v3(rf_cx, em("MULTIPLY", bb_mn.outputs["Y"], i_scs.outputs["Y"]), rf_cz), i_rot))
+    rf_sel = tand(tand(tand(d_live, is_c(cat, 1)), tcmp("GREATER_THAN", rh_ph.outputs["Value"], 0.001)),
+                  tand(tcmp("GREATER_EQUAL", k_nz.outputs["Z"], 0.5),
+                       tcmp("GREATER_THAN", em("SUBTRACT", tm("MULTIPLY_ADD", d_ns, 0.65, 0.175), d_thr),
+                            em("MULTIPLY", em("SUBTRACT", 1.0, rh_ph.outputs["Value"]), 0.25))))
+    rf_size = v3(em("ADD", em("MULTIPLY", em("SUBTRACT", bb_mx.outputs["X"], bb_mn.outputs["X"]), i_scs.outputs["X"]),
+                    em("DIVIDE", 0.01, geo_f)),
+                 em("ADD", rf_out, rf_dep), rf_h)
+    rf_chain = d_chain
+    for nm_, dt_, val_ in (("vm_kr", "QUATERNION", i_rot), ("vm_ks", "FLOAT_VECTOR", rf_size),
+                           ("vm_kb", "FLOAT_VECTOR", rf_kb), ("vm_kroof", "FLOAT", 1.0)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="INSTANCE")
+        b.L(rf_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        if isinstance(val_, float):
+            st_.inputs["Value"].default_value = val_
+        else:
+            b.L(val_, st_.inputs["Value"])
+        rf_chain = st_.outputs["Geometry"]
+    rf_pts = b.N("GeometryNodeInstancesToPoints", random_loc())
+    b.L(rf_chain, rf_pts.inputs["Instances"])
+    b.L(rf_sel, rf_pts.inputs["Selection"])
+    b.L(vmath("ADD", rf_kb, vmath("SCALE", k_n, em("MULTIPLY", em("SUBTRACT", rf_out, rf_dep), 0.5))),
+        rf_pts.inputs["Position"])
+    gap_markers(rf_pts.outputs["Points"])
 
     # replacement collections (fallback when empty: cut short / no wear)
     def coll_count(sock_name):
@@ -5285,24 +5376,6 @@ def build_node_group():
     # LOOSE, a few degrees off. Damage off / no cut = untouched.
     o_live = tand(tand(gi.outputs["Damage"], is_fit), gi.outputs["Cut Openings"])
 
-    def dmg_margin(vec_):
-        nv_ = vmath("ADD", vec_, d_sv.outputs["Vector"])
-        nz_ = b.N("ShaderNodeTexNoise", random_loc())
-        b.L(nv_, nz_.inputs["Vector"])
-        b.L(em("DIVIDE", geo_f, em("MAXIMUM", gi.outputs["Damage Scale"], 0.01)), nz_.inputs["Scale"])
-        nz_.inputs["Detail"].default_value = 2.0
-        ns_ = em("MINIMUM", em("MAXIMUM", tm("MULTIPLY_ADD", em("SUBTRACT", nz_.outputs["Fac"], 0.5),
-                                             2.5, 0.5), 0.0), 1.0)
-        dv_ = vmath("DISTANCE", vec_, d_oi.outputs["Location"], out="Value")
-        mr_ = b.N("ShaderNodeMapRange", random_loc(), interpolation_type="SMOOTHSTEP")
-        b.L(dv_, mr_.inputs["Value"])
-        b.L(d_rl, mr_.inputs["From Min"])
-        b.L(em("MULTIPLY", d_rl, 0.3), mr_.inputs["From Max"])
-        mk_ = tsw(tcmp("GREATER_THAN", gi.outputs["Damage Radius"], 0.0), 1.0, mr_.outputs["Result"])
-        thr_ = em("SUBTRACT", 1.0, em("MULTIPLY", gi.outputs["Damage Amount"], mk_))
-        # the tiles' per-tile random share averages 0.5 on a ring of samples
-        return em("SUBTRACT", tm("MULTIPLY_ADD", ns_, 0.65, 0.175), thr_)
-
     def dmg_at(vec_):
         return tsw(tcmp("GREATER_THAN", dmg_margin(vec_), 0.0), 0.0, 1.0)
     ob_ib = b.N("GeometryNodeInputInstanceBounds", random_loc())
@@ -5336,6 +5409,17 @@ def build_node_group():
     o_cat = tsw(tand(is_open, some), 0.0,
                 tsw(heavy, tsw(tcmp("LESS_THAN", o_rx, 0.5), 4.0, 3.0),
                     tsw(tcmp("LESS_THAN", o_rx, o_gone_share), 3.0, 1.0)))
+    # v2.21 5 = partly broken (windows only, any the damage touches that is
+    # not gone): stays put, a jagged part broken away
+    o_hv = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT_VECTOR")
+    o_hv.inputs["Min"].default_value = (0.0, 0.0, 0.0)
+    o_hv.inputs["Max"].default_value = (1.0, 1.0, 1.0)
+    b.L(seed_node(b, d_seed, 313), o_hv.inputs["Seed"])
+    o_hx, o_hy, o_hz = sxyz(o_hv.outputs["Value"])
+    o_win = bnot(tcmp("GREATER_THAN", em("SUBTRACT", obz_x, obz_n), em("MULTIPLY", em("SUBTRACT", obx_x, obx_n), 1.8)))
+    o_cat = tsw(tand(tand(tand(o_win, is_open), tand(tcmp("GREATER_EQUAL", o_frac, 0.05),
+                                                     bnot(is_c(o_cat, 1)))),
+                     tcmp("LESS_THAN", o_hx, hb_ph.outputs["Value"])), o_cat, 5.0)
     # ---- v2.17 WALL HOLES: at the heart of a damage patch (where the siding is
     # long gone) the wall itself is broken through - a ragged hole made of
     # small tilted plank-shaped cuts, its broken edges in the Interior
@@ -5482,8 +5566,133 @@ def build_node_group():
     hs_stub = tand(tand(tcmp("LESS_THAN", dnamed("vm_openmark", "FLOAT"), 0.5), tcmp("LESS_THAN", hs_len, em("DIVIDE", 0.45, geo_f))),
                    og_near(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
                            em("DIVIDE", 0.5, geo_f), em("DIVIDE", 0.25, geo_f)))
-    b.L(tand(tand(gi.outputs["Cut Openings"], is_fit), bor(is_ph, tand(has_hole, hs_stub))), h_fall.inputs["Selection"])
+    # v2.21 ... and a swinging board that crosses an opening: the cut would
+    # take its middle and leave the rest hanging in the air
+    def open_cut_at(pos_, mg_):
+        sn_ = b.N("GeometryNodeSampleNearest", random_loc(), domain="POINT")
+        b.L(o_cloud, sn_.inputs["Geometry"])
+        b.L(pos_, sn_.inputs["Sample Position"])
+
+        def at_(name_):
+            si_ = b.N("GeometryNodeSampleIndex", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+            b.L(o_cloud, si_.inputs["Geometry"])
+            b.L(dnamed(name_, "FLOAT_VECTOR"), si_.inputs["Value"])
+            b.L(sn_.outputs["Index"], si_.inputs["Index"])
+            return si_.outputs["Value"]
+        rel_ = vmath("SUBTRACT", pos_, at_("vm_cctr"))
+        hu_, _hy, hz_ = sxyz(at_("vm_chalf"))
+        return tand(tand(has_open, tand(gi.outputs["Cut Openings"], is_fit)),
+                    tand(tcmp("LESS_THAN", em("ABSOLUTE", vmath("DOT_PRODUCT", rel_, at_("vm_cu"), out="Value")),
+                              em("ADD", hu_, mg_)),
+                         tcmp("LESS_THAN", em("ABSOLUTE", vmath("DOT_PRODUCT", rel_, at_("vm_cup"), out="Value")),
+                              em("ADD", hz_, mg_))))
+    sw_k = dnamed("vm_ekept", "FLOAT_VECTOR")
+    sw_far = vsw(tcmp("LESS_THAN", vmath("DISTANCE", sw_k, dnamed("vm_elo", "FLOAT_VECTOR"), out="Value"),
+                      em("DIVIDE", 0.01, geo_f)),
+                 dnamed("vm_elo", "FLOAT_VECTOR"), dnamed("vm_ehi", "FLOAT_VECTOR"))
+    sw_x = None
+    for f_ in (0.05, 0.2, 0.35, 0.5, 0.65):
+        x_ = open_cut_at(vmath("ADD", sw_k, vmath("SCALE", vmath("SUBTRACT", sw_far, sw_k), f_)),
+                         em("DIVIDE", 0.02, geo_f))
+        sw_x = x_ if sw_x is None else bor(sw_x, x_)
+    hs_swing = tand(tand(tcmp("GREATER_THAN", dnamed("vm_dcat", "FLOAT"), 2.5),
+                         tcmp("LESS_THAN", dnamed("vm_dcat", "FLOAT"), 3.5)),
+                    tand(tcmp("LESS_THAN", dnamed("vm_openmark", "FLOAT"), 0.5), sw_x))
+    # v2.21 ... and the boards that crossed such an opening (ripped out with
+    # its wall): the opening's cut took their middle, the gaps their ends -
+    # what is left would float in the hole
+    hs_cross = tand(tcmp("LESS_THAN", dnamed("vm_openmark", "FLOAT"), 0.5),
+                    og_near(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
+                            em("SUBTRACT", em("MULTIPLY", hs_len, 0.5), em("DIVIDE", 0.03, geo_f)), 0.0))
+    b.L(tand(tand(gi.outputs["Cut Openings"], is_fit),
+             bor(bor(is_ph, hs_swing), tand(has_hole, bor(hs_stub, hs_cross)))),
+        h_fall.inputs["Selection"])
+    # (the wall behind a board this layer drops is cut open too - the cut
+    # boxes of the boards' own footprints join the gap boxes; a swinging
+    # board's gap the cladding cut already)
+    hx_lo = vmul(hs_ib.outputs["Min"], i_scl)
+    hx_hi = vmul(hs_ib.outputs["Max"], i_scl)
+    hx_lx, hx_ly, hx_lz = sxyz(hx_lo)
+    hx_hx, _hx_hy, hx_hz = sxyz(hx_hi)
+    hx_ctr = vmath("ADD", vmath("ADD", b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
+                                rot(v3(em("MULTIPLY", em("ADD", hx_lx, hx_hx), 0.5), hx_ly,
+                                       em("MULTIPLY", em("ADD", hx_lz, hx_hz), 0.5)), i_rot)),
+                   vmath("SCALE", rot(v3(0.0, 1.0, 0.0), i_rot), em("DIVIDE", 0.01, geo_f)))
+    hx_chain = c_inst
+    for nm_, dt_, val_ in (("vm_kr", "QUATERNION", i_rot),
+                           ("vm_ks", "FLOAT_VECTOR", v3(em("ADD", em("SUBTRACT", hx_hx, hx_lx), em("DIVIDE", 0.02, geo_f)),
+                                                        em("DIVIDE", 0.08, geo_f),
+                                                        em("ADD", em("SUBTRACT", hx_hz, hx_lz), em("DIVIDE", 0.01, geo_f))))):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="INSTANCE")
+        b.L(hx_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        hx_chain = st_.outputs["Geometry"]
+    hx_pts = b.N("GeometryNodeInstancesToPoints", random_loc())
+    b.L(hx_chain, hx_pts.inputs["Instances"])
+    b.L(tand(tand(h_cut, bnot(is_ph)),
+             tand(tcmp("LESS_THAN", dnamed("vm_openmark", "FLOAT"), 0.5), tand(has_hole, bor(hs_stub, hs_cross)))),
+        hx_pts.inputs["Selection"])
+    b.L(hx_ctr, hx_pts.inputs["Position"])
+    hx_join = b.N("GeometryNodeJoinGeometry", random_loc())
+    b.L(h_pts.outputs["Points"], hx_join.inputs["Geometry"])
+    b.L(hx_pts.outputs["Points"], hx_join.inputs["Geometry"])
+    for lk in list(b.ng.links):
+        if lk.to_node == h_iop and lk.to_socket.name == "Points":
+            b.ng.links.remove(lk)
+    b.L(hx_join.outputs["Geometry"], h_iop.inputs["Points"])
     o_chain = h_fall.outputs["Geometry"]
+    # v2.21 under every roof hole: the roof's frame - two rafters (on a
+    # 60 cm grid along the eaves, so neighbouring holes share them) running
+    # down the slope under the deck, and battens across them (25 cm grid)
+    # just under the shakes - in the Interior Material (wood)
+    rf_p = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(h_pts.outputs["Points"], rf_p.inputs["Geometry"])
+    b.L(tcmp("LESS_THAN", dnamed("vm_kroof", "FLOAT"), 0.5), rf_p.inputs["Selection"])
+    rf_kr = dnamed("vm_kr", "QUATERNION")
+    rf_u, rf_n, rf_s = (rot(v3(*a_), rf_kr) for a_ in ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)))
+    rf_kb = dnamed("vm_kb", "FLOAT_VECTOR")
+    rf_sx, _rf_sy, rf_sz = sxyz(dnamed("vm_ks", "FLOAT_VECTOR"))
+    rf_cube = b.N("GeometryNodeMeshCube", random_loc())
+    rf_cube.inputs["Size"].default_value = (1.0, 1.0, 1.0)
+    rf_true = b.N("FunctionNodeInputBool", random_loc())
+    rf_true.boolean = True
+    rf_mesh = material_gate(b, rf_cube.outputs["Mesh"], gi.outputs["Interior Material"],
+                            rf_true.outputs["Boolean"], random_loc())
+
+    def rf_frame(n_, axis_, grid_, start_, under_, size_, half_):
+        # (only the pieces whose grid line crosses the hole; each runs just
+        # past the hole - beyond it they would poke out of the roof's edges)
+        du_ = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
+        b.L(rf_p.outputs["Geometry"], du_.inputs["Geometry"])
+        du_.inputs["Amount"].default_value = n_
+        g_ = em("DIVIDE", grid_, geo_f)
+        at_ = vmath("DOT_PRODUCT", rf_kb, axis_, out="Value")
+        off_ = em("SUBTRACT", em("MULTIPLY", em("ADD", em("FLOOR", em("DIVIDE", at_, g_)),
+                                             em("ADD", du_.outputs["Duplicate Index"], start_)), g_), at_)
+        pos_ = vmath("ADD", vmath("ADD", rf_kb, vmath("SCALE", axis_, off_)),
+                     vmath("SCALE", rf_n, em("DIVIDE", -under_, geo_f)))
+        dl_ = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+        b.L(du_.outputs["Geometry"], dl_.inputs["Geometry"])
+        b.L(tcmp("GREATER_THAN", em("ABSOLUTE", off_), half_), dl_.inputs["Selection"])
+        iop_ = b.N("GeometryNodeInstanceOnPoints", random_loc())
+        b.L(dl_.outputs["Geometry"], iop_.inputs["Points"])
+        b.L(rf_mesh, iop_.inputs["Instance"])
+        b.L(rf_kr, iop_.inputs["Rotation"])
+        b.L(size_, iop_.inputs["Scale"])
+        sp_ = b.N("GeometryNodeSetPosition", random_loc())
+        b.L(iop_.outputs["Instances"], sp_.inputs["Geometry"])
+        b.L(pos_, sp_.inputs["Position"])
+        return sp_.outputs["Geometry"]
+    rf_geo = b.N("GeometryNodeJoinGeometry", random_loc())
+    b.L(rf_frame(2, rf_u, 0.6, 0.0, 0.08,
+                 v3(em("DIVIDE", 0.05, geo_f), em("DIVIDE", 0.11, geo_f), em("ADD", rf_sz, em("DIVIDE", 0.08, geo_f))),
+                 em("ADD", em("MULTIPLY", rf_sx, 0.5), em("DIVIDE", 0.02, geo_f))),
+        rf_geo.inputs["Geometry"])
+    b.L(rf_frame(3, rf_s, 0.25, -1.0, 0.017,
+                 v3(em("ADD", rf_sx, em("DIVIDE", 0.08, geo_f)), em("DIVIDE", 0.025, geo_f), em("DIVIDE", 0.06, geo_f)),
+                 em("ADD", em("MULTIPLY", rf_sz, 0.5), em("DIVIDE", 0.02, geo_f))),
+        rf_geo.inputs["Geometry"])
     for nm_, val_ in (("vm_ocat", o_cat), ("vm_ofrac", o_frac)):
         st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
         b.L(o_chain, st_.inputs["Geometry"])
@@ -5547,12 +5756,12 @@ def build_node_group():
     b.L(seed_node(b, d_seed, 503), g_rv.inputs["Seed"])
     g_rx, g_ry, g_rz = sxyz(g_rv.outputs["Value"])
     g_brk = tsw(gi.outputs["Damage"], 0.0,
-                tsw(is_c(ocat, 3),
+                tsw(is_c(ocat, 5), tsw(is_c(ocat, 3),
                     tsw(is_c(ocat, 4),
                         tsw(tcmp("LESS_THAN", g_rx, gi.outputs["Broken Panes"]), 0.0,
                             tm("MULTIPLY_ADD", g_ry, 0.25, 0.12)),
                         tm("MULTIPLY_ADD", g_ry, 0.3, 0.4)),
-                    tm("MULTIPLY_ADD", g_ry, 0.2, 0.75)))
+                    tm("MULTIPLY_ADD", g_ry, 0.2, 0.75)), tm("MULTIPLY_ADD", g_ry, 0.1, 0.88)))
     g_ib = b.N("GeometryNodeInputInstanceBounds", random_loc())
     g_lo = vmul(g_ib.outputs["Min"], i_scl)
     g_hi = vmul(g_ib.outputs["Max"], i_scl)
@@ -5616,9 +5825,98 @@ def build_node_group():
         b.L(dnamed(nm_, "FLOAT"), st_.inputs["Value"])
         g_chain2 = st_.outputs["Geometry"]
     g_join = b.N("GeometryNodeJoinGeometry", random_loc())
-    b.L(o_off.outputs["Instances"], g_join.inputs["Geometry"])
+    # v2.21 PARTLY BROKEN windows: realized, and the inner parts (sash bars,
+    # louvre slats, muntins, glass) past a slanted break line through the
+    # middle of the unit are gone - whole parts beyond it, the ones crossing it
+    # snapped off on a jagged edge - while the outer frame always stays
+    hb_sep = b.N("GeometryNodeSeparateGeometry", random_loc(), domain="INSTANCE")
+    b.L(o_off.outputs["Instances"], hb_sep.inputs["Geometry"])
+    b.L(tand(is_c(ocat, 5), tcmp("GREATER_THAN", dnamed("vm_openmark", "FLOAT"), 0.5)), hb_sep.inputs["Selection"])
+    # the break line, per window, in its own frame: just off the centre toward
+    # the chosen corner (so roughly half of the unit goes), slanted 20-60 deg
+    hb_ib = b.N("GeometryNodeInputInstanceBounds", random_loc())
+    hb_lo = vmul(hb_ib.outputs["Min"], i_scl)
+    hb_hi = vmul(hb_ib.outputs["Max"], i_scl)
+    hb_lx, _hb_ly, hb_lz = sxyz(hb_lo)
+    hb_hx, _hb_hy, hb_hz = sxyz(hb_hi)
+    hb_hw = em("MULTIPLY", em("SUBTRACT", hb_hx, hb_lx), 0.5)
+    hb_hh = em("MULTIPLY", em("SUBTRACT", hb_hz, hb_lz), 0.5)
+    hb_sx = tsw(tcmp("LESS_THAN", o_hy, 0.5), -1.0, 1.0)          # which corner
+    hb_sz = tsw(tcmp("LESS_THAN", o_hz, 0.3), 1.0, -1.0)          # mostly a top corner
+    hb_f = tm("MULTIPLY_ADD", tm("FRACT", em("MULTIPLY", o_hy, 7.31)), 0.2, 0.05)
+    hb_o = vmath("ADD", b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
+                 rot(v3(em("MULTIPLY", em("ADD", hb_lx, hb_hx), 0.5), 0.0,
+                        em("MULTIPLY", em("ADD", hb_lz, hb_hz), 0.5)), i_rot))
+    hb_c = vmath("ADD", hb_o, rot(v3(em("MULTIPLY", em("MULTIPLY", hb_hw, hb_sx), hb_f), 0.0,
+                                     em("MULTIPLY", em("MULTIPLY", hb_hh, hb_sz), hb_f)), i_rot))
+    hb_ang = tm("MULTIPLY_ADD", tm("FRACT", em("MULTIPLY", o_hz, 5.17)), 0.7, 0.35)
+    hb_d = rot(v3(em("MULTIPLY", hb_sx, em("COSINE", hb_ang)), 0.0, em("MULTIPLY", hb_sz, em("SINE", hb_ang))), i_rot)
+    hb_u = rot(v3(1.0, 0.0, 0.0), i_rot)
+    hb_h = v3(hb_hw, 0.0, hb_hh)
+    # (Separate Geometry hands the wall mesh to BOTH outputs: only the
+    # instances of the selection go on)
+    hb_only = b.N("GeometryNodeSeparateComponents", random_loc())
+    b.L(hb_sep.outputs["Selection"], hb_only.inputs["Geometry"])
+    hb_chain = hb_only.outputs["Instances"]
+    for nm_, val_ in (("vm_hbc", hb_c), ("vm_hbd", hb_d), ("vm_hbo", hb_o), ("vm_hbu", hb_u), ("vm_hbh", hb_h)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="INSTANCE")
+        b.L(hb_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        hb_chain = st_.outputs["Geometry"]
+    hb_real = b.N("GeometryNodeRealizeInstances", random_loc())
+    b.L(hb_chain, hb_real.inputs["Geometry"])
+    # each loose part's centre: the mean of its points
+    hb_isl = b.N("GeometryNodeInputMeshIsland", random_loc())
+    hb_acc = b.N("GeometryNodeAccumulateField", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"], hb_acc.inputs["Value"])
+    b.L(hb_isl.outputs["Island Index"], hb_acc.inputs["Group ID"])
+    hb_cnt = b.N("GeometryNodeAccumulateField", random_loc(), data_type="FLOAT", domain="POINT")
+    hb_cnt.inputs["Value"].default_value = 1.0
+    b.L(hb_isl.outputs["Island Index"], hb_cnt.inputs["Group ID"])
+    hb_ctr = vmath("SCALE", hb_acc.outputs["Total"], em("DIVIDE", 1.0, em("MAXIMUM", hb_cnt.outputs["Total"], 1.0)))
+    hb_hwr, _hb_0, hb_hhr = sxyz(dnamed("vm_hbh", "FLOAT_VECTOR"))
+    def hb_local(pos_):
+        """(|across|, |up|) of a point from the window centre, in its frame."""
+        rel_ = vmath("SUBTRACT", pos_, dnamed("vm_hbo", "FLOAT_VECTOR"))
+        ax_ = em("ABSOLUTE", vmath("DOT_PRODUCT", rel_, dnamed("vm_hbu", "FLOAT_VECTOR"), out="Value"))
+        _x, _y, rz_ = sxyz(rel_)
+        return ax_, em("ABSOLUTE", rz_)
+    def hb_past(pos_):
+        return vmath("DOT_PRODUCT", vmath("SUBTRACT", pos_, dnamed("vm_hbc", "FLOAT_VECTOR")),
+                     dnamed("vm_hbd", "FLOAT_VECTOR"), out="Value")
+    # a part centred within 4.5 cm of the outline is the frame: it stays
+    cx_, cz_ = hb_local(hb_ctr)
+    hb_frame = bor(tcmp("GREATER_THAN", cx_, em("SUBTRACT", hb_hwr, 0.045)),
+                   tcmp("GREATER_THAN", cz_, em("SUBTRACT", hb_hhr, 0.045)))
+    # the jagged snap line: the break line wobbled by a fine noise
+    hb_nz = b.N("ShaderNodeTexNoise", random_loc())
+    b.L(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"], hb_nz.inputs["Vector"])
+    hb_nz.inputs["Scale"].default_value = 14.0
+    hb_nz.inputs["Detail"].default_value = 3.0
+    hb_pos = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    px_, pz_ = hb_local(hb_pos)
+    hb_inner = tand(tcmp("LESS_THAN", px_, em("SUBTRACT", hb_hwr, 0.06)),
+                    tcmp("LESS_THAN", pz_, em("SUBTRACT", hb_hhr, 0.06)))
+    hb_snap = tand(hb_inner, tcmp("GREATER_THAN", tm("MULTIPLY_ADD", em("SUBTRACT", hb_nz.outputs["Fac"], 0.5), 0.12,
+                                                     hb_past(hb_pos)), 0.0))
+    hb_nf = b.N("FunctionNodeBooleanMath", random_loc(), operation="NOT")
+    b.L(hb_frame, hb_nf.inputs[0])
+    hb_gone = tand(hb_nf.outputs["Boolean"], bor(tcmp("GREATER_THAN", hb_past(hb_ctr), 0.0), hb_snap))
+    hb_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(hb_real.outputs["Geometry"], hb_del.inputs["Geometry"])
+    b.L(hb_gone, hb_del.inputs["Selection"])
+    b.L(hb_sep.outputs["Inverted"], g_join.inputs["Geometry"])
+    b.L(hb_del.outputs["Geometry"], g_join.inputs["Geometry"])
     b.L(g_chain2, g_join.inputs["Geometry"])
     b.L(g_join.outputs["Geometry"], go.inputs["Geometry"])
+    rf_rl = b.N("GeometryNodeRealizeInstances", random_loc())
+    b.L(rf_geo.outputs["Geometry"], rf_rl.inputs["Geometry"])
+    rf_tag = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="FACE")
+    b.L(rf_rl.outputs["Geometry"], rf_tag.inputs["Geometry"])
+    rf_tag.inputs["Name"].default_value = "vm_rafter"
+    rf_tag.inputs["Value"].default_value = 1.0
+    b.L(rf_tag.outputs["Geometry"], g_join.inputs["Geometry"])
 
     # ---- v2.19 VINES -> v2.20 IVY (the user's 'realistic ivy like the GN ivy
     # generators - grown along the house'). Every plant GROWS: a repeat zone
@@ -5647,6 +5945,15 @@ def build_node_group():
            desc="Vines: the leaves (lobed ivy leaves; UVs in leaf space, base at 0,0, tip at 0,1)")
     b.sock("Leaf Size", "NodeSocketFloat", p_vn, 0.075, 0.005, 1.0, "DISTANCE",
            "Vines: leaf length (world m)")
+    b.sock("Roof Holes", "NodeSocketFloat", p_dmg, 0.5, 0.0, 1.0, "FACTOR",
+           "Damage (v2.21) on a roof: where the damage is deepest the missing shakes leave a HOLE "
+           "through the roof (rafters and battens under it, the attic below) - 0 = none, 1 = under "
+           "every missing shake. Needs Cut Openings on the cutting layer (the add-on's Windows layer)")
+    b.sock("Half Broken", "NodeSocketFloat", p_dmg, 0.45, 0.0, 1.0, "FACTOR",
+           "Openings (v2.21): share of the damaged windows that stay in place but are PARTLY "
+           "broken - a jagged part of the frame and sash broken away, the glass smashed")
+    b.L(gi.outputs["Roof Holes"], rh_ph.inputs[0])
+    b.L(gi.outputs["Half Broken"], hb_ph.inputs[0])
     v_seed = gi.outputs["Vine Seed"]
 
     def vnorm(v_):
@@ -11158,6 +11465,9 @@ def main():
         if extra:                       # v2.19: and it is overgrown (v2.20: thickly)
             wl_p = probe.modifiers["VM_SceneDetailer_Windows"]
             set_params(wl_p, wl_p.node_group, {"Vines": True, "Vine Count": 14, "Vine Branches": 12})
+            # v2.21: and its roof is in a worse state - holes through it
+            sl_p = probe.modifiers["VM_SceneDetailer_Shingles"]
+            set_params(sl_p, sl_p.node_group, {"Damage Amount": 0.42, "Roof Holes": 0.6})
         lib_presets[pname] = dict(description=desc, modifiers=vmt.snapshot_object(probe))
     bpy.data.objects.remove(probe)
     txt = bpy.data.texts.get(vmt.PRESETS_TEXT) or bpy.data.texts.new(vmt.PRESETS_TEXT)
@@ -11296,6 +11606,59 @@ def main():
           f"datablocks (groups, collections, materials, objects) {n_data} -> {n_data2}, "
           f"Gable cube Style={b_style} instances={inst_fb}, Dress == Flat preset: {snap_fc == snap_fa}, "
           f"duplicates={dup_names()}")
+
+    # ---- v2.21: ROOF HOLES (rafters + battens seen through them) and
+    # PARTLY BROKEN windows, on the Weathered gable preset
+    fx_w = fx_cube("FreshW", 20.0)
+    fx_w.data.transform(Matrix.Diagonal((3.0, 2.25, 1.5, 1.0)))   # a 6 x 4.5 x 3 m house
+    bpy.ops.vm.apply_preset(preset="lib:Base - Weathered gable")
+    wl_w = fx_w.modifiers["VM_SceneDetailer_Windows"]
+    sl_w = fx_w.modifiers["VM_SceneDetailer_Shingles"]
+    set_params(wl_w, wl_w.node_group, {"Half Broken": 1.0})
+
+    def roof_scan():
+        fx_w.update_tag()
+        dg_w = bpy.context.evaluated_depsgraph_get()
+        dg_w.update()
+        me_w = fx_w.evaluated_get(dg_w).data
+        mw_ = fx_w.matrix_world
+        bb_ = [mw_ @ v_.co for v_ in fx_w.data.vertices]     # the house itself (not the evaluated roof)
+        lo_ = Vector([min(c_[k_] for c_ in bb_) for k_ in range(3)])
+        hi_ = Vector([max(c_[k_] for c_ in bb_) for k_ in range(3)])
+        ra_ = me_w.attributes.get("vm_rafter")
+        raf_ = [mw_ @ me_w.polygons[i_].center for i_, d_ in enumerate(ra_.data) if d_.value > 0.5]             if ra_ is not None and ra_.domain == "FACE" else []
+        out_ = [c_ for c_ in raf_ if c_.z < hi_.z - 0.3 or not (lo_.x - 0.6 < c_.x < hi_.x + 0.6)
+                or not (lo_.y - 0.6 < c_.y < hi_.y + 0.6)]
+        # the partly broken units: no inner part left past their break line
+        at_ = {n_: me_w.attributes.get(n_) for n_ in ("vm_hbc", "vm_hbd", "vm_hbo", "vm_hbu", "vm_hbh")}
+        kept_, past_ = 0, 0
+        if all(a_ is not None and a_.domain == "POINT" for a_ in at_.values()):
+            for i_, v_ in enumerate(me_w.vertices):
+                h_ = at_["vm_hbh"].data[i_].vector
+                if h_.length < 1e-4:
+                    continue
+                rel_ = v_.co - at_["vm_hbo"].data[i_].vector
+                inner_ = (abs(rel_.dot(at_["vm_hbu"].data[i_].vector)) < h_.x - 0.12
+                          and abs(rel_.z) < h_.z - 0.12)
+                d_ = (v_.co - at_["vm_hbc"].data[i_].vector).dot(at_["vm_hbd"].data[i_].vector)
+                kept_ += 1
+                past_ += int(inner_ and d_ > 0.07)
+        return len(raf_), len(out_), kept_, past_
+    rs_on = roof_scan()
+    set_params(sl_w, sl_w.node_group, {"Roof Holes": 0.0})
+    set_params(wl_w, wl_w.node_group, {"Half Broken": 0.0})
+    rs_off = roof_scan()
+    check("v2.21(roof holes / half broken): the Weathered preset breaks HOLES through the roof - the rafters "
+          "and battens under the shakes show in them and never poke out past the roof; Half Broken leaves "
+          "windows partly there (the frame and one side kept, every inner part past the break line gone); "
+          "Roof Holes 0 / Half Broken 0 turn both off",
+          rs_on[0] > 0 and rs_on[1] == 0 and rs_on[2] > 0 and rs_on[3] == 0
+          and rs_off[0] == 0 and rs_off[2] == 0,
+          f"rafter/batten faces {rs_on[0]} (outside the roof {rs_on[1]}), partly broken window points "
+          f"kept {rs_on[2]} (inner past the line {rs_on[3]}); off: rafter faces {rs_off[0]}, "
+          f"partly broken points {rs_off[2]}")
+    results["roof_half_v221"] = dict(rafters=rs_on[0], out=rs_on[1], kept=rs_on[2], past=rs_on[3])
+    bpy.data.objects.remove(fx_w)
 
     # ---- v2.10: UPDATE an older engine in place - settings survive
     planks_a = fx_a.modifiers["VM_SceneDetailer_Planks"]

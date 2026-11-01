@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.20) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.21) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.20) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.21) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,30 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (264 checks: the original 197 kept
-    green + 67 v2.7-v2.20 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (265 checks: the original 197 kept
+    green + 68 v2.7-v2.21 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.21 (2026-11-02) - ROOF HOLES; WINDOWS HALF THERE; NO FLOATING BOARDS
+-------------------------------------------------------------------------------
+* Roof holes: where the roof damage takes shakes, the cutting layer (the
+  add-on's Windows layer) now opens the roof too - you look down into the
+  dark attic through the rafters (every 60 cm) and the battens under the
+  shakes, kept inside the hole (nothing pokes out of the eaves or gables).
+  New 'Roof Holes' (Damage panel, 0.5): 0 = none, 1 = every bare patch.
+* Windows half there: new 'Half Broken' (Damage panel, 0.45) - that share
+  of the damaged windows stay in the wall but lose everything past a
+  slanted break line through the unit: sash bars, louvre slats, muntins and
+  glass beyond it are gone, the ones crossing it are snapped off on a
+  jagged edge, the outer frame always stays. 0 = none.
+* No floating boards: a swinging board whose length runs over an opening the
+  damage ripped out falls out (it used to keep only the bit the cut left,
+  hanging in mid air), and so does a board crossing a ripped-out window -
+  and the wall behind it opens with it. A hanging board's gap is its full
+  length (no strip of backing behind it).
+* The 'Weathered gable' preset has a worse roof: more shakes gone and
+  holes through it.
 
 v2.20 (2026-11-01) - THE BOARDS ARE THE WALL; IVY THAT GROWS
 -------------------------------------------------------------------------------
@@ -1157,8 +1177,12 @@ in-memory:
   * v2.19(vines) / v2.20(ivy): Vines on grows leafy ivy over the building,
     in front of the surfaces and never inside them; Vines off = none;
   * v2.20(no backing): rays at a damaged wall never stop on a bare wall
-    behind the boards - they go into the building (Wall Holes 0 shows it).
-Total for this release: 264 checks, 264 passed (verification_v2.json).
+    behind the boards - they go into the building (Wall Holes 0 shows it);
+  * v2.21(roof holes / half broken): the Weathered preset's roof has holes
+    with rafters and battens that stay inside the roof, partly broken
+    windows have no inner part left past their break line, and Roof Holes 0
+    / Half Broken 0 turn both off.
+Total for this release: 265 checks, 265 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered
