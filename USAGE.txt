@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.19) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.20) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.19) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.20) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,32 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (263 checks: the original 197 kept
-    green + 66 v2.7-v2.19 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (264 checks: the original 197 kept
+    green + 67 v2.7-v2.20 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.20 (2026-11-01) - THE BOARDS ARE THE WALL; IVY THAT GROWS
+-------------------------------------------------------------------------------
+* No wall behind the boards any more: wherever the damage takes a board -
+  missing, fallen, the broken-off end of one, a gone corner-board piece -
+  the cutting layer (Cut Openings on, the add-on's Windows layer) opens the
+  wall right there, so you look INTO the building past the boards' own
+  broken ends instead of at a dark backing wall. The old v2.17 hole cuts
+  are replaced by this. 'Wall Holes' is now 1.0: from 0.5 up every gap
+  opens, below that only the deepest; 0 = none (the backing shows again).
+* No lone boards: a wall board in the damage that keeps fewer than two of
+  its four neighbours (course above, course below, either end) falls out
+  too - twice over, so pairs that only held each other go as well.
+* Vines are now IVY that grows: each plant's tips walk over the building
+  step by step - leaning up, wandering, pressed onto the nearest surface,
+  so they creep round corners, under the eaves and on over the roof; they
+  slide sideways round doors, windows and the damage's holes (never across
+  the open hole), branch (shoots branch again) and
+  stop at 'Vine Height' (now 4 m) or by chance. Plants gather at the wall
+  corners. Leaves are real lobed ivy leaves (no alpha), up to three per
+  stem point, facing out with their tips hanging; new 'Leaf Size' (7.5 cm).
+  VM_VineLeaf is now a vein-patterned glossy leaf material.
 
 v2.19 (2026-11-01) - VINES
 -------------------------------------------------------------------------------
@@ -1132,9 +1154,11 @@ in-memory:
   * v2.18(glass): every window cut is glazed, whole with Damage off;
   * v2.18(glass broken): the damaged window's glass is smashed (or gone with
     it), Damage off makes every pane whole;
-  * v2.19(vines): Vines on grows leafy climbers up the walls, in front of
-    the wall and never inside it; Vines off = none.
-Total for this release: 263 checks, 263 passed (verification_v2.json).
+  * v2.19(vines) / v2.20(ivy): Vines on grows leafy ivy over the building,
+    in front of the surfaces and never inside them; Vines off = none;
+  * v2.20(no backing): rays at a damaged wall never stop on a bare wall
+    behind the boards - they go into the building (Wall Holes 0 shows it).
+Total for this release: 264 checks, 264 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered
