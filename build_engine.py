@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.25"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.26"   # the ONE version label: About sockets, descriptions, checks, add-on
 # v2.23 doors set INTO the wall (world m): the leaf front this far behind the
 # wall face, a gap round the leaf in its hole, and the casing boards round it
 DOOR_RECESS, DOOR_GAP = 0.03, 0.01
@@ -1723,9 +1723,30 @@ def build_node_group():
     pr_top = b.N("FunctionNodeBooleanMath", (-1150, 300), operation="AND")
     b.L(pr_on.outputs["Result"], pr_top.inputs[0])
     b.L(pr_up.outputs["Result"], pr_top.inputs[1])
+    # v2.26: a pitched face the roof cap made (vm_roofgen) is roof at any
+    # pitch past the wall band - a 60 deg+ gable would fall below Roof Slope
+    # Min and go bare
+    rg_rd = b.N("GeometryNodeInputNamedAttribute", (-1400, 200))
+    rg_rd.data_type = "FLOAT"
+    rg_rd.inputs["Name"].default_value = "vm_roofgen"
+    rg_on = b.N("FunctionNodeCompare", (-1250, 200), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(rg_rd.outputs["Attribute"], rg_on.inputs["A"])
+    rg_on.inputs["B"].default_value = 0.5
+    rg_lo = b.N("FunctionNodeCompare", (-1250, 150), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(nsep.outputs["Z"], rg_lo.inputs["A"])
+    b.L(gi.outputs["Wall Slope"], rg_lo.inputs["B"])
+    rg_band = b.N("FunctionNodeBooleanMath", (-1150, 180), operation="AND")
+    b.L(rg_lo.outputs["Result"], rg_band.inputs[0])
+    b.L(roof_hi.outputs["Result"], rg_band.inputs[1])
+    rg_steep = b.N("FunctionNodeBooleanMath", (-1080, 200), operation="AND")
+    b.L(rg_on.outputs["Result"], rg_steep.inputs[0])
+    b.L(rg_band.outputs["Boolean"], rg_steep.inputs[1])
+    pr_or = b.N("FunctionNodeBooleanMath", (-1080, 260), operation="OR")
+    b.L(pr_top.outputs["Boolean"], pr_or.inputs[0])
+    b.L(rg_steep.outputs["Boolean"], pr_or.inputs[1])
     is_roof_raw = b.N("FunctionNodeBooleanMath", (-1080, 560), operation="OR")
     b.L(is_roof_band.outputs["Boolean"], is_roof_raw.inputs[0])
-    b.L(pr_top.outputs["Boolean"], is_roof_raw.inputs[1])
+    b.L(pr_or.outputs["Boolean"], is_roof_raw.inputs[1])
     is_roof = zone_and(is_roof_raw.outputs["Boolean"], (-1000, 620))
     floor_lo = b.N("FunctionNodeCompare", (-1250, 500), data_type="FLOAT", operation="LESS_EQUAL")
     b.L(nsep.outputs["Z"], floor_lo.inputs["A"])
@@ -13512,6 +13533,24 @@ def main():
           f"faces the porch={bc_on['faces_porch']}; support vertices={n_sup} lowest={low_}; "
           f"railing vertices={n_rail} (shapes {[v_['sig'] for v_ in bc_rail.values()]}); off: doors={bc_off['doors']} up={bc_off['up']} vertices={bc_off['verts']}")
     results["balcony_v225"] = dict(on=bc_on, support=n_sup, railing=n_rail, low=low_, off=bc_off)
+
+    # ---- v2.26: a STEEP gable (past Roof Slope Min) is still roof - the
+    # stress run's 60 / 68 deg houses had bare underlay with shingled dormers
+    def roof_shakes(deg_):
+        set_params(rc_d, rc_d.node_group, {"Pitch": math.radians(deg_), "Dormers": False})
+        fx_d.update_tag()
+        dg_r = bpy.context.evaluated_depsgraph_get()
+        dg_r.update()
+        return sum(1 for inst in dg_r.object_instances
+                   if inst.is_instance and inst.parent is not None and inst.parent.original == fx_d
+                   and inst.object.name in shk_d and inst.matrix_world.translation.z > top_s + 0.3)
+    st_n = {d_: roof_shakes(d_) for d_ in (45.0, 62.0, 68.0)}
+    set_params(rc_d, rc_d.node_group, {"Pitch": math.radians(48.0), "Dormers": True})
+    check("v2.26(steep roofs): a gable roof past Roof Slope Min (62 and 68 deg) is clad like a 45 deg one "
+          "(the roof cap's own pitched faces are roof at any pitch above the wall band)",
+          st_n[45.0] > 100 and st_n[62.0] >= st_n[45.0] and st_n[68.0] >= st_n[45.0],
+          f"shakes on the main roof: {st_n}")
+    results["steep_v226"] = st_n
     bpy.data.objects.remove(fx_d)
 
     # ---- v2.10: UPDATE an older engine in place - settings survive

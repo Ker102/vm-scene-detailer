@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.25) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.26) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.25) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.26) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,30 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (269 checks: the original 197 kept
-    green + 72 v2.7-v2.25 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (270 checks: the original 197 kept
+    green + 73 v2.7-v2.26 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.26 (2026-11-02) - STEEP ROOFS ARE CLAD
+-------------------------------------------------------------------------------
+* Fix: a gable or hip roof steeper than about 57 deg (past Roof Slope Min)
+  was left as bare underlay - only its dormers got shakes. Every pitched
+  face the roof cap makes now counts as roof at any pitch above the wall
+  band (Wall Slope); a roof steeper than about 70 deg reads as wall.
+* Tested over a stress run (build/stress_cases.py): big, two- and three-
+  storey, stacked and set-back storeys, L-shaped, tiny, long and narrow,
+  flat-roofed and steep houses, with random seeds, damage and vines.
+  Known limits it found:
+  - a set-back upper storey built as two OVERLAPPING boxes leaves the lower
+    box's top as one face partly under the upper box: the engine reads it
+    as buried and the exposed strip stays bare. Split the top where the
+    upper storey stands (an extrude does) and the strip gets its own roof;
+  - heavy ruin (Damage Amount 0.7 with Wall Holes 0.8 and Roof Holes 1)
+    takes ~40 s to evaluate (every gap is cut through the wall); at the
+    Weathered preset's levels it is 1-4 s;
+  - floors between stacked storeys (buried faces) have no material - only
+    seen through a hole in the wall.
 
 v2.25 (2026-11-02) - BALCONIES AND RAILING VARIANTS
 -------------------------------------------------------------------------------
@@ -1303,8 +1323,10 @@ in-memory:
     is not the porch's side, with a full-size door out onto it over the
     ground-floor door; the three supports and five railing styles each give
     a different set of pieces (Posts reach the ground, Brackets stay up on
-    the wall); Balcony off has none.
-Total for this release: 269 checks, 269 passed (verification_v2.json).
+    the wall); Balcony off has none;
+  * v2.26(steep roofs): a 62 or 68 deg gable roof carries at least as many
+    shakes as a 45 deg one.
+Total for this release: 270 checks, 270 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered
