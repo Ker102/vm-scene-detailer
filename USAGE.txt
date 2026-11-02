@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.24) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.25) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.24) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.25) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,46 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (268 checks: the original 197 kept
-    green + 71 v2.7-v2.24 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (269 checks: the original 197 kept
+    green + 72 v2.7-v2.25 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.25 (2026-11-02) - BALCONIES AND RAILING VARIANTS
+-------------------------------------------------------------------------------
+* One kit, assembled differently: the porch and the balcony are built from
+  the same boxes (posts, rails, rims, boards, braces) in the same Porch /
+  Deck Materials, and a few menus pick how they go together, so two houses
+  with the same assets come out looking different.
+* Porch Railing (Porch panel, default None): None / Balusters / Boards /
+  Pickets / Cross. The railing runs along both sides and every front bay
+  but the middle one (the way in), with a post at the wall.
+  - Balusters: top and bottom rail, square balusters every 12 cm;
+  - Pickets: top and bottom rail, flat pickets every 14 cm;
+  - Boards: a top rail over four horizontal boards;
+  - Cross: top and bottom rail, an X brace in every ~1.2 m bay, a post
+    between bays.
+* Balcony (new 'Balcony' panel on VM_RoofCap, off by default, on in the
+  new 'Base - Balcony house' preset): one gable end gets a balcony at the
+  foot of the gable, with a door out onto it. The gable has to be steep
+  enough for a door under the rafters (about 50 deg on a 4.5 m wide end),
+  and the balcony never goes on the side the porch faces. The door layer
+  puts a full-size door on it (the balcony door ignores Ground Floor Only,
+  Max Base Height and Min Gap X); the ground-floor door stays where it was.
+  - Balcony Support: Brackets (an arm, a wall plate and a diagonal brace
+    under the deck), Posts (two posts to the ground and a beam under the
+    front) or Joists (joist ends standing out under the deck, no front
+    rim);
+  - Balcony Railing: the same five styles as the porch, on both sides and
+    the front, with a post at each corner;
+  - Balcony Width (2.2 m, cut down to fit the gable), Balcony Depth
+    (1.0 m), Balcony Door Width (1.1 m - the opening cut for the door),
+    Balcony Chance, Balcony Seed (which gable end).
+* Fix: the porch wood (posts, beam, rails) maps each piece onto one board
+  of the Porch Material (a thin piece used to land on the dark gap between
+  two boards and render black).
+* New library preset 'Base - Balcony house': Gable at 55 deg, a porch with a
+  baluster railing and a bracketed balcony.
 
 v2.24 (2026-11-02) - PORCHES
 -------------------------------------------------------------------------------
@@ -1262,8 +1298,13 @@ in-memory:
   * v2.24(porch): Porch on gives one ground-floor wall a porch - its roof
     under the main eave, at least 2 m up and clad with shakes, posts, beam
     and deck in front and nothing below the base - with the door on that
-    wall; another Porch Seed picks another wall; Porch off has none.
-Total for this release: 268 checks, 268 passed (verification_v2.json).
+    wall; another Porch Seed picks another wall; Porch off has none;
+  * v2.25(balcony): at 55 deg Balcony on puts a balcony on a gable end that
+    is not the porch's side, with a full-size door out onto it over the
+    ground-floor door; the three supports and five railing styles each give
+    a different set of pieces (Posts reach the ground, Brackets stay up on
+    the wall); Balcony off has none.
+Total for this release: 269 checks, 269 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

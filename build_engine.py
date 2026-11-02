@@ -217,13 +217,15 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.24"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.25"   # the ONE version label: About sockets, descriptions, checks, add-on
 # v2.23 doors set INTO the wall (world m): the leaf front this far behind the
 # wall face, a gap round the leaf in its hole, and the casing boards round it
 DOOR_RECESS, DOOR_GAP = 0.03, 0.01
 DOOR_SILL_CUT = 0.1   # the door hole runs this far below the threshold (no board under it)
 CASING_W, CASING_HEAD, CASING_T = 0.09, 0.12, 0.025
-RAKE_W = 0.17   # v2.23 rake boards along sloped wall edges (world m)
+RAKE_W = 0.17
+RAIL_STYLES = ("None", "Balusters", "Boards", "Pickets", "Cross")   # v2.25 porch / balcony railings
+BALCONY_SUPPORTS = ("Brackets", "Posts", "Joists")   # v2.23 rake boards along sloped wall edges (world m)
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -2165,9 +2167,23 @@ def build_node_group():
     g_ok2 = b.N("FunctionNodeBooleanMath", (-350, -950), operation="AND")
     b.L(g_ok.outputs["Boolean"], g_ok2.inputs[0])
     b.L(pw_ok2.outputs["Boolean"], g_ok2.inputs[1])
+    # v2.25: a balcony's door panel (vm_bdoor, VM_RoofCap) takes the door
+    # layer's parts (Ground Floor Only on) however high it is - and never a
+    # window layer's
+    bd_rd = b.N("GeometryNodeInputNamedAttribute", (-1000, -1700))
+    bd_rd.data_type = "FLOAT"
+    bd_rd.inputs["Name"].default_value = "vm_bdoor"
+    bd_is = b.N("FunctionNodeCompare", (-850, -1700), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(bd_rd.outputs["Attribute"], bd_is.inputs["A"])
+    bd_is.inputs["B"].default_value = 0.5
+    bd_sw = b.N("GeometryNodeSwitch", (-300, -950))
+    bd_sw.input_type = "BOOLEAN"
+    b.L(bd_is.outputs["Result"], bd_sw.inputs["Switch"])
+    b.L(g_ok2.outputs["Boolean"], bd_sw.inputs["False"])
+    b.L(gi.outputs["Ground Floor Only"], bd_sw.inputs["True"])
     fit_sel = b.N("FunctionNodeBooleanMath", (-200, -1000), operation="AND")
     b.L(sel_f3.outputs["Boolean"], fit_sel.inputs[0])
-    b.L(g_ok2.outputs["Boolean"], fit_sel.inputs[1])
+    b.L(bd_sw.outputs["Output"], fit_sel.inputs[1])
 
     # ---------------- v2.5 Slots layout menus + roof protection ----------------
     # Slot Layout: Random = v2.5-pre density sampling, Slots = HouseCraft
@@ -2207,9 +2223,12 @@ def build_node_group():
     mbh_ok = b.N("FunctionNodeCompare", (250, -850), data_type="FLOAT", operation="LESS_EQUAL")
     b.L(na_fz, mbh_ok.inputs["A"])
     b.L(mbh_z.outputs["Value"], mbh_ok.inputs["B"])
+    mbh_bd = b.N("FunctionNodeBooleanMath", (330, -900), operation="OR")
+    b.L(mbh_ok.outputs["Result"], mbh_bd.inputs[0])
+    b.L(bd_is.outputs["Result"], mbh_bd.inputs[1])
     fit_sel1 = b.N("FunctionNodeBooleanMath", (400, -1000), operation="AND")
     b.L(fit_sel.outputs["Boolean"], fit_sel1.inputs[0])
-    b.L(mbh_ok.outputs["Result"], fit_sel1.inputs[1])
+    b.L(mbh_bd.outputs["Boolean"], fit_sel1.inputs[1])
 
     # Slots/Common Z sill line: host zmin + Sill Height (world z, SAME for every
     # ground-storey wall). v2.10: a wall whose base edge is ABOVE the line (an
@@ -2711,9 +2730,19 @@ def build_node_group():
     kw = b.N("ShaderNodeMath", (5050, -2200), operation="MAXIMUM")
     b.L(kw3.outputs["Value"], kw.inputs[0])
     kw.inputs[1].default_value = 0.0
+    # v2.25: a balcony's door panel is MADE to hold one door - no neighbour
+    # to keep Min Gap X from, so its width never shrinks the door
+    kw_bd = b.N("FunctionNodeCompare", (4900, -2300), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(snamed("vm_bdoor"), kw_bd.inputs["A"])
+    kw_bd.inputs["B"].default_value = 0.5
+    kw_sw = b.N("GeometryNodeSwitch", (5050, -2300))
+    kw_sw.input_type = "FLOAT"
+    b.L(kw_bd.outputs["Result"], kw_sw.inputs["Switch"])
+    b.L(kw.outputs["Value"], kw_sw.inputs["False"])
+    kw_sw.inputs["True"].default_value = 1.0
     fitk_raw = b.N("ShaderNodeMath", (5200, -2100), operation="MINIMUM")
     b.L(kh.outputs["Value"], fitk_raw.inputs[0])
-    b.L(kw.outputs["Value"], fitk_raw.inputs[1])
+    b.L(kw_sw.outputs["Output"], fitk_raw.inputs[1])
     fit_ok = b.N("FunctionNodeCompare", (5350, -2100), data_type="FLOAT", operation="GREATER_EQUAL")
     b.L(fitk_raw.outputs["Value"], fit_ok.inputs["A"])
     b.L(gi.outputs["Min Fit Scale"], fit_ok.inputs["B"])
@@ -3994,17 +4023,33 @@ def build_node_group():
     geo_capped = rr_sort_sw.outputs["Output"]
     # global kept-rank in SORTED order: Leading > Max deletes -> exactly Max kept
     acc2 = b.N("GeometryNodeAccumulateField", (1900, -5450), domain="POINT")
-    b.L(keep_f.outputs["Value"], acc2.inputs["Value"])
-    cmp_cap_fit = b.N("FunctionNodeCompare", (2100, -5350), data_type="FLOAT",
-                      operation="GREATER_THAN")
-    b.L(acc2.outputs["Leading"], cmp_cap_fit.inputs["A"])
-    b.L(gi.outputs["Max Instances"], cmp_cap_fit.inputs["B"])
+    # v2.25: a balcony door is not counted against Max Instances (the ONE
+    # front door stays one)
+    cap_bd_rd = b.N("GeometryNodeInputNamedAttribute", (1600, -5550))
+    cap_bd_rd.data_type = "FLOAT"
+    cap_bd_rd.inputs["Name"].default_value = "vm_bdoor"
+    cap_bd = b.N("FunctionNodeCompare", (1750, -5550), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(cap_bd_rd.outputs["Attribute"], cap_bd.inputs["A"])
+    cap_bd.inputs["B"].default_value = 0.5
+    cap_cnt = b.N("ShaderNodeMath", (1750, -5450), operation="MULTIPLY")
+    b.L(keep_f.outputs["Value"], cap_cnt.inputs[0])
+    cap_nbd = b.N("FunctionNodeBooleanMath", (1750, -5600), operation="NOT")
+    b.L(cap_bd.outputs["Result"], cap_nbd.inputs[0])
+    b.L(cap_nbd.outputs["Boolean"], cap_cnt.inputs[1])
+    b.L(cap_cnt.outputs["Value"], acc2.inputs["Value"])
+    cmp_cap_fit0 = b.N("FunctionNodeCompare", (2100, -5350), data_type="FLOAT",
+                       operation="GREATER_THAN")
+    b.L(acc2.outputs["Leading"], cmp_cap_fit0.inputs["A"])
+    b.L(gi.outputs["Max Instances"], cmp_cap_fit0.inputs["B"])
+    cmp_cap_fit = b.N("FunctionNodeBooleanMath", (2200, -5350), operation="AND")
+    b.L(cmp_cap_fit0.outputs["Result"], cmp_cap_fit.inputs[0])
+    b.L(cap_nbd.outputs["Boolean"], cmp_cap_fit.inputs[1])
     cap_sw = b.N("GeometryNodeSwitch", (2100, -500))
     cap_sw.input_type = "BOOLEAN"
     if V28_FLAGS.get("rr", True):
         b.L(is_fit, cap_sw.inputs["Switch"])
         b.L(cmp_cap_n.outputs["Result"], cap_sw.inputs["False"])
-        b.L(cmp_cap_fit.outputs["Result"], cap_sw.inputs["True"])
+        b.L(cmp_cap_fit.outputs["Boolean"], cap_sw.inputs["True"])
         cmp_cap = cap_sw.outputs["Output"]
     else:
         cmp_cap = cmp_cap_n.outputs["Result"]
@@ -7046,10 +7091,16 @@ def add_porch(b, mesh_in, roof_t, fl, ph):
     so it stays square under any object scale. A wall only qualifies when its
     base is on the ground, it is at least 'Porch Min Width' wide, tall enough
     for a porch roof 2.3 m up and nothing of the building stands in front.
-    fl: sockets from the roof cap (sz, ov, thick, eff_of); ph: the porch
-    socket placeholders. Returns (host mesh with vm_porch = 1 on the porch
+    v2.25: the pieces come from one kit of boxes assembled per style - a
+    railing on the porch ('Porch Railing') and the GABLE BALCONY (a deck at
+    the foot of a Gable end, a door panel cut out of the gable for the door
+    layer, 'Balcony Support' brackets / posts / joists, 'Balcony Railing').
+    fl: sockets from the roof cap (sz, ov, thick, eff_of, roof_main, gable);
+    ph: the porch / balcony socket placeholders (rail_p, rail_b, supp: the
+    menu items' bools). Returns (host mesh with vm_porch = 1 on the porch
     wall, the porch roof (joined into the roof: material + shakes), the
-    posts / beam / deck (vm_trim), the two Set Material nodes to wire)."""
+    posts / beam / deck / railings / balcony (vm_trim), the two Set Material
+    nodes to wire, the roof with the balcony's gable cut for its door)."""
     seq = [0]
 
     def loc():
@@ -7254,46 +7305,333 @@ def add_porch(b, mesh_in, roof_t, fl, ph):
     tmp_ = ("vm_pqn", "vm_pqa", "vm_pqb", "vm_pqo", "vm_pqs", "vm_pqe")
     host_ = SW(ph["Porch"], mesh_in, REMOVE(geo_, tmp_), kind="GEOMETRY")
 
-    # ---- the porch: one point on the picked wall, one box per piece
+    # ---- v2.25 THE KIT: every porch / balcony piece is a box in its frame
+    # (a along the wall, d out of it, h up; world m), sheared along a or d
+    # for slopes (the porch roof, a brace). One kit, assembled differently
+    # per style: the same posts, rails and boards make every railing and
+    # every balcony support.
+    def lin(x_):
+        return x_ if not isinstance(x_, (int, float)) else M("ADD", x_, 0.0)
+
+    def fam(src_, count_, fn_):
+        """count_ boxes per point of src_; fn_(i) -> dict(c=(a, d, h centre),
+        s=(A, D, H) sizes, k=(slope along a, slope along d), kind)"""
+        dup_ = b.N("GeometryNodeDuplicateElements", loc(), domain="POINT")
+        b.L(src_, dup_.inputs["Geometry"])
+        if isinstance(count_, (int, float)):
+            dup_.inputs["Amount"].default_value = int(count_)
+        else:
+            b.L(count_, dup_.inputs["Amount"])
+        p_ = fn_(dup_.outputs["Duplicate Index"])
+        ca_, cd_, hc_ = p_["c"]
+        ka_, kd_ = p_.get("k", (0.0, 0.0))
+        # stored: h at a = d = 0 of the sheared box's centre line
+        ch_ = M("SUBTRACT", M("SUBTRACT", lin(hc_), M("MULTIPLY", ka_, ca_)), M("MULTIPLY", kd_, cd_))
+        g_ = dup_.outputs["Geometry"]
+        for nm_, val_ in (("vm_pqc", XYZ(ca_, cd_, ch_)), ("vm_pqz", XYZ(*p_["s"])),
+                          ("vm_pqk", XYZ(p_["kind"], ka_, kd_))):
+            g_ = STORE(g_, nm_, "FLOAT_VECTOR", val_)
+        return g_
+
+    def runs(src_, count_, fn_, fk_):
+        """railing runs: fn_(i) -> (a0, d0, axis 0 = along a / 1 = along d, length, rail height)"""
+        dup_ = b.N("GeometryNodeDuplicateElements", loc(), domain="POINT")
+        b.L(src_, dup_.inputs["Geometry"])
+        b.L(count_, dup_.inputs["Amount"])
+        a0_, d0_, ax_, l_, hr_ = fn_(dup_.outputs["Duplicate Index"])
+        g_ = STORE(dup_.outputs["Geometry"], "vm_pqr0", "FLOAT_VECTOR", XYZ(a0_, d0_, 0.03))
+        g_ = STORE(g_, "vm_pqr1", "FLOAT_VECTOR", XYZ(ax_, l_, hr_))
+        return STORE(g_, "vm_pqf", "FLOAT", fk_)
+
+    def onrun(s_, t_, h_, s_al, s_ac, s_h, k_al=0.0):
+        """a box in a run's own frame (s along it, t across, h over the deck)"""
+        r0a, r0d, r0h = SEP(NAMED("vm_pqr0", "FLOAT_VECTOR"))
+        ax_ = C("GREATER_THAN", SEP(NAMED("vm_pqr1", "FLOAT_VECTOR"))[0], 0.5)
+        return dict(c=(SW(ax_, M("ADD", r0a, s_), M("ADD", r0a, t_)), SW(ax_, M("ADD", r0d, t_), M("ADD", r0d, s_)),
+                       M("ADD", r0h, h_)),
+                    s=(SW(ax_, s_al, s_ac), SW(ax_, s_ac, s_al), s_h),
+                    k=(SW(ax_, k_al, 0.0), SW(ax_, 0.0, k_al)), kind=1.0)
+
+    def IDX(i_, n_):
+        return C("LESS_THAN", i_, n_)
+
+    # ---- the porch: one point on the picked wall
     m2p = b.N("GeometryNodeMeshToPoints", loc(), mode="FACES")
     b.L(geo_, m2p.inputs["Mesh"])
     b.L(C("GREATER_THAN", NAMED("vm_porch"), 0.5), m2p.inputs["Selection"])
+    pf_ = m2p.outputs["Points"]
     W, Hb, _z = SEP(NAMED("vm_pqs", "FLOAT_VECTOR"))
     d_p = M("SUBTRACT", d_w, 0.15)                           # the post line
     b_top = M("SUBTRACT", Hb, M("MULTIPLY", tp, M("SUBTRACT", d_p, 0.05)))
     span = M("SUBTRACT", W, 0.2)
     n_p = M("MAXIMUM", M("ADD", M("CEIL", M("DIVIDE", span, M("MAXIMUM", ph["Post Spacing"], 0.8))), 1.0), 2.0)
+    pitch_p = M("DIVIDE", span, M("SUBTRACT", n_p, 1.0))
     deck_d = M("SUBTRACT", d_w, 0.05)
     n_b = M("MAXIMUM", M("ROUND", M("DIVIDE", deck_d, 0.148)), 1.0)
-    dup = b.N("GeometryNodeDuplicateElements", loc(), domain="POINT")
-    b.L(m2p.outputs["Points"], dup.inputs["Geometry"])
-    b.L(M("ADD", M("ADD", n_p, n_b), 2.0), dup.inputs["Amount"])
-    i_ = dup.outputs["Duplicate Index"]
-    is_roof = C("LESS_THAN", i_, 0.5)
-    is_beam = C("LESS_THAN", i_, 1.5)
-    is_post = C("LESS_THAN", i_, M("ADD", n_p, 1.5))
-    k_p = M("SUBTRACT", i_, 2.0)
-    k_b = M("SUBTRACT", k_p, n_p)
     pitch_b = M("DIVIDE", deck_d, n_b)
-
-    def piece(roof_v, beam_v, post_v, board_v):
-        return SW(is_roof, SW(is_beam, SW(is_post, board_v, post_v), beam_v), roof_v)
     post_h = M("SUBTRACT", M("SUBTRACT", b_top, 0.2), 0.03)
-    c_a = piece(0.0, 0.0, M("MULTIPLY_ADD", k_p, M("DIVIDE", span, M("SUBTRACT", n_p, 1.0)),
-                            M("MULTIPLY", span, -0.5)), 0.0)
-    c_d = piece(M("MULTIPLY", M("SUBTRACT", d_f, 0.03), 0.5), d_p, d_p,
-                M("MULTIPLY_ADD", M("ADD", k_b, 0.5), pitch_b, 0.05))
-    c_h = piece(M("ADD", Hb, M("MULTIPLY", t_w, 0.5)), M("SUBTRACT", b_top, 0.1),
-                M("ADD", 0.03, M("MULTIPLY", post_h, 0.5)), 0.015)
-    s_a = piece(M("ADD", W, 0.24), M("ADD", W, 0.06), 0.12, W)
-    s_d = piece(M("ADD", d_f, 0.03), 0.1, 0.12, M("SUBTRACT", pitch_b, 0.008))
-    s_h = piece(t_w, 0.2, post_h, 0.03)
-    kind = piece(0.0, 1.0, 2.0, 3.0)
-    shear = SW(is_roof, 0.0, M("MULTIPLY", tp, -1.0))
-    pts_ = dup.outputs["Geometry"]
-    for nm_, val_ in (("vm_pqc", XYZ(c_a, c_d, c_h)), ("vm_pqz", XYZ(s_a, s_d, s_h)),
-                      ("vm_pqk", XYZ(kind, shear, 0.0))):
-        pts_ = STORE(pts_, nm_, "FLOAT_VECTOR", val_)
+    tp_n = M("MULTIPLY", tp, -1.0)
+    roof_cd = M("MULTIPLY", M("SUBTRACT", d_f, 0.03), 0.5)
+    parts = [
+        fam(pf_, 1, lambda i: dict(c=(0.0, roof_cd, M("ADD", M("ADD", Hb, M("MULTIPLY", t_w, 0.5)),
+                                                         M("MULTIPLY", tp_n, roof_cd))),
+                                   s=(M("ADD", W, 0.24), M("ADD", d_f, 0.03), t_w), k=(0.0, tp_n), kind=0.0)),
+        fam(pf_, 1, lambda i: dict(c=(0.0, d_p, M("SUBTRACT", b_top, 0.1)), s=(M("ADD", W, 0.06), 0.1, 0.2),
+                                   kind=1.0)),
+        fam(pf_, n_p, lambda i: dict(c=(M("MULTIPLY_ADD", i, pitch_p, M("MULTIPLY", span, -0.5)), d_p,
+                                        M("ADD", 0.03, M("MULTIPLY", post_h, 0.5))),
+                                     s=(0.12, 0.12, post_h), kind=2.0)),
+        fam(pf_, n_b, lambda i: dict(c=(0.0, M("MULTIPLY_ADD", M("ADD", i, 0.5), pitch_b, 0.05), 0.015),
+                                     s=(W, M("SUBTRACT", pitch_b, 0.008), 0.03), kind=3.0)),
+    ]
+    # its railing: both sides and every front bay but the middle one (the way in)
+    rp_, rb_, sup_ = ph["rail_p"], ph["rail_b"], ph["supp"]
+    rp_on = NOT(rp_["None"])
+    open_bay = M("FLOOR", M("MULTIPLY", M("SUBTRACT", n_p, 2.0), 0.5))
+
+    def porch_run(i):
+        side_ = IDX(i, 1.5)
+        j_ = M("SUBTRACT", i, 2.0)
+        bay_ = M("ADD", j_, M("ADD", C("GREATER_EQUAL", j_, open_bay), 0.0))
+        a_side = SW(IDX(i, 0.5), M("MULTIPLY", span, 0.5), M("MULTIPLY", span, -0.5))
+        a_bay = M("ADD", M("MULTIPLY_ADD", bay_, pitch_p, M("MULTIPLY", span, -0.5)), 0.06)
+        return (SW(side_, a_bay, a_side), SW(side_, d_p, 0.17), SW(side_, 0.0, 1.0),
+                SW(side_, M("SUBTRACT", pitch_p, 0.12), M("SUBTRACT", d_p, 0.23)), 0.9)
+    run_list = [runs(pf_, SW(rp_on, 0.0, n_p), porch_run, 0.0)]
+    parts.append(fam(pf_, SW(rp_on, 0.0, 2.0), lambda i: dict(
+        c=(SW(IDX(i, 0.5), M("MULTIPLY", span, 0.5), M("MULTIPLY", span, -0.5)), 0.125, 0.505),
+        s=(0.09, 0.09, 0.95), kind=2.0)))
+
+    # ---- v2.25 GABLE BALCONY: on a Gable end tall enough for a door, a deck
+    # at the gable's foot (the attic floor) in front of a door panel cut out
+    # of the gable (vm_bdoor: the door layer hangs a door in it)
+    rm_ = fl["roof_main"]
+    rn_x, rn_y, rn_z = SEP(b.N("GeometryNodeInputNormal", loc()).outputs["Normal"])
+    gg_ = STORE(rm_, "vm_pqn", "FLOAT_VECTOR", V("NORMALIZE", XYZ(rn_x, rn_y, 0.0)), "FACE")
+    gnh_c = NAMED("vm_pqn", "FLOAT_VECTOR")
+    gp_c = POS()
+    gfoc = b.N("GeometryNodeFaceOfCorner", loc())
+    gfmm = b.N("GeometryNodeFieldMinAndMax", loc(), data_type="FLOAT_VECTOR", domain="CORNER")
+    b.L(XYZ(V("DOT_PRODUCT", gp_c, HORIZ_U(gnh_c), out="Value"), SEP(gp_c)[2],
+            V("DOT_PRODUCT", gp_c, gnh_c, out="Value")), gfmm.inputs["Value"])
+    b.L(gfoc.outputs["Face Index"], gfmm.inputs["Group ID"])
+    gg_ = STORE(gg_, "vm_pqa", "FLOAT_VECTOR", gfmm.outputs["Min"], "CORNER")
+    gg_ = STORE(gg_, "vm_pqb", "FLOAT_VECTOR", gfmm.outputs["Max"], "CORNER")
+    gnh = NAMED("vm_pqn", "FLOAT_VECTOR")
+    gu = HORIZ_U(gnh)
+    gu0, gz0, gn0 = SEP(NAMED("vm_pqa", "FLOAT_VECTOR"))
+    gu1, gz1, gn1 = SEP(NAMED("vm_pqb", "FLOAT_VECTOR"))
+    ge_u, ge_n = EFF(gu), EFF(gnh)
+    g_b = M("MULTIPLY", M("MULTIPLY", M("SUBTRACT", gu1, gu0), ge_u), 0.5)     # half its foot
+    g_r = M("MULTIPLY", M("SUBTRACT", gz1, gz0), sz)                          # its rise
+    g_o = V("ADD", V("ADD", V("SCALE", gu, M("MULTIPLY", M("ADD", gu0, gu1), 0.5)),
+                     V("SCALE", gnh, M("MULTIPLY", M("ADD", gn0, gn1), 0.5))), XYZ(0.0, 0.0, gz0))
+    g_w = M("MULTIPLY", ph["Balcony Door Width"], 0.5)
+    g_rel = M("SUBTRACT", 1.0, M("DIVIDE", g_w, M("MAXIMUM", g_b, 0.01)))
+    g_hd = M("MINIMUM", 2.15, M("SUBTRACT", M("MULTIPLY", g_r, g_rel), 0.12))  # the door panel's height
+    # wide as asked, but its railing stays under the rakes and 30 cm in from the corners
+    g_wb = M("MINIMUM", M("MINIMUM", ph["Balcony Width"], M("SUBTRACT", M("MULTIPLY", g_b, 2.0), 0.6)),
+             M("MULTIPLY", M("MULTIPLY", g_b, 2.0),
+               M("SUBTRACT", 1.0, M("DIVIDE", 1.3, M("MAXIMUM", g_r, 0.01)))))
+    g_db = M("MAXIMUM", ph["Balcony Depth"], 0.6)
+    # not over the porch, and nothing of the building in front of it
+    pc_n = b.N("GeometryNodeSampleIndex", loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(pf_, pc_n.inputs["Geometry"])
+    b.L(NAMED("vm_pqn", "FLOAT_VECTOR"), pc_n.inputs["Value"])
+    pc_n.inputs["Index"].default_value = 0
+    g_free = C("LESS_THAN", V("DOT_PRODUCT", pc_n.outputs["Value"], gnh, out="Value"), 0.9)
+    grc = b.N("GeometryNodeRaycast", loc())
+    b.L(mesh_in, grc.inputs["Target Geometry"])
+    b.L(V("ADD", V("ADD", g_o, V("SCALE", gnh, M("DIVIDE", 0.02, ge_n))), XYZ(0.0, 0.0, M("DIVIDE", 0.5, sz))),
+        grc.inputs["Source Position"])
+    b.L(gnh, grc.inputs["Ray Direction"])
+    b.L(M("DIVIDE", M("ADD", g_db, 0.3), ge_n), grc.inputs["Ray Length"])
+    g_cand = BOOL("AND", ph["Balcony"], fl["gable"], C("GREATER_THAN", NAMED("vm_tg"), 0.5),
+                  C("LESS_THAN", M("ABSOLUTE", rn_z), 0.15), C("GREATER_EQUAL", g_hd, 1.9),
+                  C("GREATER_EQUAL", g_wb, 1.4), g_free, NOT(grc.outputs["Is Hit"]))
+    g_rnd = b.N("FunctionNodeRandomValue", loc(), data_type="FLOAT")
+    b.L(ph["Balcony Seed"], g_rnd.inputs["Seed"])
+    g_score = SW(g_cand, -1.0, M("ADD", g_rnd.outputs["Value"], 0.01))
+    g_stat = b.N("GeometryNodeAttributeStatistic", loc(), data_type="FLOAT", domain="FACE")
+    b.L(gg_, g_stat.inputs["Geometry"])
+    b.L(g_score, g_stat.inputs["Attribute"])
+    g_roll = b.N("FunctionNodeRandomValue", loc(), data_type="FLOAT")
+    b.L(M("ADD", ph["Balcony Seed"], 11.0), g_roll.inputs["Seed"])
+    gid0 = b.N("FunctionNodeInputInt", loc())
+    gid0.integer = 0
+    b.L(gid0.outputs["Integer"], g_roll.inputs["ID"])
+    g_pick = BOOL("AND", g_cand, C("GREATER_EQUAL", g_score, M("SUBTRACT", g_stat.outputs["Max"], 1.0e-4)),
+                  C("GREATER_THAN", g_stat.outputs["Max"], 0.0),
+                  C("LESS_THAN", g_roll.outputs["Value"], ph["Balcony Chance"]))
+    gg_ = STORE(gg_, "vm_pbk", "FLOAT", M("ADD", g_pick, 0.0), "FACE")
+    g_hg = M("MULTIPLY", M("SUBTRACT", zmin, gz0), sz)                    # the ground, from the deck
+    for nm_, val_ in (("vm_pqo", g_o), ("vm_pqs", XYZ(g_wb, g_db, g_hg)), ("vm_pqe", XYZ(ge_u, ge_n, 0.0)),
+                      ("vm_pbw", XYZ(g_b, g_r, g_w)), ("vm_pbh", XYZ(g_hd, 0.0, 0.0))):
+        gg_ = STORE(gg_, nm_, "FLOAT_VECTOR", val_, "FACE")
+    g_tmp = ("vm_pqn", "vm_pqa", "vm_pqb", "vm_pqo", "vm_pqs", "vm_pqe", "vm_pbw", "vm_pbh", "vm_pbk")
+    g_del = b.N("GeometryNodeDeleteGeometry", loc(), domain="FACE")
+    b.L(gg_, g_del.inputs["Geometry"])
+    b.L(C("GREATER_THAN", NAMED("vm_pbk"), 0.5), g_del.inputs["Selection"])
+    g_m2p = b.N("GeometryNodeMeshToPoints", loc(), mode="FACES")
+    b.L(gg_, g_m2p.inputs["Mesh"])
+    b.L(C("GREATER_THAN", NAMED("vm_pbk"), 0.5), g_m2p.inputs["Selection"])
+    bf_ = STORE(g_m2p.outputs["Points"], "vm_pqf", "FLOAT", 1.0)
+    # the picked gable again, as a door panel and the three pieces round it
+    # (codes: across -2 foot corner, -1 panel side, 0 apex; up 0 foot,
+    # 1 panel head, 2 apex)
+    g_pieces = (((-1, 0), (1, 0), (1, 1), (-1, 1)), ((-2, 0), (-1, 0), (-1, 1), (0, 2)),
+                ((-1, 1), (1, 1), (0, 2)), ((1, 0), (2, 0), (0, 2), (1, 1)))
+    gtj = b.N("GeometryNodeJoinGeometry", loc())
+    for pi_, codes_ in enumerate(g_pieces):
+        ci_ = b.N("GeometryNodeMeshCircle", loc(), fill_type="NGON")
+        ci_.inputs["Vertices"].default_value = len(codes_)
+        isw_ = b.N("GeometryNodeIndexSwitch", loc(), data_type="VECTOR")
+        while len(isw_.index_switch_items) < len(codes_):
+            isw_.index_switch_items.new()
+        b.L(b.N("GeometryNodeInputIndex", loc()).outputs["Index"], isw_.inputs["Index"])
+        for vi_, cd_ in enumerate(codes_):
+            isw_.inputs[vi_ + 1].default_value = (cd_[0], cd_[1], 0.0)
+        pg_ = STORE(ci_.outputs["Mesh"], "vm_pbc", "FLOAT_VECTOR", isw_.outputs["Output"])
+        pg_ = STORE(pg_, "vm_bdoor", "FLOAT", 1.0 if pi_ == 0 else 0.0, domain="FACE")
+        b.L(pg_, gtj.inputs["Geometry"])
+    giop = b.N("GeometryNodeInstanceOnPoints", loc())
+    b.L(bf_, giop.inputs["Points"])
+    b.L(gtj.outputs["Geometry"], giop.inputs["Instance"])
+    greal = b.N("GeometryNodeRealizeInstances", loc())
+    b.L(giop.outputs["Instances"], greal.inputs["Geometry"])
+    gca, gch, _gc = SEP(NAMED("vm_pbc", "FLOAT_VECTOR"))
+    pb_b, pb_r, pb_w = SEP(NAMED("vm_pbw", "FLOAT_VECTOR"))
+    pb_hd = SEP(NAMED("vm_pbh", "FLOAT_VECTOR"))[0]
+    g_a = M("MULTIPLY", M("MINIMUM", M("MAXIMUM", gca, -1.0), 1.0),
+            SW(C("GREATER_THAN", M("ABSOLUTE", gca), 1.5), pb_w, pb_b))
+    g_h = SW(C("GREATER_THAN", gch, 1.5), SW(C("GREATER_THAN", gch, 0.5), 0.0, pb_hd), pb_r)
+    gnh_p = NAMED("vm_pqn", "FLOAT_VECTOR")
+    geu_p = SEP(NAMED("vm_pqe", "FLOAT_VECTOR"))[0]
+    gsp = b.N("GeometryNodeSetPosition", loc())
+    b.L(greal.outputs["Geometry"], gsp.inputs["Geometry"])
+    b.L(V("ADD", V("ADD", NAMED("vm_pqo", "FLOAT_VECTOR"), V("SCALE", HORIZ_U(gnh_p), M("DIVIDE", g_a, geu_p))),
+          XYZ(0.0, 0.0, M("DIVIDE", g_h, sz))), gsp.inputs["Position"])
+    gfl = b.N("GeometryNodeFlipFaces", loc())
+    b.L(gsp.outputs["Geometry"], gfl.inputs["Mesh"])
+    b.L(C("LESS_THAN", V("DOT_PRODUCT", b.N("GeometryNodeInputNormal", loc()).outputs["Normal"], gnh_p,
+                         out="Value"), 0.0), gfl.inputs["Selection"])
+    gmg = b.N("GeometryNodeMergeByDistance", loc())
+    b.L(gfl.outputs["Mesh"], gmg.inputs["Geometry"])
+    gmg.inputs["Distance"].default_value = 0.0005
+    g_join = b.N("GeometryNodeJoinGeometry", loc())
+    b.L(REMOVE(g_del.outputs["Geometry"], g_tmp), g_join.inputs["Geometry"])
+    b.L(REMOVE(gmg.outputs["Geometry"], g_tmp + ("vm_pbc", "vm_pqf")), g_join.inputs["Geometry"])
+    roof_main_out = SW(ph["Balcony"], rm_, g_join.outputs["Geometry"], kind="GEOMETRY")
+
+    # ---- the balcony itself: deck boards on a ledger and rims, its support
+    # (Brackets / Posts / Joists) and its railing
+    Wb, Db, Hg = SEP(NAMED("vm_pqs", "FLOAT_VECTOR"))
+    hw_b = M("MULTIPLY", Wb, 0.5)
+    n_bb = M("MAXIMUM", M("ROUND", M("DIVIDE", M("SUBTRACT", Db, 0.11), 0.148)), 1.0)
+    pit_bb = M("DIVIDE", M("SUBTRACT", Db, 0.11), n_bb)
+    joists = sup_["Joists"]
+
+    def pm(i):                      # -1 / +1 for i = 0 / 1
+        return SW(IDX(i, 0.5), 1.0, -1.0)
+    parts += [
+        fam(bf_, n_bb, lambda i: dict(c=(0.0, M("MULTIPLY_ADD", M("ADD", i, 0.5), pit_bb, 0.11), 0.015),
+                                      s=(Wb, M("SUBTRACT", pit_bb, 0.008), 0.03), kind=3.0)),
+        fam(bf_, 1, lambda i: dict(c=(0.0, 0.08, -0.085), s=(Wb, 0.06, 0.23), kind=1.0)),     # ledger
+        fam(bf_, 2, lambda i: dict(c=(M("MULTIPLY", pm(i), M("SUBTRACT", hw_b, 0.02)),
+                                      M("MULTIPLY", M("ADD", SW(joists, M("SUBTRACT", Db, 0.04), Db), 0.11), 0.5),
+                                      -0.1),
+                                   s=(0.04, M("SUBTRACT", SW(joists, M("SUBTRACT", Db, 0.04), Db), 0.11), 0.2),
+                                   kind=1.0)),        # side rims (up to the front rim)
+        fam(bf_, SW(joists, 1.0, 0.0), lambda i: dict(c=(0.0, M("SUBTRACT", Db, 0.02), -0.1),
+                                                      s=(Wb, 0.04, 0.2), kind=1.0)),          # front rim
+    ]
+    # Brackets: an arm under the deck, a plate on the wall, a brace between
+    n_bk = M("ADD", 2.0, M("ADD", C("GREATER_THAN", Wb, 2.2), 0.0))
+    d_e = M("ADD", 0.17, M("MULTIPLY", 0.65, M("SUBTRACT", Db, 0.27)))
+    k_br = M("DIVIDE", 0.53, M("MAXIMUM", M("SUBTRACT", d_e, 0.17), 0.05))
+
+    def bracket(i):
+        j_ = M("FLOOR", M("DIVIDE", i, 3.0))
+        part_ = M("FLOORED_MODULO", i, 3.0)
+        a_ = M("MULTIPLY_ADD", j_, M("DIVIDE", M("SUBTRACT", Wb, 0.5), M("SUBTRACT", n_bk, 1.0)),
+               M("SUBTRACT", 0.25, hw_b))
+        arm_, plate_ = IDX(part_, 0.5), IDX(part_, 1.5)
+        return dict(c=(a_, SW(arm_, SW(plate_, M("MULTIPLY", M("ADD", 0.17, d_e), 0.5), 0.125),
+                              M("MULTIPLY", M("ADD", Db, 0.07), 0.5)),
+                       SW(arm_, SW(plate_, -0.635, -0.7), -0.26)),
+                    s=(0.09, SW(arm_, SW(plate_, M("SUBTRACT", d_e, 0.17), 0.09), M("SUBTRACT", Db, 0.27)),
+                       SW(arm_, SW(plate_, 0.1, 1.0), 0.12)),
+                    k=(0.0, SW(arm_, SW(plate_, k_br, 0.0), 0.0)), kind=1.0)
+    parts.append(fam(bf_, SW(sup_["Brackets"], 0.0, M("MULTIPLY", n_bk, 3.0)), bracket))
+    # Posts: two posts down to the ground and a beam under the front
+    post_b = M("SUBTRACT", -0.38, Hg)
+    parts.append(fam(bf_, SW(sup_["Posts"], 0.0, 3.0), lambda i: dict(
+        c=(SW(IDX(i, 1.5), 0.0, M("MULTIPLY", pm(i), M("SUBTRACT", hw_b, 0.07))), M("SUBTRACT", Db, 0.07),
+           SW(IDX(i, 1.5), -0.29, M("MULTIPLY", M("ADD", Hg, -0.38), 0.5))),
+        s=(SW(IDX(i, 1.5), Wb, 0.12), 0.12, SW(IDX(i, 1.5), 0.18, post_b)),
+        kind=SW(IDX(i, 1.5), 1.0, 2.0))))
+    # Joists: their ends stand out past the deck (no front rim)
+    n_j = M("MAXIMUM", M("ADD", M("FLOOR", M("DIVIDE", M("SUBTRACT", Wb, 0.15), 0.45)), 1.0), 2.0)
+    parts.append(fam(bf_, SW(joists, 0.0, n_j), lambda i: dict(
+        c=(M("MULTIPLY_ADD", i, M("DIVIDE", M("SUBTRACT", Wb, 0.15), M("SUBTRACT", n_j, 1.0)),
+             M("SUBTRACT", 0.075, hw_b)), M("MULTIPLY", M("ADD", Db, 0.26), 0.5), -0.09),
+        s=(0.07, M("SUBTRACT", Db, -0.04), 0.18), kind=1.0)))
+    # its railing: two sides and the front, a post at each corner
+    rb_on = NOT(rb_["None"])
+
+    def balc_run(i):
+        side_ = IDX(i, 1.5)
+        return (SW(side_, M("ADD", M("MULTIPLY", hw_b, -1.0), 0.09), M("MULTIPLY", pm(i), M("SUBTRACT", hw_b, 0.045))),
+                SW(side_, M("SUBTRACT", Db, 0.045), 0.17), SW(side_, 0.0, 1.0),
+                SW(side_, M("SUBTRACT", Wb, 0.18), M("SUBTRACT", Db, 0.26)), 1.0)
+    run_list.append(runs(bf_, SW(rb_on, 0.0, 3.0), balc_run, 1.0))
+    parts.append(fam(bf_, SW(rb_on, 0.0, 4.0), lambda i: dict(
+        c=(M("MULTIPLY", SW(C("LESS_THAN", M("FLOORED_MODULO", i, 2.0), 0.5), 1.0, -1.0),
+             M("SUBTRACT", hw_b, 0.045)), SW(IDX(i, 1.5), M("SUBTRACT", Db, 0.045), 0.125), 0.555),
+        s=(0.09, 0.09, 1.05), kind=2.0)))
+
+    # ---- the railing styles, on every run (porch and balcony alike)
+    rj_ = b.N("GeometryNodeJoinGeometry", loc())
+    for r_ in run_list:
+        b.L(r_, rj_.inputs["Geometry"])
+    rr_ = rj_.outputs["Geometry"]
+    r_bal = C("GREATER_THAN", NAMED("vm_pqf"), 0.5)
+
+    def style(nm_):
+        return SW(r_bal, rp_[nm_], rb_[nm_], kind="BOOLEAN")
+    _rax, r_len, r_hr = SEP(NAMED("vm_pqr1", "FLOAT_VECTOR"))
+    hc_ = M("SUBTRACT", r_hr, 0.175)                       # between the rails
+    hmid = M("ADD", 0.125, M("MULTIPLY", hc_, 0.5))
+    with_bottom = BOOL("OR", style("Balusters"), style("Pickets"), style("Cross"))
+    n_bal = M("MAXIMUM", M("FLOOR", M("DIVIDE", r_len, 0.12)), 1.0)
+    n_pk = M("MAXIMUM", M("FLOOR", M("DIVIDE", r_len, 0.14)), 1.0)
+    p_bd = M("DIVIDE", M("SUBTRACT", r_hr, 0.11), 4.0)
+    n_x = M("MAXIMUM", M("ROUND", M("DIVIDE", r_len, 1.2)), 1.0)
+    l_x = M("DIVIDE", r_len, n_x)
+    parts += [
+        fam(rr_, 1, lambda i: onrun(M("MULTIPLY", r_len, 0.5), 0.0, M("SUBTRACT", r_hr, 0.025),
+                                    r_len, 0.09, 0.05)),                                # top rail
+        fam(rr_, SW(with_bottom, 0.0, 1.0), lambda i: onrun(M("MULTIPLY", r_len, 0.5), 0.0, 0.1,
+                                                            r_len, 0.07, 0.05)),        # bottom rail
+        fam(rr_, SW(style("Balusters"), 0.0, n_bal), lambda i: onrun(
+            M("MULTIPLY", M("ADD", i, 0.5), M("DIVIDE", r_len, n_bal)), 0.0, hmid, 0.035, 0.035, hc_)),
+        fam(rr_, SW(style("Pickets"), 0.0, n_pk), lambda i: onrun(
+            M("MULTIPLY", M("ADD", i, 0.5), M("DIVIDE", r_len, n_pk)), 0.0, hmid, 0.09, 0.022, hc_)),
+        fam(rr_, SW(style("Boards"), 0.0, 4.0), lambda i: onrun(
+            M("MULTIPLY", r_len, 0.5), 0.0, M("MULTIPLY_ADD", M("ADD", i, 0.5), p_bd, 0.06),
+            r_len, 0.03, M("SUBTRACT", p_bd, 0.025))),
+        # two braces per bay crossing (side by side, touching), a post between bays
+        fam(rr_, SW(style("Cross"), 0.0, M("MULTIPLY", n_x, 2.0)), lambda i: onrun(
+            M("MULTIPLY", M("ADD", M("FLOOR", M("DIVIDE", i, 2.0)), 0.5), l_x),
+            M("MULTIPLY", pm(M("FLOORED_MODULO", i, 2.0)), 0.012), hmid, l_x, 0.024, 0.07,
+            M("DIVIDE", M("MULTIPLY", pm(M("FLOORED_MODULO", i, 2.0)), M("SUBTRACT", hc_, 0.07)), l_x))),
+        fam(rr_, SW(style("Cross"), 0.0, M("SUBTRACT", n_x, 1.0)), lambda i: onrun(
+            M("MULTIPLY", M("ADD", i, 1.0), l_x), 0.0, hmid, 0.05, 0.05, hc_)),
+    ]
+    pj_ = b.N("GeometryNodeJoinGeometry", loc())
+    for g_ in parts:
+        b.L(g_, pj_.inputs["Geometry"])
+    pts_ = pj_.outputs["Geometry"]
     cube = b.N("GeometryNodeMeshCube", loc())
     cube.inputs["Size"].default_value = (1.0, 1.0, 1.0)
     cube_ = STORE(cube.outputs["Mesh"], "vm_pqv", "FLOAT_VECTOR", POS())
@@ -7302,14 +7640,14 @@ def add_porch(b, mesh_in, roof_t, fl, ph):
     b.L(cube_, iop.inputs["Instance"])
     real = b.N("GeometryNodeRealizeInstances", loc())
     b.L(iop.outputs["Instances"], real.inputs["Geometry"])
-    # every corner from its box: a = along, d = out, h = up (+ the roof's slope)
+    # every corner from its box: a = along, d = out, h = up (+ its slopes)
     vx, vy, vz = SEP(NAMED("vm_pqv", "FLOAT_VECTOR"))
     ca, cd, ch = SEP(NAMED("vm_pqc", "FLOAT_VECTOR"))
     za, zd, zh = SEP(NAMED("vm_pqz", "FLOAT_VECTOR"))
-    pk, psh, _pz = SEP(NAMED("vm_pqk", "FLOAT_VECTOR"))
+    pk, pka, pkd = SEP(NAMED("vm_pqk", "FLOAT_VECTOR"))
     a_v = M("MULTIPLY_ADD", vx, za, ca)
     d_v = M("MULTIPLY_ADD", vy, zd, cd)
-    h_v = M("MULTIPLY_ADD", psh, d_v, M("MULTIPLY_ADD", vz, zh, ch))
+    h_v = M("MULTIPLY_ADD", pkd, d_v, M("MULTIPLY_ADD", pka, a_v, M("MULTIPLY_ADD", vz, zh, ch)))
     o_p = NAMED("vm_pqo", "FLOAT_VECTOR")
     nh_p = NAMED("vm_pqn", "FLOAT_VECTOR")
     u_p = HORIZ_U(nh_p)
@@ -7319,14 +7657,28 @@ def add_porch(b, mesh_in, roof_t, fl, ph):
     sp_ = b.N("GeometryNodeSetPosition", loc())
     b.L(real.outputs["Geometry"], sp_.inputs["Geometry"])
     b.L(pos_, sp_.inputs["Position"])
-    # UVs in meters, the grain along the board (posts: up)
-    is_pp = C("GREATER_THAN", M("ABSOLUTE", M("SUBTRACT", pk, 2.0)), 0.5)
-    uv_ = SW(is_pp, XYZ(h_v, M("ADD", a_v, d_v), 0.0), XYZ(a_v, M("ADD", d_v, h_v), 0.0), kind="VECTOR")
+    # UVs: the grain along each box's longest side, in meters. The deck
+    # texture tiles in meters across too; the porch wood is a per-board
+    # material (V = 0..1 ACROSS one board - a V in meters lands on the gaps
+    # between its boards), so every other piece maps its own cross-section
+    # onto a board of its own, at its own offset along the grain
+    g_al = BOOL("AND", C("GREATER_EQUAL", za, zd), C("GREATER_EQUAL", za, zh))
+    g_up = C("GREATER_EQUAL", zh, zd)
+    uv_m = SW(g_al, SW(g_up, XYZ(d_v, M("ADD", a_v, h_v), 0.0), XYZ(h_v, M("ADD", a_v, d_v), 0.0), kind="VECTOR"),
+              XYZ(a_v, M("ADD", d_v, h_v), 0.0), kind="VECTOR")
+    hsh = M("FRACT", M("MULTIPLY", M("SINE", M("MULTIPLY_ADD", ca, 12.9898, M("MULTIPLY_ADD", cd, 78.233,
+                                                                                  M("MULTIPLY", ch, 37.719)))),
+                       43758.5453))
+    v_x = M("MULTIPLY_ADD", SW(g_al, SW(g_up, M("ADD", vx, vz), M("ADD", vx, vy)), M("ADD", vy, vz)), 0.5, 0.5)
+    uv_b = XYZ(M("MULTIPLY_ADD", hsh, 7.0, SW(g_al, SW(g_up, d_v, h_v), a_v)),
+               M("MULTIPLY_ADD", M("FLOOR", M("MULTIPLY", hsh, 8.0)), 1.0 / 0.84, v_x), 0.0)
+    uv_ = SW(C("GREATER_THAN", pk, 2.5), uv_b, uv_m, kind="VECTOR")
     uvs = b.N("GeometryNodeStoreNamedAttribute", loc(), data_type="FLOAT2", domain="CORNER")
     b.L(sp_.outputs["Geometry"], uvs.inputs["Geometry"])
     uvs.inputs["Name"].default_value = "UVMap"
     b.L(uv_, uvs.inputs["Value"])
-    tmp2 = ("vm_pqv", "vm_pqc", "vm_pqz", "vm_pqk", "vm_porch") + tmp_
+    tmp2 = ("vm_pqv", "vm_pqc", "vm_pqz", "vm_pqk", "vm_porch", "vm_pqr0", "vm_pqr1", "vm_pqf",
+            "vm_pbw", "vm_pbh", "vm_pbk") + tmp_
     kind_f = NAMED("vm_pqk", "FLOAT_VECTOR")
     sepg = b.N("GeometryNodeSeparateGeometry", loc(), domain="FACE")
     b.L(uvs.outputs["Geometry"], sepg.inputs["Geometry"])
@@ -7340,7 +7692,7 @@ def add_porch(b, mesh_in, roof_t, fl, ph):
     b.L(mat_p.outputs["Geometry"], mat_d.inputs["Geometry"])
     b.L(C("GREATER_THAN", SEP(NAMED("vm_pqk", "FLOAT_VECTOR"))[0], 2.5), mat_d.inputs["Selection"])
     trim_ = STORE(REMOVE(mat_d.outputs["Geometry"], tmp2), "vm_trim", "FLOAT", 1.0, "FACE")
-    return host_, roof_, trim_, (mat_p, mat_d)
+    return host_, roof_, trim_, (mat_p, mat_d), roof_main_out
 
 
 def build_roofcap_group():
@@ -7473,6 +7825,28 @@ def build_roofcap_group():
         _n.inputs[1].default_value = 0.0
         pc_nodes[_nm] = _n
         pc_ph[_nm] = _n.outputs["Value"]
+    # v2.25 Balcony + railing styles: the same (menus linked in at the end)
+    bc_on = b.N("FunctionNodeBooleanMath", (-1150, -1050), operation="OR")
+    bc_on.inputs[1].default_value = False
+    pc_ph["Balcony"] = bc_on.outputs["Boolean"]
+    bc_nodes = {}
+    for _k, _nm in enumerate(("Balcony Width", "Balcony Depth", "Balcony Door Width", "Balcony Chance",
+                              "Balcony Seed")):
+        _n = b.N("ShaderNodeMath", (-1000, -1050 - 40 * _k), operation="ADD")
+        _n.inputs[1].default_value = 0.0
+        bc_nodes[_nm] = _n
+        pc_ph[_nm] = _n.outputs["Value"]
+    pc_menus = {}
+    for _k, (_key, _nm, _items) in enumerate((("rail_p", "Porch Railing", RAIL_STYLES),
+                                              ("rail_b", "Balcony Railing", RAIL_STYLES),
+                                              ("supp", "Balcony Support", BALCONY_SUPPORTS))):
+        _ms = b.N("GeometryNodeMenuSwitch", (-1300, -900 - 200 * _k))
+        _ms.data_type = "BOOLEAN"
+        _ms.enum_items.clear()
+        for _it in _items:
+            _ms.enum_items.new(_it)
+        pc_menus[_nm] = _ms
+        pc_ph[_key] = {_it: _ms.outputs[_it] for _it in _items}
     # gable-end faces of the template (normal along x) are flagged and every
     # face gets its own vertices, so the gable ends can move independently of
     # the slopes (merged again after positioning)
@@ -7965,7 +8339,14 @@ def build_roofcap_group():
     df_rd.data_type = "FLOAT"
     df_rd.inputs["Name"].default_value = "vm_dfront"
     df_cmp = b.N("FunctionNodeCompare", (4100, -1650), data_type="FLOAT", operation="GREATER_THAN")
-    b.L(df_rd.outputs["Attribute"], df_cmp.inputs["A"])
+    # v2.25: and the balcony's door panel (vm_bdoor) - a wall the door layer uses
+    bd_rd = b.N("GeometryNodeInputNamedAttribute", (3950, -1700))
+    bd_rd.data_type = "FLOAT"
+    bd_rd.inputs["Name"].default_value = "vm_bdoor"
+    df_any = b.N("ShaderNodeMath", (4000, -1650), operation="MAXIMUM")
+    b.L(df_rd.outputs["Attribute"], df_any.inputs[0])
+    b.L(bd_rd.outputs["Attribute"], df_any.inputs[1])
+    b.L(df_any.outputs["Value"], df_cmp.inputs["A"])
     df_cmp.inputs["B"].default_value = 0.5
     b.L(df_cmp.outputs["Result"], st_df.inputs["Selection"])
     # the front wall gets vertices of its own: later layers carry face
@@ -7975,7 +8356,13 @@ def build_roofcap_group():
     df_e.data_type = "FLOAT"
     df_e.inputs["Name"].default_value = "vm_dfront"
     df_ecmp = b.N("FunctionNodeCompare", (4250, -1750), data_type="FLOAT", operation="GREATER_THAN")
-    b.L(df_e.outputs["Attribute"], df_ecmp.inputs["A"])
+    bd_e = b.N("GeometryNodeInputNamedAttribute", (4100, -1800))
+    bd_e.data_type = "FLOAT"
+    bd_e.inputs["Name"].default_value = "vm_bdoor"
+    df_eany = b.N("ShaderNodeMath", (4150, -1750), operation="MAXIMUM")
+    b.L(df_e.outputs["Attribute"], df_eany.inputs[0])
+    b.L(bd_e.outputs["Attribute"], df_eany.inputs[1])
+    b.L(df_eany.outputs["Value"], df_ecmp.inputs["A"])
     df_ecmp.inputs["B"].default_value = 0.25
     df_split = b.N("GeometryNodeSplitEdges", (4250, -1500))
     b.L(st_df.outputs["Geometry"], df_split.inputs["Mesh"])
@@ -8169,10 +8556,16 @@ def build_roofcap_group():
     roof_t = b.N("GeometryNodeJoinGeometry", (4650, -1650))
     for _g in (roof_geo.outputs["Output"], cap_sp.outputs["Geometry"], cone_sp.outputs["Geometry"]):
         b.L(_g, roof_t.inputs["Geometry"])
-    pc_host, pc_roof, pc_trim, pc_mats = add_porch(
+    pc_host, pc_roof, pc_trim, pc_mats, pc_rmain = add_porch(
         b, mesh_in, roof_t.outputs["Geometry"],
-        dict(sz=sz_g, thick=thick_in.outputs["Value"], ov=gi.outputs["Overhang"], eff_of=ws["eff_of"]), pc_ph)
+        dict(sz=sz_g, thick=thick_in.outputs["Value"], ov=gi.outputs["Overhang"], eff_of=ws["eff_of"],
+             roof_main=roof_geo.outputs["Output"], gable=style_sw.outputs["Gable"]), pc_ph)
     b.L(pc_roof, pr_join.inputs["Geometry"])
+    # v2.25: the roof reaches its material through the balcony's gable cut
+    for _lk in list(pr_join.inputs["Geometry"].links):
+        if _lk.from_socket == roof_geo.outputs["Output"]:
+            b.ng.links.remove(_lk)
+    b.L(pc_rmain, pr_join.inputs["Geometry"])
     in_sep = b.N("GeometryNodeSeparateComponents", (4650, -1150))
     b.L(gi.outputs["Geometry"], in_sep.inputs["Geometry"])
 
@@ -8260,6 +8653,35 @@ def build_roofcap_group():
         b.L(gi.outputs[_nm], _n.inputs[0])
     b.L(gi.outputs["Porch Material"], pc_mats[0].inputs["Material"])
     b.L(gi.outputs["Deck Material"], pc_mats[1].inputs["Material"])
+    # v2.25: railing styles and the gable balcony - after every older socket
+    b.menu_sock("Porch Railing", p_pc, "None",
+                "v2.25: the porch's railing (the middle front bay stays open): None / Balusters (spindles "
+                "between two rails) / Boards (four boards) / Pickets (flat boards) / Cross (X braces per bay)")
+    p_bc = b.panel("Balcony", "v2.25: a balcony at the foot of a Gable end, a door behind it")
+    b.sock("Balcony", "NodeSocketBool", p_bc, False,
+           desc="v2.25: a balcony on one Gable end tall enough for a door (steep roofs - about 50 deg on "
+                "a 4.5 m house): a deck at the gable's foot, a door panel cut out of the gable that the "
+                "door layer puts a door in, its support and railing. Not over the porch")
+    b.menu_sock("Balcony Support", p_bc, "Brackets",
+                "What holds it: Brackets (an arm, a wall plate and a brace each) / Posts (two posts to the "
+                "ground and a beam) / Joists (joist ends standing out past the deck)")
+    b.menu_sock("Balcony Railing", p_bc, "Balusters",
+                "Its railing: None / Balusters / Boards / Pickets / Cross (the porch's styles)")
+    b.sock("Balcony Width", "NodeSocketFloat", p_bc, 2.2, 1.4, 20.0, "DISTANCE",
+           "Width along the gable (world m; kept under the rakes)")
+    b.sock("Balcony Depth", "NodeSocketFloat", p_bc, 1.0, 0.6, 5.0, "DISTANCE",
+           "How far the deck reaches out (world m)")
+    b.sock("Balcony Door Width", "NodeSocketFloat", p_bc, 1.1, 0.95, 4.0, "DISTANCE",
+           "Width of the door panel cut out of the gable (world m) - the gable must hold a 1.9 m "
+           "panel this wide")
+    b.sock("Balcony Chance", "NodeSocketFloat", p_bc, 1.0, 0.0, 1.0, "FACTOR",
+           "Chance this building gets its balcony")
+    b.sock("Balcony Seed", "NodeSocketInt", p_bc, 0, 0, 100000, desc="Another pick of the gable (and the roll)")
+    b.L(gi.outputs["Balcony"], bc_on.inputs[0])
+    for _nm, _n in bc_nodes.items():
+        b.L(gi.outputs[_nm], _n.inputs[0])
+    for _nm, _ms in pc_menus.items():
+        b.L(gi.outputs[_nm], _ms.inputs["Menu"])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -12617,13 +13039,18 @@ def main():
             ("Base - Weathered gable", "Gable", "Gable preset with light damage over the whole "
              "building: missing, broken and loose boards and shakes (v2.12)", weathered),
             ("Base - Porch house", "Gable", "Gable preset at 45 deg with dormers and a roofed porch "
-             "along one ground-floor wall, the door under it (v2.24)", {})):
+             "along one ground-floor wall, the door under it (v2.24)", {}),
+            ("Base - Balcony house", "Gable", "Gable preset at 55 deg: a porch with a baluster railing "
+             "and a bracketed balcony on one gable end, a door out onto it (v2.25)", {})):
         pw = []
         vmt.dress_object(probe, pw)
         rc = probe.modifiers["VM_RoofCap"]
         set_params(rc, rc.node_group, {"Style": style})
         if pname == "Base - Porch house":   # v2.24: roof-cap settings, not cladding ones
             set_params(rc, rc.node_group, {"Pitch": math.radians(45.0), "Porch": True})
+        if pname == "Base - Balcony house":  # v2.25
+            set_params(rc, rc.node_group, {"Pitch": math.radians(55.0), "Porch": True,
+                                           "Porch Railing": "Balusters", "Balcony": True})
         # v2.16: the windows layer (it cuts the openings) damages them too
         for mn_ in ("VM_SceneDetailer_Planks", "VM_SceneDetailer_Shingles", "VM_SceneDetailer_Windows"):
             if extra:
@@ -13016,6 +13443,75 @@ def main():
                     f"shakes={r_['shakes']}" for k_, r_ in enumerate(pc_runs))
           + f"; two walls={pc_two}; off: walls={pc_off['walls']} roof faces={pc_off['roof']}")
     results["porch_v224"] = [dict((k_, v_) for k_, v_ in r_.items() if k_ != "n") for r_ in pc_runs]
+
+    # ---- v2.25: BALCONY / railing VARIANTS (the user's 'the same assets, but
+    # assembled differently'): a balcony on a steep gable end with a door out
+    # onto it, held up by Brackets / Posts / Joists, and one kit of rails,
+    # balusters, pickets, boards and braces for every railing
+    def balc_scan(on_, sup_="Brackets", rail_="Balusters", frame_=None):
+        set_params(rc_d, rc_d.node_group, {"Pitch": math.radians(55.0), "Porch": True, "Porch Seed": 0,
+                                           "Porch Railing": "Balusters", "Balcony": on_,
+                                           "Balcony Support": sup_, "Balcony Railing": rail_})
+        fx_d.update_tag()
+        dg_b = bpy.context.evaluated_depsgraph_get()
+        dg_b.update()
+        me_b = fx_d.evaluated_get(dg_b).data
+        mw_b = fx_d.matrix_world
+        doors_ = []
+        for inst in dg_b.object_instances:
+            if inst.is_instance and inst.parent is not None and inst.parent.original == fx_d                     and inst.object.name in door_d:
+                m_ = inst.matrix_world
+                doors_.append((m_.translation.copy(), m_.col[1].to_3d().normalized(), m_.col[2].to_3d().length))
+        up_ = [d_ for d_ in doors_ if d_[0].z > zmin_s + 2.0]
+        out_ = dict(doors=len(doors_), up=len(up_), scale=0.0, faces_porch=True, verts=0, low=None, sig=None)
+        if frame_ is None and up_:
+            frame_ = (up_[0][0], up_[0][1])
+        if up_:
+            gd_ = [d_ for d_ in doors_ if d_[0].z <= zmin_s + 2.0]
+            out_["scale"] = up_[0][2] / max([d_[2] for d_ in gd_] or [1.0])
+            out_["faces_porch"] = any(d_[1].dot(up_[0][1]) > 0.99 for d_ in gd_)
+        if frame_ is None:
+            return out_, None
+        tr_a = me_b.attributes.get("vm_trim")
+        if tr_a is not None:
+            if tr_a.domain == "FACE":
+                tv_ = {v_ for f_, d_ in zip(me_b.polygons, tr_a.data) if d_.value > 0.5 for v_ in f_.vertices}
+            else:
+                tv_ = {i_ for i_, d_ in enumerate(tr_a.data) if d_.value > 0.5}
+            o_, n_ = frame_
+            vs_ = [mw_b @ me_b.vertices[i_].co for i_ in tv_]
+            # in front of the gable wall, within a balcony's depth of it
+            vs_ = [v_ for v_ in vs_ if 0.1 < (v_ - o_).dot(n_) < 1.6 and abs((v_ - o_).cross(n_).z) < 1.6]
+            out_["verts"] = len(vs_)
+            out_["low"] = min([v_.z for v_ in vs_], default=None)
+            # the pieces' shape, not just their count (two styles can share one)
+            out_["sig"] = (len(vs_), round(sum(v_.z - zmin_s for v_ in vs_), 1))
+        return out_, frame_
+    bc_on, bc_frame = balc_scan(True)
+    bc_sup = {st_: balc_scan(True, st_, "Balusters", bc_frame)[0] for st_ in ("Posts", "Joists")}
+    bc_sup["Brackets"] = bc_on
+    bc_rail = {st_: balc_scan(True, "Brackets", st_, bc_frame)[0] for st_ in ("None", "Boards", "Pickets", "Cross")}
+    bc_rail["Balusters"] = bc_on
+    bc_off = balc_scan(False, frame_=bc_frame)[0]
+    set_params(rc_d, rc_d.node_group, {"Balcony": False, "Porch": False, "Porch Railing": "None"})
+    n_sup = {k_: v_["verts"] for k_, v_ in bc_sup.items()}
+    n_rail = {k_: v_["verts"] for k_, v_ in bc_rail.items()}
+    low_ = {k_: (None if v_["low"] is None else round(v_["low"] - zmin_s, 3)) for k_, v_ in bc_sup.items()}
+    check("v2.25(balcony): Balcony on puts a balcony on a steep gable end (not the porch's side) with a door "
+          "out onto it at full size, over the ground-floor door; Brackets / Posts / Joists and every railing "
+          "style assemble differently from the same boxes (Posts reach the ground, Brackets stay up on the "
+          "wall); Balcony off has none (only the rake boards stand out there)",
+          bc_on["up"] == 1 and bc_on["doors"] == 2 and bc_on["scale"] > 0.95 and not bc_on["faces_porch"]
+          and len({v_["sig"] for v_ in bc_sup.values()}) == 3 and len({v_["sig"] for v_ in bc_rail.values()}) == 5
+          and min(n_rail.values()) > 0
+          and n_rail["None"] == min(n_rail.values())
+          and low_["Posts"] is not None and abs(low_["Posts"]) < 0.02
+          and low_["Brackets"] is not None and low_["Brackets"] > 1.0
+          and bc_off["up"] == 0 and bc_off["doors"] == 1 and bc_off["verts"] < n_rail["None"],
+          f"on: doors={bc_on['doors']} up={bc_on['up']} scale={bc_on['scale']:.2f} "
+          f"faces the porch={bc_on['faces_porch']}; support vertices={n_sup} lowest={low_}; "
+          f"railing vertices={n_rail} (shapes {[v_['sig'] for v_ in bc_rail.values()]}); off: doors={bc_off['doors']} up={bc_off['up']} vertices={bc_off['verts']}")
+    results["balcony_v225"] = dict(on=bc_on, support=n_sup, railing=n_rail, low=low_, off=bc_off)
     bpy.data.objects.remove(fx_d)
 
     # ---- v2.10: UPDATE an older engine in place - settings survive
