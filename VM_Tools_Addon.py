@@ -44,7 +44,9 @@ AUTO_MATERIALS = {
     },
     "VM_SceneDetailer_Shingles": {"Edge Board Material": "VM_Shake"},
     "VM_SceneDetailer_Floor": {"Floor Material": "VM_WallWeatheredPlanks"},
-    "VM_RoofCap": {"Roof Material": "VM_RoofUnderlay"},
+    # v2.24: the porch posts / beam and its deck boards
+    "VM_RoofCap": {"Roof Material": "VM_RoofUnderlay", "Porch Material": "VM_SidingBoard",
+                   "Deck Material": "VM_WallWeatheredPlanks"},
     # v2.15: the windows layer cuts every opening - board jambs, weathered
     # bare boards inside
     "VM_SceneDetailer_Windows": {"Jamb Material": "VM_SidingBoard",

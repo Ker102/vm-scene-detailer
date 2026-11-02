@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.23) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.24) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.23) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.24) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,38 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (267 checks: the original 197 kept
-    green + 70 v2.7-v2.23 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (268 checks: the original 197 kept
+    green + 71 v2.7-v2.24 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.24 (2026-11-02) - PORCHES
+-------------------------------------------------------------------------------
+* Porch: turn on 'Porch' (new 'Porch' panel on VM_RoofCap, off by default,
+  on in the new 'Base - Porch house' preset) and one ground-floor wall gets
+  a roofed porch the full width of the wall - the wider walls are the
+  likelier ones, 'Porch Seed' picks another, 'Porch Chance' rolls whether
+  the building gets one at all. It is:
+  - a lean-to roof from the wall out past the posts, a slab of Roof
+    Thickness with plumb-cut fascia like the main roof, in the Roof
+    Material and clad by the roof layer (its top counts as roof at any
+    pitch). Where the wall is under the main roof's eave the porch roof
+    tucks under it (the eave is found by looking up from the wall);
+  - a beam on a row of posts (a post at each end, none further apart than
+    'Post Spacing') in the Porch Material (siding boards by default);
+  - a deck of boards running along the wall, 3 cm proud of the building's
+    base, in the Deck Material (weathered planks by default). Nothing goes
+    below the base, so the door's ground-floor test is unchanged.
+  A wall qualifies when its base is on the ground, it is at least 'Porch
+  Min Width' (2.5 m) wide, a porch roof fits at least 2.3 m up, and nothing
+  of the building stands in front of it (an L's other wing).
+  Settings: Porch Depth (1.8 m deck), Porch Height (2.75 m at the wall),
+  Porch Pitch (12 deg), Porch Min Width, Post Spacing (2.4 m), Porch
+  Chance, Porch Seed, Porch Material, Deck Material.
+* The door layer (Ground Floor Only on) puts the door on the porch wall
+  when the building has a porch.
+* New library preset 'Base - Porch house': Gable at 45 deg (with dormers)
+  and a porch.
 
 v2.23 (2026-11-02) - DOORS SET INTO THE WALL; RAKE BOARDS; CLOSED RIDGE CAPS
 -------------------------------------------------------------------------------
@@ -1230,8 +1258,12 @@ in-memory:
   * v2.23(doors set in, rake boards): every door's face stands 1-6 cm behind
     its wall in a casing (side boards, head, sill); the dormer house's sloped
     wall edges carry rake boards that lie on the wall and stop at the plumb
-    line through their top.
-Total for this release: 267 checks, 267 passed (verification_v2.json).
+    line through their top;
+  * v2.24(porch): Porch on gives one ground-floor wall a porch - its roof
+    under the main eave, at least 2 m up and clad with shakes, posts, beam
+    and deck in front and nothing below the base - with the door on that
+    wall; another Porch Seed picks another wall; Porch off has none.
+Total for this release: 268 checks, 268 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

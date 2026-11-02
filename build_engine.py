@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.23"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.24"   # the ONE version label: About sockets, descriptions, checks, add-on
 # v2.23 doors set INTO the wall (world m): the leaf front this far behind the
 # wall face, a gap round the leaf in its hole, and the casing boards round it
 DOOR_RECESS, DOOR_GAP = 0.03, 0.01
@@ -1704,9 +1704,26 @@ def build_node_group():
     roof_hi = b.N("FunctionNodeCompare", (-1250, 580), data_type="FLOAT", operation="LESS_THAN")
     b.L(nsep.outputs["Z"], roof_hi.inputs["A"])
     b.L(gi.outputs["Roof Slope Max"], roof_hi.inputs["B"])
-    is_roof_raw = b.N("FunctionNodeBooleanMath", (-1080, 620), operation="AND")
-    b.L(roof_lo.outputs["Result"], is_roof_raw.inputs[0])
-    b.L(roof_hi.outputs["Result"], is_roof_raw.inputs[1])
+    is_roof_band = b.N("FunctionNodeBooleanMath", (-1080, 620), operation="AND")
+    b.L(roof_lo.outputs["Result"], is_roof_band.inputs[0])
+    b.L(roof_hi.outputs["Result"], is_roof_band.inputs[1])
+    # v2.24: the top of a porch roof (vm_proof) is roof at any pitch - a low
+    # porch roof would read as a floor
+    pr_rd = b.N("GeometryNodeInputNamedAttribute", (-1400, 300))
+    pr_rd.data_type = "FLOAT"
+    pr_rd.inputs["Name"].default_value = "vm_proof"
+    pr_on = b.N("FunctionNodeCompare", (-1250, 300), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(pr_rd.outputs["Attribute"], pr_on.inputs["A"])
+    pr_on.inputs["B"].default_value = 0.5
+    pr_up = b.N("FunctionNodeCompare", (-1250, 250), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(nsep.outputs["Z"], pr_up.inputs["A"])
+    pr_up.inputs["B"].default_value = 0.5
+    pr_top = b.N("FunctionNodeBooleanMath", (-1150, 300), operation="AND")
+    b.L(pr_on.outputs["Result"], pr_top.inputs[0])
+    b.L(pr_up.outputs["Result"], pr_top.inputs[1])
+    is_roof_raw = b.N("FunctionNodeBooleanMath", (-1080, 560), operation="OR")
+    b.L(is_roof_band.outputs["Boolean"], is_roof_raw.inputs[0])
+    b.L(pr_top.outputs["Boolean"], is_roof_raw.inputs[1])
     is_roof = zone_and(is_roof_raw.outputs["Boolean"], (-1000, 620))
     floor_lo = b.N("FunctionNodeCompare", (-1250, 500), data_type="FLOAT", operation="LESS_EQUAL")
     b.L(nsep.outputs["Z"], floor_lo.inputs["A"])
@@ -1714,9 +1731,12 @@ def build_node_group():
     floor_hi = b.N("FunctionNodeCompare", (-1250, 430), data_type="FLOAT", operation="GREATER_EQUAL")
     b.L(nsep.outputs["Z"], floor_hi.inputs["A"])
     b.L(gi.outputs["Roof Slope Max"], floor_hi.inputs["B"])
-    is_floor_raw = b.N("FunctionNodeBooleanMath", (-1080, 470), operation="OR")
-    b.L(floor_lo.outputs["Result"], is_floor_raw.inputs[0])
-    b.L(floor_hi.outputs["Result"], is_floor_raw.inputs[1])
+    is_floor_band = b.N("FunctionNodeBooleanMath", (-1080, 470), operation="OR")
+    b.L(floor_lo.outputs["Result"], is_floor_band.inputs[0])
+    b.L(floor_hi.outputs["Result"], is_floor_band.inputs[1])
+    is_floor_raw = b.N("FunctionNodeBooleanMath", (-1080, 410), operation="NIMPLY")
+    b.L(is_floor_band.outputs["Boolean"], is_floor_raw.inputs[0])
+    b.L(pr_top.outputs["Boolean"], is_floor_raw.inputs[1])
     is_floor = zone_and(is_floor_raw.outputs["Boolean"], (-1000, 470))
 
     # v2.10 Interior Floor: exterior bottom faces (N.z <= -Roof Slope Min). The
@@ -2111,9 +2131,43 @@ def build_node_group():
     g_ok = b.N("FunctionNodeBooleanMath", (-550, -900), operation="OR")
     b.L(g_not.outputs["Boolean"], g_ok.inputs[0])
     b.L(on_ground.outputs["Result"], g_ok.inputs[1])
+    # v2.24: when the roof cap built a porch (vm_porch on its wall), the
+    # ground-floor parts (the door) go on that wall. The layers between carry
+    # it over to the points (averaged at shared corners: the wall reads ~1/3
+    # back, its neighbours less), so the wall is the face nearest the top value
+    # among the building's own outside faces (the trim an earlier layer built
+    # picks the value up too)
+    pw_rd = b.N("GeometryNodeInputNamedAttribute", (-1000, -1500))
+    pw_rd.data_type = "FLOAT"
+    pw_rd.inputs["Name"].default_value = "vm_porch"
+    pw_st = b.N("GeometryNodeAttributeStatistic", (-850, -1500), data_type="FLOAT", domain="FACE")
+    b.L(mesh_only, pw_st.inputs["Geometry"])
+    b.L(ext_ok, pw_st.inputs["Selection"])
+    b.L(pw_rd.outputs["Attribute"], pw_st.inputs["Attribute"])
+    pw_none = b.N("FunctionNodeCompare", (-700, -1500), data_type="FLOAT", operation="LESS_THAN")
+    b.L(pw_st.outputs["Max"], pw_none.inputs["A"])
+    pw_none.inputs["B"].default_value = 0.05
+    pw_thr = b.N("ShaderNodeMath", (-850, -1600), operation="MULTIPLY")
+    b.L(pw_st.outputs["Max"], pw_thr.inputs[0])
+    pw_thr.inputs[1].default_value = 0.95
+    pw_on = b.N("FunctionNodeCompare", (-700, -1550), data_type="FLOAT", operation="GREATER_EQUAL")
+    b.L(pw_rd.outputs["Attribute"], pw_on.inputs["A"])
+    b.L(pw_thr.outputs["Value"], pw_on.inputs["B"])
+    pw_on2 = b.N("FunctionNodeBooleanMath", (-600, -1550), operation="AND")
+    b.L(pw_on.outputs["Result"], pw_on2.inputs[0])
+    b.L(ext_ok, pw_on2.inputs[1])
+    pw_ok = b.N("FunctionNodeBooleanMath", (-550, -1500), operation="OR")
+    b.L(pw_none.outputs["Result"], pw_ok.inputs[0])
+    b.L(pw_on2.outputs["Boolean"], pw_ok.inputs[1])
+    pw_ok2 = b.N("FunctionNodeBooleanMath", (-450, -1500), operation="OR")
+    b.L(g_not.outputs["Boolean"], pw_ok2.inputs[0])
+    b.L(pw_ok.outputs["Boolean"], pw_ok2.inputs[1])
+    g_ok2 = b.N("FunctionNodeBooleanMath", (-350, -950), operation="AND")
+    b.L(g_ok.outputs["Boolean"], g_ok2.inputs[0])
+    b.L(pw_ok2.outputs["Boolean"], g_ok2.inputs[1])
     fit_sel = b.N("FunctionNodeBooleanMath", (-200, -1000), operation="AND")
     b.L(sel_f3.outputs["Boolean"], fit_sel.inputs[0])
-    b.L(g_ok.outputs["Boolean"], fit_sel.inputs[1])
+    b.L(g_ok2.outputs["Boolean"], fit_sel.inputs[1])
 
     # ---------------- v2.5 Slots layout menus + roof protection ----------------
     # Slot Layout: Random = v2.5-pre density sampling, Slots = HouseCraft
@@ -6979,6 +7033,316 @@ def add_dormers(b, region_pts, roof_main, fl, ph):
     return out_
 
 
+def add_porch(b, mesh_in, roof_t, fl, ph):
+    """v2.24 PORCH (the user's 'terraces / porches with roofs'): one porch per
+    building along a ground-floor wall - the widest walls are the likeliest,
+    'Porch Seed' picks another. It runs the full width of that wall:
+      a lean-to roof (a slab of Roof Thickness, its eave and rakes cut plumb
+      like the main roof's) from the wall out to past the posts, tucked under
+      the main roof's eave when there is one (found by raycasting it),
+      a beam under its front on a row of posts (every 'Post Spacing' or
+      closer), and a board deck at the threshold.
+    Every piece is a box in the wall's frame (along the wall, out of it, up),
+    so it stays square under any object scale. A wall only qualifies when its
+    base is on the ground, it is at least 'Porch Min Width' wide, tall enough
+    for a porch roof 2.3 m up and nothing of the building stands in front.
+    fl: sockets from the roof cap (sz, ov, thick, eff_of); ph: the porch
+    socket placeholders. Returns (host mesh with vm_porch = 1 on the porch
+    wall, the porch roof (joined into the roof: material + shakes), the
+    posts / beam / deck (vm_trim), the two Set Material nodes to wire)."""
+    seq = [0]
+
+    def loc():
+        seq[0] += 1
+        return (5200 + 20 * (seq[0] % 40), -12000 - 25 * seq[0])
+
+    def M(op, a, b_=None, c_=None):
+        n_ = b.N("ShaderNodeMath", loc(), operation=op)
+        for i_, x_ in enumerate((a, b_, c_)):
+            if x_ is None:
+                continue
+            if isinstance(x_, (int, float)):
+                n_.inputs[i_].default_value = x_
+            else:
+                b.L(x_, n_.inputs[i_])
+        return n_.outputs["Value"]
+
+    def V(op, a, b_=None, out="Vector"):
+        n_ = b.N("ShaderNodeVectorMath", loc(), operation=op)
+        b.L(a, n_.inputs[0])
+        if b_ is not None:
+            if op == "SCALE":
+                if isinstance(b_, (int, float)):
+                    n_.inputs["Scale"].default_value = b_
+                else:
+                    b.L(b_, n_.inputs["Scale"])
+            elif isinstance(b_, tuple):
+                n_.inputs[1].default_value = b_
+            else:
+                b.L(b_, n_.inputs[1])
+        return n_.outputs[out]
+
+    def C(op, a, b_):
+        n_ = b.N("FunctionNodeCompare", loc(), data_type="FLOAT", operation=op)
+        b.L(a, n_.inputs["A"])
+        if isinstance(b_, (int, float)):
+            n_.inputs["B"].default_value = b_
+        else:
+            b.L(b_, n_.inputs["B"])
+        return n_.outputs["Result"]
+
+    def BOOL(op, *xs):
+        out_ = xs[0]
+        for x_ in xs[1:]:
+            n_ = b.N("FunctionNodeBooleanMath", loc(), operation=op)
+            b.L(out_, n_.inputs[0])
+            b.L(x_, n_.inputs[1])
+            out_ = n_.outputs["Boolean"]
+        return out_
+
+    def NOT(x_):
+        n_ = b.N("FunctionNodeBooleanMath", loc(), operation="NOT")
+        b.L(x_, n_.inputs[0])
+        return n_.outputs["Boolean"]
+
+    def SW(cond, f_, t_, kind="FLOAT"):
+        n_ = b.N("GeometryNodeSwitch", loc())
+        n_.input_type = kind
+        b.L(cond, n_.inputs["Switch"])
+        for key_, x_ in (("False", f_), ("True", t_)):
+            if isinstance(x_, (int, float, tuple)):
+                n_.inputs[key_].default_value = x_
+            else:
+                b.L(x_, n_.inputs[key_])
+        return n_.outputs["Output"]
+
+    def XYZ(x, y, z):
+        n_ = b.N("ShaderNodeCombineXYZ", loc())
+        for k_, val_ in zip("XYZ", (x, y, z)):
+            if isinstance(val_, (int, float)):
+                n_.inputs[k_].default_value = val_
+            else:
+                b.L(val_, n_.inputs[k_])
+        return n_.outputs["Vector"]
+
+    def SEP(v_):
+        n_ = b.N("ShaderNodeSeparateXYZ", loc())
+        b.L(v_, n_.inputs["Vector"])
+        return n_.outputs["X"], n_.outputs["Y"], n_.outputs["Z"]
+
+    def NAMED(name, dt="FLOAT"):
+        n_ = b.N("GeometryNodeInputNamedAttribute", loc())
+        n_.data_type = dt
+        n_.inputs["Name"].default_value = name
+        return n_.outputs["Attribute"]
+
+    def STORE(geo_, name, dt, val, domain="POINT", sel=None):
+        n_ = b.N("GeometryNodeStoreNamedAttribute", loc(), data_type=dt, domain=domain)
+        b.L(geo_, n_.inputs["Geometry"])
+        n_.inputs["Name"].default_value = name
+        if isinstance(val, (int, float)):
+            n_.inputs["Value"].default_value = val
+        else:
+            b.L(val, n_.inputs["Value"])
+        if sel is not None:
+            b.L(sel, n_.inputs["Selection"])
+        return n_.outputs["Geometry"]
+
+    def REMOVE(geo_, names):
+        for nm_ in names:
+            rm_ = b.N("GeometryNodeRemoveAttribute", loc())
+            b.L(geo_, rm_.inputs["Geometry"])
+            rm_.inputs["Name"].default_value = nm_
+            geo_ = rm_.outputs["Geometry"]
+        return geo_
+
+    def POS():
+        return b.N("GeometryNodeInputPosition", loc()).outputs["Position"]
+
+    def HORIZ_U(nh_):
+        # along the wall, so that (along, out, up) is right-handed (the boxes
+        # come out with their faces turned out)
+        return V("NORMALIZE", V("CROSS_PRODUCT", nh_, XYZ(0.0, 0.0, 1.0)))
+
+    def EFF(dir_):
+        return fl["eff_of"](dir_, loc())
+
+    sz, thick = fl["sz"], fl["thick"]
+    # ---- every wall's frame: its horizontal normal, then (on the corners,
+    # grouped by face) its extent along the wall, up and out of it
+    n_x, n_y, n_z = SEP(b.N("GeometryNodeInputNormal", loc()).outputs["Normal"])
+    geo_ = STORE(mesh_in, "vm_pqn", "FLOAT_VECTOR", V("NORMALIZE", XYZ(n_x, n_y, 0.0)), "FACE")
+    nh_c = NAMED("vm_pqn", "FLOAT_VECTOR")
+    p_c = POS()
+    ext_v = XYZ(V("DOT_PRODUCT", p_c, HORIZ_U(nh_c), out="Value"), SEP(p_c)[2],
+                V("DOT_PRODUCT", p_c, nh_c, out="Value"))
+    foc = b.N("GeometryNodeFaceOfCorner", loc())
+    fmm = b.N("GeometryNodeFieldMinAndMax", loc(), data_type="FLOAT_VECTOR", domain="CORNER")
+    b.L(ext_v, fmm.inputs["Value"])
+    b.L(foc.outputs["Face Index"], fmm.inputs["Group ID"])
+    geo_ = STORE(geo_, "vm_pqa", "FLOAT_VECTOR", fmm.outputs["Min"], "CORNER")
+    geo_ = STORE(geo_, "vm_pqb", "FLOAT_VECTOR", fmm.outputs["Max"], "CORNER")
+
+    # ---- per face: its size in world meters and how high a porch roof fits
+    nh = NAMED("vm_pqn", "FLOAT_VECTOR")
+    u_ = HORIZ_U(nh)
+    u0, z0, n0 = SEP(NAMED("vm_pqa", "FLOAT_VECTOR"))
+    u1, z1, n1 = SEP(NAMED("vm_pqb", "FLOAT_VECTOR"))
+    e_u, e_n = EFF(u_), EFF(nh)
+    w_w = M("MULTIPLY", M("SUBTRACT", u1, u0), e_u)
+    h_w = M("MULTIPLY", M("SUBTRACT", z1, z0), sz)
+    o_ = V("ADD", V("ADD", V("SCALE", u_, M("MULTIPLY", M("ADD", u0, u1), 0.5)),
+                    V("SCALE", nh, M("MULTIPLY", M("ADD", n0, n1), 0.5))), XYZ(0.0, 0.0, z0))
+    bb = b.N("GeometryNodeBoundBox", loc())
+    b.L(mesh_in, bb.inputs["Geometry"])
+    zmin = SEP(bb.outputs["Min"])[2]
+    tp = M("TANGENT", M("MINIMUM", M("MAXIMUM", ph["Porch Pitch"], 0.0), 0.7))
+    t_w = M("MAXIMUM", thick, 0.04)
+    d_w = M("MAXIMUM", ph["Porch Depth"], 0.8)
+    d_f = M("ADD", d_w, M("MAXIMUM", fl["ov"], 0.1))      # the roof's front (eave) line
+
+    def at(a_, d_, h_):
+        """a point of this wall's frame (world m along / out / up) in local space"""
+        return V("ADD", V("ADD", o_, V("SCALE", u_, M("DIVIDE", a_, e_u))),
+                 V("ADD", V("SCALE", nh, M("DIVIDE", d_, e_n)), XYZ(0.0, 0.0, M("DIVIDE", h_, sz))))
+
+    # under a main roof's eave: its underside, up from a few points in front
+    # of the wall, caps the porch roof's back (its top stays 3 cm below it)
+    hb_cap = 1.0e4
+    for d_k in (0.05, 0.2, 0.35, 0.5, 0.7):
+        rc_ = b.N("GeometryNodeRaycast", loc())
+        b.L(roof_t, rc_.inputs["Target Geometry"])
+        b.L(at(0.0, d_k, 0.5), rc_.inputs["Source Position"])
+        rc_.inputs["Ray Direction"].default_value = (0.0, 0.0, 1.0)
+        rc_.inputs["Ray Length"].default_value = 1.0e4
+        hz_ = M("MULTIPLY", M("SUBTRACT", SEP(rc_.outputs["Hit Position"])[2], z0), sz)
+        lim_ = SW(rc_.outputs["Is Hit"], 1.0e4,
+                  M("SUBTRACT", M("MULTIPLY_ADD", tp, d_k, hz_), M("ADD", t_w, 0.03)))
+        hb_cap = lim_ if isinstance(hb_cap, float) else M("MINIMUM", hb_cap, lim_)
+    hb = M("MINIMUM", M("MINIMUM", ph["Porch Height"], M("SUBTRACT", h_w, 0.25)), hb_cap)
+    # nothing of the building in front of the wall (an L's other wing)
+    clear_ = None
+    for a_k in (-0.45, 0.0, 0.45):
+        rc_ = b.N("GeometryNodeRaycast", loc())
+        b.L(mesh_in, rc_.inputs["Target Geometry"])
+        b.L(at(M("MULTIPLY", w_w, a_k), 0.01, 1.0), rc_.inputs["Source Position"])
+        b.L(nh, rc_.inputs["Ray Direction"])
+        b.L(M("DIVIDE", M("ADD", d_f, 0.2), e_n), rc_.inputs["Ray Length"])
+        free_ = NOT(rc_.outputs["Is Hit"])
+        clear_ = free_ if clear_ is None else BOOL("AND", clear_, free_)
+    cand = BOOL("AND", ph["Porch"], C("LESS_THAN", M("ABSOLUTE", n_z), 0.15),
+                C("LESS_EQUAL", z0, M("ADD", zmin, M("DIVIDE", 0.05, sz))),
+                C("GREATER_EQUAL", w_w, ph["Porch Min Width"]), C("GREATER_EQUAL", hb, 2.3), clear_)
+    rnd = b.N("FunctionNodeRandomValue", loc(), data_type="FLOAT")
+    b.L(ph["Porch Seed"], rnd.inputs["Seed"])
+    score = SW(cand, -1.0, M("MULTIPLY", w_w, M("MULTIPLY_ADD", rnd.outputs["Value"], 0.6, 0.4)))
+    stat = b.N("GeometryNodeAttributeStatistic", loc(), data_type="FLOAT", domain="FACE")
+    b.L(geo_, stat.inputs["Geometry"])
+    b.L(score, stat.inputs["Attribute"])
+    s_max = stat.outputs["Max"]
+    # one roll per building for 'Porch Chance'
+    roll = b.N("FunctionNodeRandomValue", loc(), data_type="FLOAT")
+    b.L(M("ADD", ph["Porch Seed"], 7.0), roll.inputs["Seed"])
+    id0 = b.N("FunctionNodeInputInt", loc())
+    id0.integer = 0
+    b.L(id0.outputs["Integer"], roll.inputs["ID"])
+    pick = BOOL("AND", cand, C("GREATER_EQUAL", score, M("SUBTRACT", s_max, 1.0e-4)),
+                C("GREATER_THAN", s_max, 0.0), C("LESS_THAN", roll.outputs["Value"], ph["Porch Chance"]))
+    geo_ = STORE(geo_, "vm_porch", "FLOAT", M("ADD", pick, 0.0), "FACE")
+    for nm_, val_ in (("vm_pqo", o_), ("vm_pqs", XYZ(w_w, hb, 0.0)), ("vm_pqe", XYZ(e_u, e_n, 0.0))):
+        geo_ = STORE(geo_, nm_, "FLOAT_VECTOR", val_, "FACE")
+    tmp_ = ("vm_pqn", "vm_pqa", "vm_pqb", "vm_pqo", "vm_pqs", "vm_pqe")
+    host_ = SW(ph["Porch"], mesh_in, REMOVE(geo_, tmp_), kind="GEOMETRY")
+
+    # ---- the porch: one point on the picked wall, one box per piece
+    m2p = b.N("GeometryNodeMeshToPoints", loc(), mode="FACES")
+    b.L(geo_, m2p.inputs["Mesh"])
+    b.L(C("GREATER_THAN", NAMED("vm_porch"), 0.5), m2p.inputs["Selection"])
+    W, Hb, _z = SEP(NAMED("vm_pqs", "FLOAT_VECTOR"))
+    d_p = M("SUBTRACT", d_w, 0.15)                           # the post line
+    b_top = M("SUBTRACT", Hb, M("MULTIPLY", tp, M("SUBTRACT", d_p, 0.05)))
+    span = M("SUBTRACT", W, 0.2)
+    n_p = M("MAXIMUM", M("ADD", M("CEIL", M("DIVIDE", span, M("MAXIMUM", ph["Post Spacing"], 0.8))), 1.0), 2.0)
+    deck_d = M("SUBTRACT", d_w, 0.05)
+    n_b = M("MAXIMUM", M("ROUND", M("DIVIDE", deck_d, 0.148)), 1.0)
+    dup = b.N("GeometryNodeDuplicateElements", loc(), domain="POINT")
+    b.L(m2p.outputs["Points"], dup.inputs["Geometry"])
+    b.L(M("ADD", M("ADD", n_p, n_b), 2.0), dup.inputs["Amount"])
+    i_ = dup.outputs["Duplicate Index"]
+    is_roof = C("LESS_THAN", i_, 0.5)
+    is_beam = C("LESS_THAN", i_, 1.5)
+    is_post = C("LESS_THAN", i_, M("ADD", n_p, 1.5))
+    k_p = M("SUBTRACT", i_, 2.0)
+    k_b = M("SUBTRACT", k_p, n_p)
+    pitch_b = M("DIVIDE", deck_d, n_b)
+
+    def piece(roof_v, beam_v, post_v, board_v):
+        return SW(is_roof, SW(is_beam, SW(is_post, board_v, post_v), beam_v), roof_v)
+    post_h = M("SUBTRACT", M("SUBTRACT", b_top, 0.2), 0.03)
+    c_a = piece(0.0, 0.0, M("MULTIPLY_ADD", k_p, M("DIVIDE", span, M("SUBTRACT", n_p, 1.0)),
+                            M("MULTIPLY", span, -0.5)), 0.0)
+    c_d = piece(M("MULTIPLY", M("SUBTRACT", d_f, 0.03), 0.5), d_p, d_p,
+                M("MULTIPLY_ADD", M("ADD", k_b, 0.5), pitch_b, 0.05))
+    c_h = piece(M("ADD", Hb, M("MULTIPLY", t_w, 0.5)), M("SUBTRACT", b_top, 0.1),
+                M("ADD", 0.03, M("MULTIPLY", post_h, 0.5)), 0.015)
+    s_a = piece(M("ADD", W, 0.24), M("ADD", W, 0.06), 0.12, W)
+    s_d = piece(M("ADD", d_f, 0.03), 0.1, 0.12, M("SUBTRACT", pitch_b, 0.008))
+    s_h = piece(t_w, 0.2, post_h, 0.03)
+    kind = piece(0.0, 1.0, 2.0, 3.0)
+    shear = SW(is_roof, 0.0, M("MULTIPLY", tp, -1.0))
+    pts_ = dup.outputs["Geometry"]
+    for nm_, val_ in (("vm_pqc", XYZ(c_a, c_d, c_h)), ("vm_pqz", XYZ(s_a, s_d, s_h)),
+                      ("vm_pqk", XYZ(kind, shear, 0.0))):
+        pts_ = STORE(pts_, nm_, "FLOAT_VECTOR", val_)
+    cube = b.N("GeometryNodeMeshCube", loc())
+    cube.inputs["Size"].default_value = (1.0, 1.0, 1.0)
+    cube_ = STORE(cube.outputs["Mesh"], "vm_pqv", "FLOAT_VECTOR", POS())
+    iop = b.N("GeometryNodeInstanceOnPoints", loc())
+    b.L(pts_, iop.inputs["Points"])
+    b.L(cube_, iop.inputs["Instance"])
+    real = b.N("GeometryNodeRealizeInstances", loc())
+    b.L(iop.outputs["Instances"], real.inputs["Geometry"])
+    # every corner from its box: a = along, d = out, h = up (+ the roof's slope)
+    vx, vy, vz = SEP(NAMED("vm_pqv", "FLOAT_VECTOR"))
+    ca, cd, ch = SEP(NAMED("vm_pqc", "FLOAT_VECTOR"))
+    za, zd, zh = SEP(NAMED("vm_pqz", "FLOAT_VECTOR"))
+    pk, psh, _pz = SEP(NAMED("vm_pqk", "FLOAT_VECTOR"))
+    a_v = M("MULTIPLY_ADD", vx, za, ca)
+    d_v = M("MULTIPLY_ADD", vy, zd, cd)
+    h_v = M("MULTIPLY_ADD", psh, d_v, M("MULTIPLY_ADD", vz, zh, ch))
+    o_p = NAMED("vm_pqo", "FLOAT_VECTOR")
+    nh_p = NAMED("vm_pqn", "FLOAT_VECTOR")
+    u_p = HORIZ_U(nh_p)
+    eu_p, en_p, _e = SEP(NAMED("vm_pqe", "FLOAT_VECTOR"))
+    pos_ = V("ADD", V("ADD", o_p, V("SCALE", u_p, M("DIVIDE", a_v, eu_p))),
+             V("ADD", V("SCALE", nh_p, M("DIVIDE", d_v, en_p)), XYZ(0.0, 0.0, M("DIVIDE", h_v, sz))))
+    sp_ = b.N("GeometryNodeSetPosition", loc())
+    b.L(real.outputs["Geometry"], sp_.inputs["Geometry"])
+    b.L(pos_, sp_.inputs["Position"])
+    # UVs in meters, the grain along the board (posts: up)
+    is_pp = C("GREATER_THAN", M("ABSOLUTE", M("SUBTRACT", pk, 2.0)), 0.5)
+    uv_ = SW(is_pp, XYZ(h_v, M("ADD", a_v, d_v), 0.0), XYZ(a_v, M("ADD", d_v, h_v), 0.0), kind="VECTOR")
+    uvs = b.N("GeometryNodeStoreNamedAttribute", loc(), data_type="FLOAT2", domain="CORNER")
+    b.L(sp_.outputs["Geometry"], uvs.inputs["Geometry"])
+    uvs.inputs["Name"].default_value = "UVMap"
+    b.L(uv_, uvs.inputs["Value"])
+    tmp2 = ("vm_pqv", "vm_pqc", "vm_pqz", "vm_pqk", "vm_porch") + tmp_
+    kind_f = NAMED("vm_pqk", "FLOAT_VECTOR")
+    sepg = b.N("GeometryNodeSeparateGeometry", loc(), domain="FACE")
+    b.L(uvs.outputs["Geometry"], sepg.inputs["Geometry"])
+    b.L(C("LESS_THAN", SEP(kind_f)[0], 0.5), sepg.inputs["Selection"])
+    # the roof: flagged so the roof cladding takes its top (a low pitch would
+    # read as a floor otherwise)
+    roof_ = STORE(REMOVE(sepg.outputs["Selection"], tmp2 + ("UVMap",)), "vm_proof", "FLOAT", 1.0, "FACE")
+    mat_p = b.N("GeometryNodeSetMaterial", loc())
+    b.L(sepg.outputs["Inverted"], mat_p.inputs["Geometry"])
+    mat_d = b.N("GeometryNodeSetMaterial", loc())
+    b.L(mat_p.outputs["Geometry"], mat_d.inputs["Geometry"])
+    b.L(C("GREATER_THAN", SEP(NAMED("vm_pqk", "FLOAT_VECTOR"))[0], 2.5), mat_d.inputs["Selection"])
+    trim_ = STORE(REMOVE(mat_d.outputs["Geometry"], tmp2), "vm_trim", "FLOAT", 1.0, "FACE")
+    return host_, roof_, trim_, (mat_p, mat_d)
+
+
 def build_roofcap_group():
     """v2.4 per-region roof cap.
 
@@ -7098,6 +7462,17 @@ def build_roofcap_group():
         _n.inputs[1].default_value = 0.0
         dm_nodes[_nm] = _n
         dm_ph[_nm] = _n.outputs["Value"]
+    # v2.24 Porch: the same (sockets created last, linked in at the end)
+    pc_on = b.N("FunctionNodeBooleanMath", (-1150, -1350), operation="OR")
+    pc_on.inputs[1].default_value = False
+    pc_ph = {"Porch": pc_on.outputs["Boolean"]}
+    pc_nodes = {}
+    for _k, _nm in enumerate(("Porch Depth", "Porch Height", "Porch Pitch", "Porch Min Width",
+                              "Post Spacing", "Porch Chance", "Porch Seed")):
+        _n = b.N("ShaderNodeMath", (-1000, -1350 - 40 * _k), operation="ADD")
+        _n.inputs[1].default_value = 0.0
+        pc_nodes[_nm] = _n
+        pc_ph[_nm] = _n.outputs["Value"]
     # gable-end faces of the template (normal along x) are flagged and every
     # face gets its own vertices, so the gable ends can move independently of
     # the slopes (merged again after positioning)
@@ -7573,7 +7948,9 @@ def build_roofcap_group():
     b.L(built_on, roof_geo.inputs["Switch"])
     b.L(dm_join.outputs["Geometry"], roof_geo.inputs["False"])
     b.L(sl_mg2.outputs["Geometry"], roof_geo.inputs["True"])
-    dressed = material_gate(b, roof_geo.outputs["Output"], gi.outputs["Roof Material"],
+    pr_join = b.N("GeometryNodeJoinGeometry", (4650, -1450))
+    b.L(roof_geo.outputs["Output"], pr_join.inputs["Geometry"])
+    dressed = material_gate(b, pr_join.outputs["Geometry"], gi.outputs["Roof Material"],
                             sel_all.outputs["Boolean"], (3750, -1500))
     # mark generated faces so Fit (doors/windows) never anchors on gable ends
     st_rg = b.N("GeometryNodeStoreNamedAttribute", (3950, -1500), data_type="FLOAT", domain="FACE")
@@ -7788,9 +8165,22 @@ def build_roofcap_group():
     st_cone.inputs["Name"].default_value = "vm_roofgen"
     st_cone.inputs["Value"].default_value = 3.0
 
+    # ---- v2.24 porch along one ground-floor wall (under this roof's eave)
+    roof_t = b.N("GeometryNodeJoinGeometry", (4650, -1650))
+    for _g in (roof_geo.outputs["Output"], cap_sp.outputs["Geometry"], cone_sp.outputs["Geometry"]):
+        b.L(_g, roof_t.inputs["Geometry"])
+    pc_host, pc_roof, pc_trim, pc_mats = add_porch(
+        b, mesh_in, roof_t.outputs["Geometry"],
+        dict(sz=sz_g, thick=thick_in.outputs["Value"], ov=gi.outputs["Overhang"], eff_of=ws["eff_of"]), pc_ph)
+    b.L(pc_roof, pr_join.inputs["Geometry"])
+    in_sep = b.N("GeometryNodeSeparateComponents", (4650, -1150))
+    b.L(gi.outputs["Geometry"], in_sep.inputs["Geometry"])
+
     join = b.N("GeometryNodeJoinGeometry", (4800, -1300))
-    b.L(gi.outputs["Geometry"], join.inputs["Geometry"])
+    b.L(pc_host, join.inputs["Geometry"])
+    b.L(in_sep.outputs["Instances"], join.inputs["Geometry"])
     b.L(df_split.outputs["Mesh"], join.inputs["Geometry"])
+    b.L(pc_trim, join.inputs["Geometry"])
     b.L(st_cap.outputs["Geometry"], join.inputs["Geometry"])
     b.L(st_cone.outputs["Geometry"], join.inputs["Geometry"])
     if getattr(add_dormers, "dbg", None) is not None:
@@ -7843,6 +8233,33 @@ def build_roofcap_group():
     b.L(gi.outputs["Dormers"], dm_on.inputs[0])
     for _nm, _n in dm_nodes.items():
         b.L(gi.outputs[_nm], _n.inputs[0])
+    # v2.24: the porch - created after every older socket (identifier order)
+    p_pc = b.panel("Porch", "v2.24: a roofed porch with posts and a deck along one ground-floor wall")
+    b.sock("Porch", "NodeSocketBool", p_pc, False,
+           desc="v2.24: a porch the full width of one ground-floor wall (the wider walls are likelier; "
+                "'Porch Seed' picks another) - a lean-to roof under the main roof's eave, a beam on "
+                "posts and a board deck. The door layer puts its door under it")
+    b.sock("Porch Depth", "NodeSocketFloat", p_pc, 1.8, 0.8, 20.0, "DISTANCE",
+           "How far the deck reaches out from the wall (world m; the roof overhangs it by Overhang)")
+    b.sock("Porch Height", "NodeSocketFloat", p_pc, 2.75, 2.3, 20.0, "DISTANCE",
+           "Height of the porch roof where it meets the wall (world m) - kept under the main "
+           "roof's eave and 25 cm under the wall top")
+    b.sock("Porch Pitch", "NodeSocketFloat", p_pc, math.radians(12.0), 0.0, math.radians(40.0),
+           "ANGLE", "Slope of the porch roof, down and away from the wall")
+    b.sock("Porch Min Width", "NodeSocketFloat", p_pc, 2.5, 1.0, 100.0, "DISTANCE",
+           "Walls narrower than this never get a porch (world m)")
+    b.sock("Post Spacing", "NodeSocketFloat", p_pc, 2.4, 0.8, 20.0, "DISTANCE",
+           "Most distance between two posts (world m; a post at each end)")
+    b.sock("Porch Chance", "NodeSocketFloat", p_pc, 1.0, 0.0, 1.0, "FACTOR",
+           "Chance this building gets its porch")
+    b.sock("Porch Seed", "NodeSocketInt", p_pc, 0, 0, 100000, desc="Another pick of the wall (and the roll)")
+    b.sock("Porch Material", "NodeSocketMaterial", p_pc, None, desc="Posts and beam")
+    b.sock("Deck Material", "NodeSocketMaterial", p_pc, None, desc="The deck boards")
+    b.L(gi.outputs["Porch"], pc_on.inputs[0])
+    for _nm, _n in pc_nodes.items():
+        b.L(gi.outputs[_nm], _n.inputs[0])
+    b.L(gi.outputs["Porch Material"], pc_mats[0].inputs["Material"])
+    b.L(gi.outputs["Deck Material"], pc_mats[1].inputs["Material"])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -12198,11 +12615,15 @@ def main():
             ("Base - Gable roof", "Gable", "Base preset with a gable roof cap", {}),
             ("Base - Hip roof", "Hip", "Base preset with a hip roof cap", {}),
             ("Base - Weathered gable", "Gable", "Gable preset with light damage over the whole "
-             "building: missing, broken and loose boards and shakes (v2.12)", weathered)):
+             "building: missing, broken and loose boards and shakes (v2.12)", weathered),
+            ("Base - Porch house", "Gable", "Gable preset at 45 deg with dormers and a roofed porch "
+             "along one ground-floor wall, the door under it (v2.24)", {})):
         pw = []
         vmt.dress_object(probe, pw)
         rc = probe.modifiers["VM_RoofCap"]
         set_params(rc, rc.node_group, {"Style": style})
+        if pname == "Base - Porch house":   # v2.24: roof-cap settings, not cladding ones
+            set_params(rc, rc.node_group, {"Pitch": math.radians(45.0), "Porch": True})
         # v2.16: the windows layer (it cuts the openings) damages them too
         for mn_ in ("VM_SceneDetailer_Planks", "VM_SceneDetailer_Shingles", "VM_SceneDetailer_Windows"):
             if extra:
@@ -12507,6 +12928,94 @@ def main():
           f"{len(rk_v)} (above the walls {rk_roof}), past the plumb cut={past_top}, off the wall={off_wall}")
     results["doors_v223"] = dict(set_in=set_in, casing=cased, rake_vertices=len(rk_v), rake_roof=rk_roof,
                                  past_top=past_top, off_wall=off_wall)
+
+    # ---- v2.24: a PORCH with a roof (the user's 'terraces / porches with
+    # roofs'): along one ground-floor wall, its roof under the main eave and
+    # clad with shakes, posts and a deck in front, the door under it
+    zmin_s = min(v_.z for v_ in base_vs)
+
+    def porch_scan(seed_, on_=True):
+        set_params(rc_d, rc_d.node_group, {"Porch": on_, "Porch Seed": seed_})
+        fx_d.update_tag()
+        dg_p = bpy.context.evaluated_depsgraph_get()
+        dg_p.update()
+        me_p = fx_d.evaluated_get(dg_p).data
+        mw_p = fx_d.matrix_world
+        r3_ = mw_p.to_3x3()
+
+        def fvals_(nm_):
+            # the layers carry face flags over to the points (averaged at
+            # shared corners): read back per face
+            a_ = me_p.attributes.get(nm_)
+            if a_ is None or a_.domain not in ("FACE", "POINT"):
+                return [0.0] * len(me_p.polygons)
+            if a_.domain == "FACE":
+                return [d_.value for d_ in a_.data]
+            return [sum(a_.data[v_].value for v_ in f_.vertices) / len(f_.vertices) for f_ in me_p.polygons]
+
+        def faces_(nm_):
+            return [me_p.polygons[i_] for i_, v_ in enumerate(fvals_(nm_)) if v_ > 0.5]
+        # the porch faces away from the wall its roof slopes down from; the
+        # wall is the largest of the building's own upright faces carrying the
+        # flag (the jambs of a hole cut through it carry it too)
+        own_ = [max(a_, b_) < 0.5 for a_, b_ in zip(fvals_("vm_trim"), fvals_("vm_inner"))]
+        pv_all = fvals_("vm_porch")
+        top_p = max([v_ for v_, o_ in zip(pv_all, own_) if o_] or [0.0])
+        walls_ = [me_p.polygons[i_] for i_, v_ in enumerate(pv_all)
+                  if own_[i_] and top_p > 0.05 and v_ >= 0.5 * top_p
+                  and abs((r3_ @ me_p.polygons[i_].normal).normalized().z) < 0.15]
+        roofs_ = faces_("vm_proof")
+        tops_ = [f_ for f_ in roofs_ if (r3_ @ f_.normal).normalized().z > 0.5]
+        out_ = dict(walls=len(walls_), roof=len(roofs_), n=None, doors=[], roof_lo=0.0, roof_hi=0.0,
+                    trim=0, low=0.0, shakes=0)
+        if not walls_ or not tops_:
+            return out_
+        sl_ = r3_ @ tops_[0].normal
+        n_ = Vector((sl_.x, sl_.y, 0.0)).normalized()
+        out_["n"] = n_
+        wall_ = max(walls_, key=lambda f_: f_.area)
+        out_["same"] = (r3_ @ wall_.normal).normalized().dot(n_) > 0.99
+        c_ = mw_p @ wall_.center
+        rz_ = [(mw_p @ me_p.vertices[v_].co).z for f_ in roofs_ for v_ in f_.vertices]
+        out_["roof_lo"], out_["roof_hi"] = min(rz_) - zmin_s, max(rz_)
+        tr_ = faces_("vm_trim")
+        tv_ = {v_ for f_ in tr_ for v_ in f_.vertices}
+        pv_ = [mw_p @ me_p.vertices[v_].co for v_ in tv_]
+        pv_ = [v_ for v_ in pv_ if 0.1 < (v_ - c_).dot(n_) < 2.3]
+        out_["trim"] = len(pv_)
+        out_["low"] = min([v_.z for v_ in pv_] + rz_) - zmin_s
+        for inst in dg_p.object_instances:
+            if not (inst.is_instance and inst.parent is not None and inst.parent.original == fx_d):
+                continue
+            t_ = inst.matrix_world.translation
+            if inst.object.name in door_d:
+                out_["doors"].append(round(inst.matrix_world.col[1].to_3d().normalized().dot(n_), 3))
+            elif inst.object.name in shk_d and 0.5 < (t_ - c_).dot(n_) < 2.4 and t_.z < top_s - 0.1:
+                out_["shakes"] += 1
+        return out_
+    pc_runs = [porch_scan(0)]
+    for seed_ in (1, 2, 3, 4):
+        if any(r_["n"] is not None and pc_runs[0]["n"] is not None and r_["n"].dot(pc_runs[0]["n"]) < 0.5
+               for r_ in pc_runs[1:]):
+            break
+        pc_runs.append(porch_scan(seed_))
+    pc_off = porch_scan(0, False)
+
+    def porch_ok(r_):
+        return (r_["walls"] >= 1 and r_.get("same") and r_["doors"] and all(d_ > 0.95 for d_ in r_["doors"])
+                and r_["roof_hi"] <= top_s - 0.1 and r_["roof_lo"] >= 2.0 and r_["trim"] >= 100
+                and r_["low"] >= -0.001 and r_["shakes"] >= 60)
+    pc_walls = [r_["n"] for r_ in pc_runs if r_["n"] is not None]
+    pc_two = any(a_.dot(b_) < 0.5 for a_ in pc_walls for b_ in pc_walls)
+    check("v2.24(porch): Porch on builds a roofed porch along ONE ground-floor wall - its roof under the main "
+          "eave (>= 2 m up, clad with shakes), posts / beam / deck in front of the wall and nothing below the "
+          "ground - and the door goes under it; another Porch Seed picks another wall; Porch off has none",
+          all(porch_ok(r_) for r_ in pc_runs) and pc_two and pc_off["walls"] == 0 and pc_off["roof"] == 0,
+          "; ".join(f"seed {k_}: walls={r_['walls']} door.n={r_['doors']} roof {r_['roof_lo']:.2f}..."
+                    f"{r_['roof_hi']:.2f} m (wall top {top_s:.2f}) trim vertices={r_['trim']} low={r_['low']:.3f} "
+                    f"shakes={r_['shakes']}" for k_, r_ in enumerate(pc_runs))
+          + f"; two walls={pc_two}; off: walls={pc_off['walls']} roof faces={pc_off['roof']}")
+    results["porch_v224"] = [dict((k_, v_) for k_, v_ in r_.items() if k_ != "n") for r_ in pc_runs]
     bpy.data.objects.remove(fx_d)
 
     # ---- v2.10: UPDATE an older engine in place - settings survive
