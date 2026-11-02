@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.21) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.22) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.21) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.22) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,33 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (265 checks: the original 197 kept
-    green + 68 v2.7-v2.21 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (266 checks: the original 197 kept
+    green + 69 v2.7-v2.22 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.22 (2026-11-02) - DORMERS
+-------------------------------------------------------------------------------
+* Dormers: a Gable roof at least 'Dormer Min Pitch' (40 deg) steep grows
+  little gabled dormers out of both slopes - a clad front wall, two cheeks,
+  their own shingled roof with fascia and soffit like the main roof - and
+  the windows layer puts an upright window in every dormer front (15 cm
+  over the roof, cut through, the siding trimmed round it). The main roof's
+  shakes inside a dormer are dropped. At the default 35 deg pitch there are
+  none; turn the Pitch up (45 deg looks right) to get them.
+  New 'Dormers' panel on VM_RoofCap: Dormers (on), Dormer Min Pitch (40
+  deg), Dormer Spacing (2.8 m of wall per dormer), Dormer Width (1.2 m),
+  Dormer Height (1.1 m), Dormer Setback (0.25 m back from the wall below),
+  Dormer Pitch (40 deg, their own roofs), Dormer Chance (1 = every place),
+  Dormer Seed. A dormer only goes where it fits under the ridge and clear
+  of the gable ends.
+* Fit openings always stand upright (a window on a wall whose normal tips a
+  hair downwards used to be turned upside down), and coplanar walls that
+  are separate faces (the dormer fronts of one slope) each get their own
+  window instead of sharing one. A dormer right above the door still gets
+  its window (the door layer's clearance only keeps wall openings apart).
+* Siding is only trimmed round an opening when it lies on that opening's
+  wall (roof shakes at 45 deg no longer are).
 
 v2.21 (2026-11-02) - ROOF HOLES; WINDOWS HALF THERE; NO FLOATING BOARDS
 -------------------------------------------------------------------------------
@@ -1181,8 +1204,11 @@ in-memory:
   * v2.21(roof holes / half broken): the Weathered preset's roof has holes
     with rafters and battens that stay inside the roof, partly broken
     windows have no inner part left past their break line, and Roof Holes 0
-    / Half Broken 0 turn both off.
-Total for this release: 265 checks, 265 passed (verification_v2.json).
+    / Half Broken 0 turn both off;
+  * v2.22(dormers): a 48 deg Gable roof grows dormers with an upright window
+    cut through each front and no roof shakes inside them; at 35 deg or
+    with Dormers off there are none.
+Total for this release: 266 checks, 266 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

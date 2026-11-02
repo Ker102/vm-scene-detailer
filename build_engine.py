@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.21"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.22"   # the ONE version label: About sockets, descriptions, checks, add-on
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -2062,12 +2062,24 @@ def build_node_group():
     sel_h = b.N("FunctionNodeCompare", (-850, -1250), data_type="FLOAT", operation="GREATER_EQUAL")
     b.L(na_h, sel_h.inputs["A"])
     b.L(mfh_l.outputs["Value"], sel_h.inputs["B"])
+    # v2.22: a dormer's front wall (vm_dfront, VM_RoofCap) is MADE to hold one
+    # window - the minimum face size never rules it out
+    na_df = named_face("vm_dfront")
+    df_face = b.N("FunctionNodeCompare", (-850, -1350), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(na_df, df_face.inputs["A"])
+    df_face.inputs["B"].default_value = 0.5
+    sel_wd = b.N("FunctionNodeBooleanMath", (-750, -1150), operation="OR")
+    b.L(sel_w.outputs["Result"], sel_wd.inputs[0])
+    b.L(df_face.outputs["Result"], sel_wd.inputs[1])
+    sel_hd = b.N("FunctionNodeBooleanMath", (-750, -1250), operation="OR")
+    b.L(sel_h.outputs["Result"], sel_hd.inputs[0])
+    b.L(df_face.outputs["Result"], sel_hd.inputs[1])
     sel_f1 = b.N("FunctionNodeBooleanMath", (-650, -1100), operation="AND")
     b.L(zone_sel, sel_f1.inputs[0])
-    b.L(sel_w.outputs["Result"], sel_f1.inputs[1])
+    b.L(sel_wd.outputs["Boolean"], sel_f1.inputs[1])
     sel_f2 = b.N("FunctionNodeBooleanMath", (-500, -1100), operation="AND")
     b.L(sel_f1.outputs["Boolean"], sel_f2.inputs[0])
-    b.L(sel_h.outputs["Result"], sel_f2.inputs[1])
+    b.L(sel_hd.outputs["Boolean"], sel_f2.inputs[1])
     sel_f3 = b.N("FunctionNodeBooleanMath", (-350, -1100), operation="AND")
     b.L(sel_f2.outputs["Boolean"], sel_f3.inputs[0])
     b.L(not_rg.outputs["Result"], sel_f3.inputs[1])
@@ -2365,7 +2377,28 @@ def build_node_group():
     rg1 = b.N("GeometryNodeStoreNamedAttribute", (2000, -150), data_type="FLOAT", domain="POINT")
     b.L(capn_f.outputs["Geometry"], rg1.inputs["Geometry"])
     rg1.inputs["Name"].default_value = "vm_gcol"
-    b.L(s_rand.outputs["Value"], rg1.inputs["Value"])
+    # v2.22: the dormer fronts of one slope are COPLANAR, each its own face -
+    # their face-relative strip 0 collided in the greedy (one window per
+    # slope). Dormer fronts take an ABSOLUTE column on the plane instead.
+    dfc_d = b.N("ShaderNodeVectorMath", (1600, -3150), operation="DOT_PRODUCT")
+    b.L(r_c, dfc_d.inputs[0]); b.L(r_u, dfc_d.inputs[1])
+    dfc_q = b.N("ShaderNodeMath", (1750, -3150), operation="DIVIDE")
+    b.L(dfc_d.outputs["Value"], dfc_q.inputs[0]); b.L(strip_pitch.outputs["Value"], dfc_q.inputs[1])
+    dfc_f = b.N("ShaderNodeMath", (1900, -3150), operation="FLOOR")
+    b.L(dfc_q.outputs["Value"], dfc_f.inputs[0])
+    dfc_o = b.N("ShaderNodeMath", (2050, -3150), operation="ADD")
+    b.L(dfc_f.outputs["Value"], dfc_o.inputs[0]); dfc_o.inputs[1].default_value = 32.0
+    dfc_c = b.N("ShaderNodeClamp", (2200, -3150))
+    b.L(dfc_o.outputs["Value"], dfc_c.inputs["Value"])
+    dfc_c.inputs["Min"].default_value = 0.0; dfc_c.inputs["Max"].default_value = 63.0
+    dfc_is = b.N("FunctionNodeCompare", (2200, -3050), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(rnamed("vm_dfront"), dfc_is.inputs["A"]); dfc_is.inputs["B"].default_value = 0.5
+    dfc_sw = b.N("GeometryNodeSwitch", (2350, -3100))
+    dfc_sw.input_type = "FLOAT"
+    b.L(dfc_is.outputs["Result"], dfc_sw.inputs["Switch"])
+    b.L(s_rand.outputs["Value"], dfc_sw.inputs["False"])
+    b.L(dfc_c.outputs["Result"], dfc_sw.inputs["True"])
+    b.L(dfc_sw.outputs["Output"], rg1.inputs["Value"])
     rg2 = b.N("GeometryNodeStoreNamedAttribute", (2200, -150), data_type="FLOAT", domain="POINT")
     b.L(rg1.outputs["Geometry"], rg2.inputs["Geometry"])
     rg2.inputs["Name"].default_value = "vm_grow"
@@ -2374,7 +2407,12 @@ def build_node_group():
     b.L(rg2.outputs["Geometry"], rg3.inputs["Geometry"])
     rg3.inputs["Name"].default_value = "vm_gate1"
     eg_f = b.N("ShaderNodeMath", (2200, -4000), operation="ADD")
-    b.L(edge_ok.outputs["Boolean"], eg_f.inputs[0])
+    # v2.22: a dormer front is made for its one window - no edge guard (the
+    # opening's Scale To Face fits it to the narrow wall)
+    eg_df = b.N("FunctionNodeBooleanMath", (2050, -4000), operation="OR")
+    b.L(edge_ok.outputs["Boolean"], eg_df.inputs[0])
+    b.L(dfc_is.outputs["Result"], eg_df.inputs[1])
+    b.L(eg_df.outputs["Boolean"], eg_f.inputs[0])
     eg_f.inputs[1].default_value = 0.0
     b.L(eg_f.outputs["Value"], rg3.inputs["Value"])
 
@@ -2527,7 +2565,21 @@ def build_node_group():
     # sill target z (LOCAL): Common Z = host zmin + sill; Face Base = face base + sill
     targ_face = b.N("ShaderNodeMath", (4000, -1550), operation="ADD")
     b.L(sfz_v, targ_face.inputs[0])
-    b.L(sill_l.outputs["Value"], targ_face.inputs[1])
+    # v2.22: a dormer's front wall (vm_dfront, from VM_RoofCap) is short - its
+    # window sits 15 cm over the roof, not at the storey's Sill Height
+    df_v = snamed("vm_dfront")
+    df_is = b.N("FunctionNodeCompare", (3850, -1450), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(df_v, df_is.inputs["A"])
+    df_is.inputs["B"].default_value = 0.5
+    df_sill = b.N("ShaderNodeMath", (3850, -1400), operation="DIVIDE")
+    df_sill.inputs[0].default_value = 0.15
+    b.L(sz_g, df_sill.inputs[1])
+    df_sw = b.N("GeometryNodeSwitch", (3950, -1450))
+    df_sw.input_type = "FLOAT"
+    b.L(df_is.outputs["Result"], df_sw.inputs["Switch"])
+    b.L(sill_l.outputs["Value"], df_sw.inputs["False"])
+    b.L(df_sill.outputs["Value"], df_sw.inputs["True"])
+    b.L(df_sw.outputs["Output"], targ_face.inputs[1])
     targ_com = b.N("ShaderNodeMath", (4000, -1700), operation="ADD")
     b.L(bb_sep.outputs["Z"], targ_com.inputs[0])
     b.L(sill_l.outputs["Value"], targ_com.inputs[1])
@@ -2902,7 +2954,28 @@ def build_node_group():
     sg_a = b.N("GeometryNodeStoreNamedAttribute", (6150, -750), data_type="FLOAT", domain="POINT")
     b.L(fitk_store.outputs["Geometry"], sg_a.inputs["Geometry"])
     sg_a.inputs["Name"].default_value = "vm_gcol"
-    b.L(sgi_v, sg_a.inputs["Value"])
+    # v2.22: coplanar dormer fronts each count their slot column from 0 - give
+    # them an ABSOLUTE column (0.5 m world bins along the plane) so the greedy
+    # keeps a window on every dormer, not one per slope
+    sdf_d = b.N("ShaderNodeVectorMath", (5750, -600), operation="DOT_PRODUCT")
+    b.L(sc_v, sdf_d.inputs[0]); b.L(su_v, sdf_d.inputs[1])
+    sdf_w = b.N("ShaderNodeMath", (5900, -600), operation="MULTIPLY")
+    b.L(sdf_d.outputs["Value"], sdf_w.inputs[0]); b.L(seu_v, sdf_w.inputs[1])
+    sdf_q = b.N("ShaderNodeMath", (6050, -600), operation="MULTIPLY_ADD")
+    b.L(sdf_w.outputs["Value"], sdf_q.inputs[0])
+    sdf_q.inputs[1].default_value = 2.0
+    sdf_q.inputs[2].default_value = 32.0
+    sdf_f = b.N("ShaderNodeMath", (6200, -600), operation="FLOOR")
+    b.L(sdf_q.outputs["Value"], sdf_f.inputs[0])
+    sdf_c = b.N("ShaderNodeClamp", (6350, -600))
+    b.L(sdf_f.outputs["Value"], sdf_c.inputs["Value"])
+    sdf_c.inputs["Min"].default_value = 0.0; sdf_c.inputs["Max"].default_value = 63.0
+    sdf_sw = b.N("GeometryNodeSwitch", (6500, -600))
+    sdf_sw.input_type = "FLOAT"
+    b.L(df_is.outputs["Result"], sdf_sw.inputs["Switch"])
+    b.L(sgi_v, sdf_sw.inputs["False"])
+    b.L(sdf_c.outputs["Result"], sdf_sw.inputs["True"])
+    b.L(sdf_sw.outputs["Output"], sg_a.inputs["Value"])
     sg_b = b.N("GeometryNodeStoreNamedAttribute", (6350, -750), data_type="FLOAT", domain="POINT")
     b.L(sg_a.outputs["Geometry"], sg_b.inputs["Geometry"])
     sg_b.inputs["Name"].default_value = "vm_grow"
@@ -3644,7 +3717,18 @@ def build_node_group():
     prox_inv = b.N("FunctionNodeBooleanMath", (2200, -3450), operation="NOT")
     b.L(prox_o.outputs["Is Valid"], prox_inv.inputs[0])
     b.L(prox_inv.outputs["Boolean"], occ_ok.inputs[0])
-    b.L(occ_far.outputs["Result"], occ_ok.inputs[1])
+    # v2.22: ... except on a dormer front - it stands on the roof, above the
+    # eave, and cannot share wall space with a door in the wall below it
+    occ_dfa = b.N("GeometryNodeInputNamedAttribute", (2050, -3200))
+    occ_dfa.data_type = "FLOAT"
+    occ_dfa.inputs["Name"].default_value = "vm_dfront"
+    occ_df = b.N("FunctionNodeCompare", (2200, -3200), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(occ_dfa.outputs["Attribute"], occ_df.inputs["A"])
+    occ_df.inputs["B"].default_value = 0.5
+    occ_far2 = b.N("FunctionNodeBooleanMath", (2300, -3250), operation="OR")
+    b.L(occ_far.outputs["Result"], occ_far2.inputs[0])
+    b.L(occ_df.outputs["Result"], occ_far2.inputs[1])
+    b.L(occ_far2.outputs["Boolean"], occ_ok.inputs[1])
     # ---- v2.8.3 OPENING CONTAINMENT (the floating-window leak): a Fit
     # candidate is kept only if its anchor sits ON the clad surface - the
     # strip grid fills the face BBOX, so on non-rect faces (the user's giant
@@ -3744,7 +3828,17 @@ def build_node_group():
     b.L(so_prox.outputs["Is Valid"], so_inv.inputs[0])
     so_ok = b.N("FunctionNodeBooleanMath", (6000, -3550), operation="OR")
     b.L(so_inv.outputs["Boolean"], so_ok.inputs[0])
-    b.L(so_far.outputs["Result"], so_ok.inputs[1])
+    # v2.22: dormer fronts are exempt here too (see occ_df above)
+    so_dfa = b.N("GeometryNodeInputNamedAttribute", (5850, -3350))
+    so_dfa.data_type = "FLOAT"
+    so_dfa.inputs["Name"].default_value = "vm_dfront"
+    so_df = b.N("FunctionNodeCompare", (6000, -3350), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(so_dfa.outputs["Attribute"], so_df.inputs["A"])
+    so_df.inputs["B"].default_value = 0.5
+    so_far2 = b.N("FunctionNodeBooleanMath", (6000, -3450), operation="OR")
+    b.L(so_far.outputs["Result"], so_far2.inputs[0])
+    b.L(so_df.outputs["Result"], so_far2.inputs[1])
+    b.L(so_far2.outputs["Boolean"], so_ok.inputs[1])
     # slot candidates only exist on the Fit path - NO is_fit gate here: is_fit
     # comes from the Placement Mode GEOMETRY switch whose Fit branch contains
     # this slot stage, so linking it in makes a dependency cycle (measured:
@@ -3905,7 +3999,16 @@ def build_node_group():
     fjit_r = b.N("FunctionNodeEulerToRotation", (1500, 700))
     b.L(fjit_s.outputs["Vector"], fjit_r.inputs["Euler"])
     fit_rot = b.N("FunctionNodeRotateRotation", (1700, 700))
-    b.L(align_y.outputs["Rotation"], fit_rot.inputs["Rotation"])
+    # v2.22: Fit openings stand UP too - Align Y alone turns +Y onto a normal
+    # like (0, -1, -0.0001) (a dormer front) by a 180 deg roll about X, and the
+    # window hung upside down below its sill (same fix as v2.11 cladding)
+    align_fz = b.N("FunctionNodeAlignRotationToVector", (1100, 800))
+    align_fz.axis = "Z"
+    align_fz.pivot_axis = "Y"
+    b.L(align_y.outputs["Rotation"], align_fz.inputs["Rotation"])
+    align_fz.inputs["Vector"].default_value = (0.0, 0.0, 1.0)
+    align_fz.inputs["Factor"].default_value = 1.0
+    b.L(align_fz.outputs["Rotation"], fit_rot.inputs["Rotation"])
     b.L(fjit_r.outputs["Rotation"], fit_rot.inputs["Rotate By"])
 
     rot_sw1 = b.N("GeometryNodeSwitch", (1900, 500))
@@ -4098,6 +4201,83 @@ def build_node_group():
     join_i = b.N("GeometryNodeJoinGeometry", (2250, 300))
     b.L(iop_p.outputs["Instances"], join_i.inputs["Geometry"])
     b.L(iop_d.outputs["Instances"], join_i.inputs["Geometry"])
+    # v2.22 nothing is laid INSIDE a dormer (VM_RoofCap): the roof's shakes
+    # under it are dropped - the host's dormer points carry each dormer's
+    # frame (front sill centre, out, across, half width, heights)
+    dm_pts = b.N("GeometryNodeSeparateGeometry", (2250, 500), domain="POINT")
+    b.L(mesh_only, dm_pts.inputs["Geometry"])
+    dm_k_rd = b.N("GeometryNodeInputNamedAttribute", (2050, 500))
+    dm_k_rd.data_type = "FLOAT_VECTOR"
+    dm_k_rd.inputs["Name"].default_value = "vm_dmk"
+    dm_k_sep = b.N("ShaderNodeSeparateXYZ", (2100, 450))
+    b.L(dm_k_rd.outputs["Attribute"], dm_k_sep.inputs["Vector"])
+    dm_k_on = b.N("FunctionNodeCompare", (2150, 450), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(dm_k_sep.outputs["X"], dm_k_on.inputs["A"])
+    dm_k_on.inputs["B"].default_value = 1e-4
+    b.L(dm_k_on.outputs["Result"], dm_pts.inputs["Selection"])
+    dm_pt = dm_pts.outputs["Selection"]
+    # (Sample Nearest needs a target; an empty one reads index 0 -> no dormer
+    # data -> half width 0 -> nothing is inside)
+    dm_near = b.N("GeometryNodeSampleNearest", (2400, 500), domain="POINT")
+    b.L(dm_pt, dm_near.inputs["Geometry"])
+    dm_ipos = b.N("GeometryNodeInputPosition", (2250, 650))
+    b.L(dm_ipos.outputs["Position"], dm_near.inputs["Sample Position"])
+
+    def dm_get(name_):
+        rd_ = b.N("GeometryNodeInputNamedAttribute", (2400, 650))
+        rd_.data_type = "FLOAT_VECTOR"
+        rd_.inputs["Name"].default_value = name_
+        si_ = b.N("GeometryNodeSampleIndex", (2550, 650), data_type="FLOAT_VECTOR", domain="POINT")
+        b.L(dm_pt, si_.inputs["Geometry"])
+        b.L(rd_.outputs["Attribute"], si_.inputs["Value"])
+        b.L(dm_near.outputs["Index"], si_.inputs["Index"])
+        return si_.outputs["Value"]
+
+    def dm_v(op_, a_, b_, out_="Vector"):
+        n_ = b.N("ShaderNodeVectorMath", (2700, 650), operation=op_)
+        b.L(a_, n_.inputs[0]); b.L(b_, n_.inputs[1])
+        return n_.outputs[out_]
+
+    def dm_m(op_, a_, b_):
+        n_ = b.N("ShaderNodeMath", (2700, 700), operation=op_)
+        for i_, x_ in enumerate((a_, b_)):
+            if isinstance(x_, (int, float)):
+                n_.inputs[i_].default_value = x_
+            else:
+                b.L(x_, n_.inputs[i_])
+        return n_.outputs["Value"]
+
+    def dm_c(op_, a_, b_):
+        n_ = b.N("FunctionNodeCompare", (2700, 750), data_type="FLOAT", operation=op_)
+        b.L(a_, n_.inputs["A"])
+        if isinstance(b_, (int, float)):
+            n_.inputs["B"].default_value = b_
+        else:
+            b.L(b_, n_.inputs["B"])
+        return n_.outputs["Result"]
+
+    def dm_and(a_, b_):
+        n_ = b.N("FunctionNodeBooleanMath", (2700, 800), operation="AND")
+        b.L(a_, n_.inputs[0]); b.L(b_, n_.inputs[1])
+        return n_.outputs["Boolean"]
+    dm_rel = dm_v("SUBTRACT", dm_ipos.outputs["Position"], dm_get("vm_dmo"))
+    dm_a = dm_m("ABSOLUTE", dm_v("DOT_PRODUCT", dm_rel, dm_get("vm_dmu"), "Value"), 0.0)
+    dm_d = dm_m("MULTIPLY", dm_v("DOT_PRODUCT", dm_rel, dm_get("vm_dmn"), "Value"), -1.0)
+    dm_rs = b.N("ShaderNodeSeparateXYZ", (2700, 850))
+    b.L(dm_rel, dm_rs.inputs["Vector"])
+    dm_ks = b.N("ShaderNodeSeparateXYZ", (2700, 900))
+    b.L(dm_get("vm_dmk"), dm_ks.inputs["Vector"])
+    dm_zs = b.N("ShaderNodeSeparateXYZ", (2700, 950))
+    b.L(dm_get("vm_dmz"), dm_zs.inputs["Vector"])
+    dm_hw = dm_ks.outputs["X"]
+    # the roof's underside over the point: eave + (1 - |a| / half width) * ridge rise
+    dm_roof = dm_m("ADD", dm_zs.outputs["X"],
+                   dm_m("MULTIPLY", dm_zs.outputs["Y"],
+                        dm_m("SUBTRACT", 1.0, dm_m("DIVIDE", dm_a, dm_m("MAXIMUM", dm_hw, 1e-4)))))
+    dm_in = dm_and(dm_and(dm_c("GREATER_THAN", dm_hw, 1e-4), dm_c("GREATER_THAN", dm_d, 0.05)),
+                   dm_and(dm_and(dm_c("LESS_THAN", dm_a, dm_m("SUBTRACT", dm_hw, 0.1)),
+                                 dm_c("GREATER_THAN", dm_rs.outputs["Z"], -0.1)),
+                          dm_c("LESS_THAN", dm_rs.outputs["Z"], dm_m("SUBTRACT", dm_roof, 0.02))))
     store_c = b.N("GeometryNodeStoreNamedAttribute", (2450, 150), data_type="FLOAT_COLOR", domain="INSTANCE")
     b.L(join_i.outputs["Geometry"], store_c.inputs["Geometry"])
     store_c.inputs["Name"].default_value = "Color"
@@ -4121,10 +4301,14 @@ def build_node_group():
     b.L(store_mk.outputs["Geometry"], store_an.inputs["Geometry"])
     store_an.inputs["Name"].default_value = "vm_anchor"
     b.L(pos.outputs["Position"], store_an.inputs["Value"])
+    # (after every per-index store, so dropping some shifts nothing)
+    dm_del = b.N("GeometryNodeDeleteGeometry", (3150, 300), domain="INSTANCE")
+    b.L(store_an.outputs["Geometry"], dm_del.inputs["Geometry"])
+    b.L(dm_in, dm_del.inputs["Selection"])
 
     join_all = b.N("GeometryNodeJoinGeometry", (2650, 100))
     b.L(base_out, join_all.inputs["Geometry"])
-    b.L(store_an.outputs["Geometry"], join_all.inputs["Geometry"])
+    b.L(dm_del.outputs["Geometry"], join_all.inputs["Geometry"])
     b.L(join_all.outputs["Geometry"], go.inputs["Geometry"])
 
     # ---- v2.7 About panel: appended LAST so every v2.5/v2.6 socket IDENTIFIER
@@ -4508,9 +4692,9 @@ def build_node_group():
                ("vm_ehi", "FLOAT_VECTOR", end_pos(bb_mx.outputs["X"])),
                ("vm_irot", "QUATERNION", i_rot), ("vm_iscl", "FLOAT_VECTOR", i_scl)]
     for lk in list(b.ng.links):
-        if lk.from_node == store_an and lk.to_node == join_all:
+        if lk.from_node == dm_del and lk.to_node == join_all:
             b.ng.links.remove(lk)
-    d_chain = store_an.outputs["Geometry"]
+    d_chain = dm_del.outputs["Geometry"]
     for nm_, dt_, val_ in stores1:
         st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="INSTANCE")
         b.L(d_chain, st_.inputs["Geometry"])
@@ -5153,7 +5337,7 @@ def build_node_group():
                              tcmp("LESS_THAN", a0, em("SUBTRACT", hu_, eps_))),
                         tand(tcmp("GREATER_THAN", z_ov, eps_),
                              tand(tcmp("LESS_THAN", em("ABSOLUTE", dot(rel, on)), em("DIVIDE", 0.3, geo_f)),
-                                  tcmp("GREATER_THAN", dot(rot(v3(0.0, 1.0, 0.0), i_rot), on), 0.7)))))
+                                  tcmp("GREATER_THAN", dot(rot(v3(0.0, 1.0, 0.0), i_rot), on), 0.9)))))
         g_ = geo_
         for nm_, dt_, val_ in (("vm_ta0", "FLOAT", a0), ("vm_ta1", "FLOAT", a1), ("vm_thu", "FLOAT", hu_),
                                ("vm_tz0", "FLOAT", z0), ("vm_tz1", "FLOAT", z1), ("vm_thz", "FLOAT", hz_),
@@ -5917,6 +6101,8 @@ def build_node_group():
     rf_tag.inputs["Name"].default_value = "vm_rafter"
     rf_tag.inputs["Value"].default_value = 1.0
     b.L(rf_tag.outputs["Geometry"], g_join.inputs["Geometry"])
+    if os.environ.get("VM_DBG_OCLOUD"):
+        b.L(o_cloud, g_join.inputs["Geometry"])
 
     # ---- v2.19 VINES -> v2.20 IVY (the user's 'realistic ivy like the GN ivy
     # generators - grown along the house'). Every plant GROWS: a repeat zone
@@ -6303,6 +6489,274 @@ def build_node_group():
 
 
 # ---------------------------------------------------------------------------- VM_RoofCap
+def add_dormers(b, region_pts, roof_main, fl, ph):
+    """v2.22 DORMERS (the user's 'roof-like extra parts with windows that come
+    out of the roof if the roof is steep enough'): on every Gable region, a row
+    of dormers along each slope. Each is found by raycasting the real slope
+    (so it sits ON the roof whatever the pitch / overhang / Built Roof), and
+    built analytically so it meets the slope exactly - no booleans:
+      front wall (a quad, flagged vm_dfront: the window layer puts its window
+      on it) + its little gable triangle, two cheeks (triangles from the slope
+      up to the dormer eave), and two roof slopes (overhanging at the front and
+      sides) that run back until they meet the main slope.
+    A dormer only appears where it FITS under the main ridge (steep enough
+    roofs) and the pitch is at least 'Dormer Min Pitch'.
+    fl: fields/sockets from the roof cap (rc, ru, rv, rw, rh, rz, eff_ru,
+    eff_rv, sz, gable, pitch, thick, built); ph: the dormer socket placeholders."""
+    seq = [0]
+
+    def loc():
+        seq[0] += 1
+        return (5200 + 20 * (seq[0] % 40), -7000 - 25 * seq[0])
+
+    def M(op, a, b_=None, c_=None):
+        n_ = b.N("ShaderNodeMath", loc(), operation=op)
+        for i_, x_ in enumerate((a, b_, c_)):
+            if x_ is None:
+                continue
+            if isinstance(x_, (int, float)):
+                n_.inputs[i_].default_value = x_
+            else:
+                b.L(x_, n_.inputs[i_])
+        return n_.outputs["Value"]
+
+    def V(op, a, b_=None, out="Vector"):
+        n_ = b.N("ShaderNodeVectorMath", loc(), operation=op)
+        b.L(a, n_.inputs[0])
+        if b_ is not None:
+            if op == "SCALE":
+                if isinstance(b_, (int, float)):
+                    n_.inputs["Scale"].default_value = b_
+                else:
+                    b.L(b_, n_.inputs["Scale"])
+            else:
+                b.L(b_, n_.inputs[1])
+        return n_.outputs[out]
+
+    def C(op, a, b_):
+        n_ = b.N("FunctionNodeCompare", loc(), data_type="FLOAT", operation=op)
+        b.L(a, n_.inputs["A"])
+        if isinstance(b_, (int, float)):
+            n_.inputs["B"].default_value = b_
+        else:
+            b.L(b_, n_.inputs["B"])
+        return n_.outputs["Result"]
+
+    def AND(*xs):
+        out_ = xs[0]
+        for x_ in xs[1:]:
+            n_ = b.N("FunctionNodeBooleanMath", loc(), operation="AND")
+            b.L(out_, n_.inputs[0])
+            b.L(x_, n_.inputs[1])
+            out_ = n_.outputs["Boolean"]
+        return out_
+
+    def SW(cond, f_, t_):
+        n_ = b.N("GeometryNodeSwitch", loc())
+        n_.input_type = "FLOAT"
+        b.L(cond, n_.inputs["Switch"])
+        for key_, x_ in (("False", f_), ("True", t_)):
+            if isinstance(x_, (int, float)):
+                n_.inputs[key_].default_value = x_
+            else:
+                b.L(x_, n_.inputs[key_])
+        return n_.outputs["Output"]
+
+    def XYZ(x, y, z):
+        n_ = b.N("ShaderNodeCombineXYZ", loc())
+        for k_, val_ in zip("XYZ", (x, y, z)):
+            if isinstance(val_, (int, float)):
+                n_.inputs[k_].default_value = val_
+            else:
+                b.L(val_, n_.inputs[k_])
+        return n_.outputs["Vector"]
+
+    def SEP(v_):
+        n_ = b.N("ShaderNodeSeparateXYZ", loc())
+        b.L(v_, n_.inputs["Vector"])
+        return n_.outputs["X"], n_.outputs["Y"], n_.outputs["Z"]
+
+    def NAMED(name, dt="FLOAT"):
+        n_ = b.N("GeometryNodeInputNamedAttribute", loc())
+        n_.data_type = dt
+        n_.inputs["Name"].default_value = name
+        return n_.outputs["Attribute"]
+
+    def STORE(geo_, name, dt, val, domain="POINT"):
+        n_ = b.N("GeometryNodeStoreNamedAttribute", loc(), data_type=dt, domain=domain)
+        b.L(geo_, n_.inputs["Geometry"])
+        n_.inputs["Name"].default_value = name
+        if isinstance(val, (int, float)):
+            n_.inputs["Value"].default_value = val
+        else:
+            b.L(val, n_.inputs["Value"])
+        return n_.outputs["Geometry"]
+
+    sz = fl["sz"]
+    # ---- candidates: 16 per slope side per region (k = 0..15, side -/+)
+    dup = b.N("GeometryNodeDuplicateElements", loc(), domain="POINT")
+    b.L(region_pts, dup.inputs["Geometry"])
+    dup.inputs["Amount"].default_value = 32
+    di = dup.outputs["Duplicate Index"]
+    k_ = M("FLOORED_MODULO", di, 16.0)
+    s_ = M("MULTIPLY_ADD", M("FLOOR", M("DIVIDE", di, 16.0)), 2.0, -1.0)
+    rc, ru, rv = fl["rc"], fl["ru"], fl["rv"]
+    rw, rh, rz = fl["rw"], fl["rh"], fl["rz"]
+    e_u, e_v = fl["eff_ru"], fl["eff_rv"]
+    hw_w = M("MULTIPLY", ph["Dormer Width"], 0.5)
+    hw_l = M("DIVIDE", hw_w, e_u)
+    n_ = M("FLOOR", M("DIVIDE", M("MULTIPLY", rw, e_u), M("MAXIMUM", ph["Dormer Spacing"], 0.5)))
+    u_k = M("MULTIPLY", M("SUBTRACT", M("DIVIDE", M("ADD", k_, 0.5), M("MAXIMUM", n_, 1.0)), 0.5), rw)
+    v_f = M("SUBTRACT", M("MULTIPLY", rh, 0.5), M("DIVIDE", ph["Dormer Setback"], e_v))
+    dn = V("SCALE", rv, s_)                                   # outward, toward the eave
+    rc_x, rc_y, _rc_z = SEP(rc)
+    p_xy = V("ADD", V("ADD", XYZ(rc_x, rc_y, 0.0), V("SCALE", ru, u_k)), V("SCALE", dn, v_f))
+    dl = M("DIVIDE", 0.5, e_v)                                # the second ray, 0.5 m up the slope
+    p2_xy = V("SUBTRACT", p_xy, V("SCALE", dn, dl))
+
+    def ray_z(pxy_):
+        px_, py_, _pz = SEP(pxy_)
+        rc_ = b.N("GeometryNodeRaycast", loc())
+        b.L(roof_main, rc_.inputs["Target Geometry"])
+        b.L(XYZ(px_, py_, M("ADD", rz, 1000.0)), rc_.inputs["Source Position"])
+        rc_.inputs["Ray Direction"].default_value = (0.0, 0.0, -1.0)
+        rc_.inputs["Ray Length"].default_value = 3000.0
+        _hx, _hy, hz_ = SEP(rc_.outputs["Hit Position"])
+        return hz_, rc_.outputs["Is Hit"]
+    z1, h1 = ray_z(p_xy)
+    z2, h2 = ray_z(p2_xy)
+    g_ = M("DIVIDE", M("SUBTRACT", z2, z1), dl)               # slope rise per local unit inward
+    g_s = M("MAXIMUM", g_, 0.01)
+    t_l = SW(fl["built"], 0.0, M("DIVIDE", M("MAXIMUM", fl["thick"], 0.0), sz))
+    e03 = M("DIVIDE", 0.03, sz)
+    top_f = M("ADD", z1, t_l)
+    zb = M("SUBTRACT", top_f, e03)                            # the front sill, just under the slope top
+    td = M("TANGENT", M("MINIMUM", M("MAXIMUM", ph["Dormer Pitch"], 0.1), 1.4))
+    hf_l = M("DIVIDE", ph["Dormer Height"], sz)
+    hwz = M("DIVIDE", M("MULTIPLY", hw_w, td), sz)
+    od_w = 0.15
+    odz = M("DIVIDE", M("MULTIPLY", td, od_w), sz)
+    od_u = M("DIVIDE", od_w, e_u)
+    od_v = M("DIVIDE", od_w, e_v)
+    # depths (local, inward from the front plane) where the dormer meets the
+    # slope: the cheek back (its foot runs 3 cm under the slope top), the roof
+    # eave back and the ridge back (the dormer roof's underside on the main
+    # slope's underside, so the two slab tops meet)
+    d_e = M("DIVIDE", hf_l, g_s)
+    d_e2 = M("DIVIDE", M("ADD", M("SUBTRACT", M("SUBTRACT", hf_l, odz), e03), t_l), g_s)
+    d_r = M("DIVIDE", M("ADD", M("SUBTRACT", M("ADD", hf_l, hwz), e03), t_l), g_s)
+    rnd = b.N("FunctionNodeRandomValue", loc(), data_type="FLOAT")
+    b.L(ph["Dormer Seed"], rnd.inputs["Seed"])
+    ok = AND(fl["gable"], ph["Dormers"], C("GREATER_EQUAL", fl["pitch"], ph["Dormer Min Pitch"]),
+             C("LESS_THAN", k_, n_), h1, h2, C("GREATER_THAN", g_, 0.05),
+             C("LESS_EQUAL", M("ADD", d_r, M("DIVIDE", 0.15, e_v)), v_f),
+             C("LESS_EQUAL", M("ADD", M("ABSOLUTE", u_k), M("ADD", hw_l, od_u)),
+               M("SUBTRACT", M("MULTIPLY", rw, 0.5), M("DIVIDE", 0.3, e_u))),
+             C("LESS_THAN", rnd.outputs["Value"], ph["Dormer Chance"]))
+    px_, py_, _pz = SEP(p_xy)
+    d_o = XYZ(px_, py_, zb)
+    d_c = V("ADD", V("SUBTRACT", d_o, V("SCALE", dn, M("MULTIPLY", d_e, 0.3))),
+            XYZ(0.0, 0.0, M("MULTIPLY", hf_l, 0.5)))
+    geo_ = dup.outputs["Geometry"]
+    for nm_, dt_, val_ in (("vm_dok", "FLOAT", M("ADD", ok, 0.0)),
+                           ("vm_do", "FLOAT_VECTOR", d_o), ("vm_dn", "FLOAT_VECTOR", dn),
+                           ("vm_du", "FLOAT_VECTOR", ru), ("vm_dc", "FLOAT_VECTOR", d_c),
+                           ("vm_dk", "FLOAT_VECTOR", XYZ(hw_l, od_u, od_v)),
+                           ("vm_dz", "FLOAT_VECTOR", XYZ(hf_l, hwz, odz)),
+                           ("vm_dd", "FLOAT_VECTOR", XYZ(d_e, d_e2, d_r))):
+        geo_ = STORE(geo_, nm_, dt_, val_)
+    dbg_pts = None
+    if os.environ.get("VM_DBG_DORM"):
+        dbg_pts = geo_
+        for nm_, val_ in (("vm_dbg1", XYZ(k_, s_, n_)), ("vm_dbg2", XYZ(z1, z2, g_)),
+                          ("vm_dbg3", XYZ(d_r, v_f, u_k)),
+                          ("vm_dbg4", XYZ(M("ADD", h1, 0.0), M("ADD", fl["gable"], 0.0),
+                                          M("ADD", ph["Dormers"], 0.0))),
+                          ("vm_dbg5", XYZ(fl["pitch"], ph["Dormer Min Pitch"], rw)),
+                          ("vm_dbg6", XYZ(rh, e_u, e_v))):
+            dbg_pts = STORE(dbg_pts, nm_, "FLOAT_VECTOR", val_)
+        dsp_ = b.N("GeometryNodeSetPosition", loc())
+        b.L(dbg_pts, dsp_.inputs["Geometry"])
+        b.L(XYZ(px_, py_, z1), dsp_.inputs["Position"])
+        dbg_pts = dsp_.outputs["Geometry"]
+    keep = b.N("GeometryNodeDeleteGeometry", loc(), domain="POINT")
+    b.L(geo_, keep.inputs["Geometry"])
+    b.L(C("LESS_THAN", NAMED("vm_dok"), 0.5), keep.inputs["Selection"])
+
+    # ---- the template: pieces with per-vertex codes (across, depth, height)
+    # across: +-1 = the cheek line, +-2 = the overhanging eave, 0 = ridge
+    # depth: 0 front, 1 front overhang, 2 cheek back, 3 eave back, 4 ridge back
+    # height: 0 sill, 1 eave, 2 ridge, 3 overhanging eave
+    pieces = (((-1, 0, 0), (1, 0, 0), (1, 0, 1), (-1, 0, 1)),     # front wall (vm_dfront)
+              ((-1, 0, 1), (1, 0, 1), (0, 0, 2)),                  # its gable triangle
+              ((-1, 0, 0), (-1, 0, 1), (-1, 2, 1)),                # cheeks
+              ((1, 0, 0), (1, 0, 1), (1, 2, 1)),
+              ((-2, 1, 3), (0, 1, 2), (0, 4, 2), (-2, 3, 3)),      # roof slopes
+              ((2, 1, 3), (0, 1, 2), (0, 4, 2), (2, 3, 3)))
+    tj = b.N("GeometryNodeJoinGeometry", loc())
+    for pi_, codes_ in enumerate(pieces):
+        ci_ = b.N("GeometryNodeMeshCircle", loc(), fill_type="NGON")
+        ci_.inputs["Vertices"].default_value = len(codes_)
+        isw_ = b.N("GeometryNodeIndexSwitch", loc(), data_type="VECTOR")
+        while len(isw_.index_switch_items) < len(codes_):
+            isw_.index_switch_items.new()
+        b.L(b.N("GeometryNodeInputIndex", loc()).outputs["Index"], isw_.inputs["Index"])
+        for vi_, cd_ in enumerate(codes_):
+            isw_.inputs[vi_ + 1].default_value = cd_
+        pg_ = STORE(ci_.outputs["Mesh"], "vm_dt", "FLOAT_VECTOR", isw_.outputs["Output"])
+        pg_ = STORE(pg_, "vm_dfront", "FLOAT", 1.0 if pi_ == 0 else 0.0, domain="FACE")
+        b.L(pg_, tj.inputs["Geometry"])
+    iop = b.N("GeometryNodeInstanceOnPoints", loc())
+    b.L(keep.outputs["Geometry"], iop.inputs["Points"])
+    b.L(tj.outputs["Geometry"], iop.inputs["Instance"])
+    real = b.N("GeometryNodeRealizeInstances", loc())
+    b.L(iop.outputs["Instances"], real.inputs["Geometry"])
+
+    # ---- every vertex from its codes and its dormer's numbers
+    ta, tv, tz = SEP(NAMED("vm_dt", "FLOAT_VECTOR"))
+    k_hw, k_ou, k_ov = SEP(NAMED("vm_dk", "FLOAT_VECTOR"))
+    z_hf, z_hw, z_od = SEP(NAMED("vm_dz", "FLOAT_VECTOR"))
+    dd_e, dd_e2, dd_r = SEP(NAMED("vm_dd", "FLOAT_VECTOR"))
+    sg_ = M("MINIMUM", M("MAXIMUM", ta, -1.0), 1.0)
+    a_l = M("MULTIPLY", sg_, M("ADD", k_hw, SW(C("GREATER_THAN", M("ABSOLUTE", ta), 1.5), 0.0, k_ou)))
+
+    def pick(code_, vals_):
+        out_ = vals_[0]
+        for i_, x_ in enumerate(vals_[1:], start=1):
+            out_ = SW(C("GREATER_THAN", code_, i_ - 0.5), out_, x_)
+        return out_
+    d_l = pick(tv, [0.0, M("MULTIPLY", k_ov, -1.0), dd_e, dd_e2, dd_r])
+    z_l = pick(tz, [0.0, z_hf, M("ADD", z_hf, z_hw), M("SUBTRACT", z_hf, z_od)])
+    pos_ = V("ADD", V("ADD", NAMED("vm_do", "FLOAT_VECTOR"), V("SCALE", NAMED("vm_du", "FLOAT_VECTOR"), a_l)),
+             V("ADD", V("SCALE", NAMED("vm_dn", "FLOAT_VECTOR"), M("MULTIPLY", d_l, -1.0)), XYZ(0.0, 0.0, z_l)))
+    sp_ = b.N("GeometryNodeSetPosition", loc())
+    b.L(real.outputs["Geometry"], sp_.inputs["Geometry"])
+    b.L(pos_, sp_.inputs["Position"])
+    # every face turned to face OUT of its dormer
+    fl_ = b.N("GeometryNodeFlipFaces", loc())
+    b.L(sp_.outputs["Geometry"], fl_.inputs["Mesh"])
+    b.L(C("LESS_THAN", V("DOT_PRODUCT", b.N("GeometryNodeInputNormal", loc()).outputs["Normal"],
+                         V("SUBTRACT", b.N("GeometryNodeInputPosition", loc()).outputs["Position"],
+                           NAMED("vm_dc", "FLOAT_VECTOR")), out="Value"), 0.0),
+        fl_.inputs["Selection"])
+    mg_ = b.N("GeometryNodeMergeByDistance", loc())
+    b.L(fl_.outputs["Mesh"], mg_.inputs["Geometry"])
+    mg_.inputs["Distance"].default_value = 0.0005
+    out_ = mg_.outputs["Geometry"]
+    # what the cladding layers need to find the inside of each dormer (the
+    # roof's shakes under it are dropped there): kept on the dormer's points
+    for nm_, src_ in (("vm_dmo", "vm_do"), ("vm_dmn", "vm_dn"), ("vm_dmu", "vm_du"),
+                      ("vm_dmk", "vm_dk"), ("vm_dmz", "vm_dz")):
+        out_ = STORE(out_, nm_, "FLOAT_VECTOR", NAMED(src_, "FLOAT_VECTOR"))
+    for nm_ in ("vm_dok", "vm_do", "vm_dn", "vm_du", "vm_dc", "vm_dk", "vm_dz", "vm_dd", "vm_dt"):
+        rm_ = b.N("GeometryNodeRemoveAttribute", loc())
+        b.L(out_, rm_.inputs["Geometry"])
+        rm_.inputs["Name"].default_value = nm_
+        out_ = rm_.outputs["Geometry"]
+    add_dormers.dbg = dbg_pts
+    return out_
+
+
 def build_roofcap_group():
     """v2.4 per-region roof cap.
 
@@ -6411,6 +6865,17 @@ def build_roofcap_group():
     built_on = built_in.outputs["Boolean"]
     thick_in = b.N("ShaderNodeMath", (-1150, -1950), operation="ADD")
     thick_in.inputs[1].default_value = 0.0
+    # v2.22 Dormers: sockets created LAST too, linked into these at the end
+    dm_on = b.N("FunctionNodeBooleanMath", (-1150, -1850), operation="OR")
+    dm_on.inputs[1].default_value = False
+    dm_ph = {"Dormers": dm_on.outputs["Boolean"]}
+    dm_nodes = {}
+    for _k, _nm in enumerate(("Dormer Min Pitch", "Dormer Spacing", "Dormer Width", "Dormer Height",
+                              "Dormer Setback", "Dormer Pitch", "Dormer Chance", "Dormer Seed")):
+        _n = b.N("ShaderNodeMath", (-1000, -1850 - 40 * _k), operation="ADD")
+        _n.inputs[1].default_value = 0.0
+        dm_nodes[_nm] = _n
+        dm_ph[_nm] = _n.outputs["Value"]
     # gable-end faces of the template (normal along x) are flagged and every
     # face gets its own vertices, so the gable ends can move independently of
     # the slopes (merged again after positioning)
@@ -6836,11 +7301,21 @@ def build_roofcap_group():
     sel_all = b.N("FunctionNodeBooleanMath", (3600, -1750), operation="OR")
     sel_all.inputs[0].default_value = True
     sel_all.inputs[1].default_value = True
+    # v2.22 dormers on steep gable slopes (raycast onto this roof, then joined
+    # with it so their roofs get the same slab / soffit / material)
+    dm_geo = add_dormers(b, m2p.outputs["Points"], sp2.outputs["Geometry"],
+                         dict(rc=rc_v, ru=ru_v, rv=rv_v, rw=rw_v, rh=rh_v, rz=rz_v, eff_ru=eff_ru,
+                              eff_rv=eff_rv, sz=sz_g, gable=style_sw.outputs["Gable"],
+                              pitch=gi.outputs["Pitch"], thick=thick_in.outputs["Value"],
+                              built=built_on), dm_ph)
+    dm_join = b.N("GeometryNodeJoinGeometry", (3600, -1300))
+    b.L(sp2.outputs["Geometry"], dm_join.inputs["Geometry"])
+    b.L(dm_geo, dm_join.inputs["Geometry"])
     # Built Roof: re-join the split template, then give the slopes a real slab
     # (Roof Thickness, extruded straight UP so its eave and rake edges are
     # vertical fascia faces) with a soffit underneath; gable ends stay flat
     sl_mg = b.N("GeometryNodeMergeByDistance", (3750, -1100))
-    b.L(sp2.outputs["Geometry"], sl_mg.inputs["Geometry"])
+    b.L(dm_join.outputs["Geometry"], sl_mg.inputs["Geometry"])
     sl_mg.inputs["Distance"].default_value = 0.0005
     sl_n = b.N("GeometryNodeInputNormal", (3750, -900))
     sl_ns = b.N("ShaderNodeSeparateXYZ", (3900, -900))
@@ -6874,7 +7349,7 @@ def build_roofcap_group():
     roof_geo = b.N("GeometryNodeSwitch", (4500, -1300))
     roof_geo.input_type = "GEOMETRY"
     b.L(built_on, roof_geo.inputs["Switch"])
-    b.L(sp2.outputs["Geometry"], roof_geo.inputs["False"])
+    b.L(dm_join.outputs["Geometry"], roof_geo.inputs["False"])
     b.L(sl_mg2.outputs["Geometry"], roof_geo.inputs["True"])
     dressed = material_gate(b, roof_geo.outputs["Output"], gi.outputs["Roof Material"],
                             sel_all.outputs["Boolean"], (3750, -1500))
@@ -6883,6 +7358,29 @@ def build_roofcap_group():
     b.L(dressed, st_rg.inputs["Geometry"])
     st_rg.inputs["Name"].default_value = "vm_roofgen"
     st_rg.inputs["Value"].default_value = 1.0
+    st_df = b.N("GeometryNodeStoreNamedAttribute", (4100, -1500), data_type="FLOAT", domain="FACE")
+    b.L(st_rg.outputs["Geometry"], st_df.inputs["Geometry"])
+    st_df.inputs["Name"].default_value = "vm_roofgen"
+    st_df.inputs["Value"].default_value = 0.0
+    df_rd = b.N("GeometryNodeInputNamedAttribute", (3950, -1650))
+    df_rd.data_type = "FLOAT"
+    df_rd.inputs["Name"].default_value = "vm_dfront"
+    df_cmp = b.N("FunctionNodeCompare", (4100, -1650), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(df_rd.outputs["Attribute"], df_cmp.inputs["A"])
+    df_cmp.inputs["B"].default_value = 0.5
+    b.L(df_cmp.outputs["Result"], st_df.inputs["Selection"])
+    # the front wall gets vertices of its own: later layers carry face
+    # attributes over to points (averaged at shared corners), and its 0 / 1
+    # flags must read back exact
+    df_e = b.N("GeometryNodeInputNamedAttribute", (4100, -1750))
+    df_e.data_type = "FLOAT"
+    df_e.inputs["Name"].default_value = "vm_dfront"
+    df_ecmp = b.N("FunctionNodeCompare", (4250, -1750), data_type="FLOAT", operation="GREATER_THAN")
+    b.L(df_e.outputs["Attribute"], df_ecmp.inputs["A"])
+    df_ecmp.inputs["B"].default_value = 0.25
+    df_split = b.N("GeometryNodeSplitEdges", (4250, -1500))
+    b.L(st_df.outputs["Geometry"], df_split.inputs["Mesh"])
+    b.L(df_ecmp.outputs["Result"], df_split.inputs["Selection"])
 
     # ---------------- v2.6 FLAT CAP branch ----------------
     # Every up-facing top WITHOUT a gable (and ALL tops in Flat style) gets a
@@ -7070,9 +7568,11 @@ def build_roofcap_group():
 
     join = b.N("GeometryNodeJoinGeometry", (4800, -1300))
     b.L(gi.outputs["Geometry"], join.inputs["Geometry"])
-    b.L(st_rg.outputs["Geometry"], join.inputs["Geometry"])
+    b.L(df_split.outputs["Mesh"], join.inputs["Geometry"])
     b.L(st_cap.outputs["Geometry"], join.inputs["Geometry"])
     b.L(st_cone.outputs["Geometry"], join.inputs["Geometry"])
+    if getattr(add_dormers, "dbg", None) is not None:
+        b.L(add_dormers.dbg, join.inputs["Geometry"])
     b.L(join.outputs["Geometry"], go.inputs["Geometry"])
 
     # ---- v2.7 About panel (appended LAST -> v2.5/v2.6 identifiers unchanged,
@@ -7098,6 +7598,29 @@ def build_roofcap_group():
            "Built Roof: slab thickness of the slopes (world meters)")
     b.L(gi.outputs["Built Roof"], built_in.inputs[0])
     b.L(gi.outputs["Roof Thickness"], thick_in.inputs[0])
+    # v2.22: dormers - created after every older socket (identifier order)
+    p_dm = b.panel("Dormers", "Gable (v2.22): dormers with a window, out of slopes steep enough to hold them")
+    b.sock("Dormers", "NodeSocketBool", p_dm, True,
+           desc="v2.22: dormers along every Gable slope that is steep enough to hold one under its "
+                "ridge (and at least 'Dormer Min Pitch'); the window layer puts a window in each")
+    b.sock("Dormer Min Pitch", "NodeSocketFloat", p_dm, math.radians(40.0), 0.0, math.radians(89.0),
+           "ANGLE", "No dormers on roofs flatter than this")
+    b.sock("Dormer Spacing", "NodeSocketFloat", p_dm, 2.8, 0.5, 100.0, "DISTANCE",
+           "Wall meters per dormer along the slope (count = floor(wall length / this))")
+    b.sock("Dormer Width", "NodeSocketFloat", p_dm, 1.2, 0.4, 10.0, "DISTANCE",
+           "Width of a dormer's front wall (world m)")
+    b.sock("Dormer Height", "NodeSocketFloat", p_dm, 1.1, 0.3, 10.0, "DISTANCE",
+           "Height of a dormer's front wall from the slope to its eave (world m)")
+    b.sock("Dormer Setback", "NodeSocketFloat", p_dm, 0.25, 0.0, 10.0, "DISTANCE",
+           "How far the dormer front sits back from the wall below (world m)")
+    b.sock("Dormer Pitch", "NodeSocketFloat", p_dm, math.radians(40.0), math.radians(5.0),
+           math.radians(80.0), "ANGLE", "Pitch of the dormers' own little gable roofs")
+    b.sock("Dormer Chance", "NodeSocketFloat", p_dm, 1.0, 0.0, 1.0, "FACTOR",
+           "Share of the dormer places that get one (1 = every place)")
+    b.sock("Dormer Seed", "NodeSocketInt", p_dm, 0, 0, 100000, desc="Another pick of which places get one")
+    b.L(gi.outputs["Dormers"], dm_on.inputs[0])
+    for _nm, _n in dm_nodes.items():
+        b.L(gi.outputs[_nm], _n.inputs[0])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -11659,6 +12182,62 @@ def main():
           f"partly broken points {rs_off[2]}")
     results["roof_half_v221"] = dict(rafters=rs_on[0], out=rs_on[1], kept=rs_on[2], past=rs_on[3])
     bpy.data.objects.remove(fx_w)
+
+    # ---- v2.22: DORMERS out of a steep gable roof, a window in each
+    fx_d = fx_cube("FreshD", 34.0)
+    fx_d.data.transform(Matrix.Diagonal((3.0, 2.25, 1.5, 1.0)))   # a 6 x 4.5 x 3 m house
+    bpy.ops.vm.apply_preset(preset="lib:Base - Gable roof")
+    rc_d = fx_d.modifiers["VM_RoofCap"]
+    win_d = {o.name for o in bpy.data.collections["VM_Windows"].all_objects}
+    shk_d = {o.name for o in bpy.data.collections["VM_Tiles_Shingle"].all_objects}
+
+    def dormer_scan():
+        fx_d.update_tag()
+        dg_d = bpy.context.evaluated_depsgraph_get()
+        dg_d.update()
+        top_ = max((fx_d.matrix_world @ v_.co).z for v_ in fx_d.data.vertices)
+        wins_, shk_ = [], []
+        for inst in dg_d.object_instances:
+            if not (inst.is_instance and inst.parent is not None and inst.parent.original == fx_d):
+                continue
+            m_ = inst.matrix_world.copy()
+            if inst.object.name in win_d and m_.translation.z > top_ - 0.05:
+                wins_.append(m_)
+            elif inst.object.name in shk_d:
+                shk_.append(m_.translation.copy())
+        ev_ = fx_d.evaluated_get(dg_d)
+        bvh_ = BVHTree.FromObject(ev_, dg_d)
+        upright, open_, inside = 0, 0, 0
+        for m_ in wins_:
+            up_ = m_.col[2].to_3d().normalized()
+            n_ = m_.col[1].to_3d().normalized()
+            sz_ = m_.col[2].to_3d().length
+            upright += int(up_.z > 0.95)
+            c_ = m_.translation + up_ * 0.9 * sz_          # the middle of the window
+            hit_ = bvh_.ray_cast(c_ + n_ * 1.0, -n_, 20.0)
+            open_ += int(hit_[0] is None or hit_[3] > 1.25)   # >= 25 cm in past the front
+            # roof shakes left INSIDE the dormer, behind its window
+            for t_ in shk_:
+                r_ = t_ - m_.translation
+                if abs(r_.dot(m_.col[0].to_3d().normalized())) < 0.35 and -0.6 < r_.dot(n_) < -0.08                         and 0.05 < r_.z < 1.6 * sz_:
+                    inside += 1
+        return len(wins_), upright, open_, inside
+    set_params(rc_d, rc_d.node_group, {"Pitch": math.radians(48.0)})
+    ds_on = dormer_scan()
+    set_params(rc_d, rc_d.node_group, {"Pitch": math.radians(35.0)})
+    ds_flat = dormer_scan()
+    set_params(rc_d, rc_d.node_group, {"Pitch": math.radians(48.0), "Dormers": False})
+    ds_off = dormer_scan()
+    check("v2.22(dormers): a Gable roof steep enough (>= Dormer Min Pitch) grows DORMERS along both slopes - "
+          "each with an upright window cut through its front wall and no roof shakes left inside it; a "
+          "35 deg roof or Dormers off has none",
+          ds_on[0] >= 4 and ds_on[1] == ds_on[0] and ds_on[2] == ds_on[0] and ds_on[3] == 0
+          and ds_flat[0] == 0 and ds_off[0] == 0,
+          f"48 deg: dormer windows {ds_on[0]} (upright {ds_on[1]}, open through the wall {ds_on[2]}, "
+          f"shakes inside {ds_on[3]}); 35 deg: {ds_flat[0]}; Dormers off: {ds_off[0]}")
+    results["dormers_v222"] = dict(windows=ds_on[0], upright=ds_on[1], open=ds_on[2], inside=ds_on[3],
+                                   flat=ds_flat[0], off=ds_off[0])
+    bpy.data.objects.remove(fx_d)
 
     # ---- v2.10: UPDATE an older engine in place - settings survive
     planks_a = fx_a.modifiers["VM_SceneDetailer_Planks"]
