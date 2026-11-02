@@ -217,7 +217,13 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.22"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.23"   # the ONE version label: About sockets, descriptions, checks, add-on
+# v2.23 doors set INTO the wall (world m): the leaf front this far behind the
+# wall face, a gap round the leaf in its hole, and the casing boards round it
+DOOR_RECESS, DOOR_GAP = 0.03, 0.01
+DOOR_SILL_CUT = 0.1   # the door hole runs this far below the threshold (no board under it)
+CASING_W, CASING_HEAD, CASING_T = 0.09, 0.12, 0.025
+RAKE_W = 0.17   # v2.23 rake boards along sloped wall edges (world m)
 ASSETS_PATH = os.path.join(ROOT, "VM_Assets.blend")   # v2.7: asset-browser package
 STAGE = os.path.join(ROOT, "assets")
 
@@ -4428,10 +4434,14 @@ def build_node_group():
     # corner, bisector -> +Y after the 45 deg turn
     e_st = em("ADD", eo, et)                                    # s + t
     e_full = em("ADD", e_st, ew)                                # w + s + t
-    e_cy = em("MULTIPLY", em("SUBTRACT", e_st, ew), 0.5)        # (s + t - w) / 2
-    e_cx = em("ADD", eo, em("MULTIPLY", et, 0.5))               # s + t/2
+    # v2.23 three blocks that only TOUCH (overlapping boxes shaded black where
+    # one's face lay inside the other - the dark X on a ridge cap's end), each
+    # solid down to the faces (no hollow under the legs seen end-on at a
+    # gable): leg A on face x=0, leg B on face y=0, the corner block between
+    e_hw = em("MULTIPLY", ew, -0.5)                             # -w/2
+    e_hs = em("MULTIPLY", e_st, 0.5)                            # (s + t)/2
     legs = []
-    for sx_, sy_, tx_, ty_ in ((et, e_full, e_cx, e_cy), (e_full, et, e_cy, e_cx)):
+    for sx_, sy_, tx_, ty_ in ((e_st, ew, e_hs, e_hw), (ew, e_st, e_hw, e_hs), (e_st, e_st, e_hs, e_hs)):
         cs = b.N("ShaderNodeCombineXYZ", (5400, -6600))
         b.L(sx_, cs.inputs["X"]); b.L(sy_, cs.inputs["Y"]); cs.inputs["Z"].default_value = 1.0
         cube = b.N("GeometryNodeMeshCube", (5550, -6600))
@@ -4664,7 +4674,9 @@ def build_node_group():
         n_ = b.N("ShaderNodeVectorMath", random_loc(), operation=op)
         b.L(a_, n_.inputs[0])
         sk_ = n_.inputs["Scale"] if op == "SCALE" else n_.inputs[1]
-        if isinstance(b_, (int, float)):               # a constant scale
+        if b_ is None:                                 # a one-operand op
+            pass
+        elif isinstance(b_, (int, float)):             # a constant scale
             sk_.default_value = b_
         else:
             b.L(b_, sk_)
@@ -4717,6 +4729,137 @@ def build_node_group():
         n_ = b.N("FunctionNodeBooleanMath", random_loc(), operation="NOT")
         b.L(a_, n_.inputs[0])
         return n_.outputs["Boolean"]
+
+    # ---- v2.23 RAKE BOARDS (the user's 'above the windows the planks don't
+    # cover all of the wall'): a course is cut to the outline's narrower width
+    # (at its bottom or its top), so along a SLOPED edge of a wall - a gable's
+    # rake, a dormer front's, a dormer cheek on the roof - the courses step and
+    # leave triangles of bare wall. With Edge Boards on, a flat board lies on
+    # the siding along every sloped edge where the zone's wall ends, RAKE_W
+    # wide (it covers the steps of a course up to ~0.2 m high).
+    def sxyz(v_):
+        n_ = b.N("ShaderNodeSeparateXYZ", random_loc())
+        b.L(v_, n_.inputs["Vector"])
+        return n_.outputs["X"], n_.outputs["Y"], n_.outputs["Z"]
+    r_n = b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"]
+    r_chain = st_ez.outputs["Geometry"]
+    for nm_, val_ in (("vm_rkzn", vsw(zone_sel, v3(0.0, 0.0, 0.0), r_n)),
+                      ("vm_rkzc", vsw(zone_sel, v3(0.0, 0.0, 0.0),
+                                     b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]))):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="FACE")
+        b.L(r_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        r_chain = st_.outputs["Geometry"]
+    r_ez = dnamed("vm_ez", "FLOAT")
+    r_den = em("MAXIMUM", r_ez, 0.01)
+    for nm_, val_ in (("vm_rkn", vmath("SCALE", dnamed("vm_rkzn", "FLOAT_VECTOR"), em("DIVIDE", 1.0, r_den))),
+                      ("vm_rkc", vmath("SCALE", dnamed("vm_rkzc", "FLOAT_VECTOR"), em("DIVIDE", 1.0, r_den))),
+                      ("vm_ep1", ev_n.outputs["Position 1"]), ("vm_ep2", ev_n.outputs["Position 2"])):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="EDGE")
+        b.L(r_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        r_chain = st_.outputs["Geometry"]
+    r_d = vmath("SUBTRACT", ev_n.outputs["Position 2"], ev_n.outputs["Position 1"])
+    r_dz = em("DIVIDE", em("ABSOLUTE", sxyz(r_d)[2]), em("MAXIMUM", vmath("LENGTH", r_d, None, out="Value"), 1e-6))
+    r_one = bor(tand(tcmp("GREATER_THAN", r_ez, 0.25), tcmp("LESS_THAN", r_ez, 0.75)),
+                tand(tcmp("GREATER_THAN", r_ez, 0.99), tcmp("LESS_THAN", e_nb.outputs["Face Count"], 1.5)))
+    r_sel = tand(tand(e_on.outputs["Boolean"], r_one),
+                 tand(tand(tcmp("GREATER_THAN", r_dz, 0.12), tcmp("LESS_THAN", r_dz, 0.985)),
+                      tcmp("LESS_THAN", em("ABSOLUTE", sxyz(dnamed("vm_rkn", "FLOAT_VECTOR"))[2]), 0.35)))
+    r_pts = b.N("GeometryNodeMeshToPoints", random_loc())
+    r_pts.mode = "EDGES"
+    b.L(r_chain, r_pts.inputs["Mesh"])
+    rp1, rp2 = dnamed("vm_ep1", "FLOAT_VECTOR"), dnamed("vm_ep2", "FLOAT_VECTOR")
+    rn_ = vmath("NORMALIZE", dnamed("vm_rkn", "FLOAT_VECTOR"), None)
+    rd_ = vmath("SUBTRACT", rp2, rp1)
+    rdn = vmath("NORMALIZE", rd_, None)
+    r_mid = vmath("SCALE", vmath("ADD", rp1, rp2), 0.5)
+    # across the board, in the wall, INTO the wall face (towards its centre)
+    r_x = vmath("NORMALIZE", vmath("CROSS_PRODUCT", rn_, rdn), None)
+    r_in = tcmp("GREATER_THAN", vmath("DOT_PRODUCT", r_x, vmath("SUBTRACT", dnamed("vm_rkc", "FLOAT_VECTOR"), r_mid),
+                                      out="Value"), 0.0)
+    r_p = vmath("SCALE", r_x, tsw(r_in, -1.0, 1.0))
+    # ... a real wall: not the thin end strip of a roof slab (a gable's barge
+    # strip is wall-like too, its centre half a Roof Thickness off its edge)
+    r_far = tcmp("GREATER_THAN", em("MULTIPLY", em("ABSOLUTE", vmath(
+        "DOT_PRODUCT", r_x, vmath("SUBTRACT", dnamed("vm_rkc", "FLOAT_VECTOR"), r_mid), out="Value")), geo_f), 0.12)
+    b.L(tand(r_sel, r_far), r_pts.inputs["Selection"])
+    r_w = em("DIVIDE", RAKE_W, geo_f)
+    # the two rakes of a gable overlap at the apex: one lies a hair proud
+    r_up = tcmp("GREATER_THAN", vmath("DOT_PRODUCT", r_p, vmath("CROSS_PRODUCT", rn_, v3(0.0, 0.0, 1.0)), out="Value"), 0.0)
+    r_off = em("ADD", em("ADD", eo, em("MULTIPLY", et, 0.5)), tsw(r_up, 0.0, 0.003))
+    r_c = vmath("ADD", r_mid, vmath("ADD", vmath("SCALE", r_p, em("MULTIPLY", r_w, 0.5)), vmath("SCALE", rn_, r_off)))
+    r_ax = b.N("FunctionNodeAlignRotationToVector", random_loc())
+    r_ax.axis = "X"
+    b.L(rdn, r_ax.inputs["Vector"])
+    r_az = b.N("FunctionNodeAlignRotationToVector", random_loc())
+    r_az.axis = "Z"; r_az.pivot_axis = "X"
+    b.L(r_ax.outputs["Rotation"], r_az.inputs["Rotation"])
+    b.L(rn_, r_az.inputs["Vector"])
+    r_chain2 = r_pts.outputs["Points"]
+    rk_hi = tcmp("GREATER_THAN", sxyz(rp2)[2], sxyz(rp1)[2])
+    rk_t = vsw(rk_hi, rp1, rp2)
+    rk_du = vmath("NORMALIZE", vmath("SUBTRACT", rk_t, vsw(rk_hi, rp2, rp1)), None)
+    rk_hz = vmath("NORMALIZE", vmath("CROSS_PRODUCT", rn_, v3(0.0, 0.0, 1.0)), None)
+    rk_hd = vmath("SCALE", rk_hz, tsw(tcmp("GREATER_THAN", vmath("DOT_PRODUCT", rk_hz, rk_du, out="Value"), 0.0), -1.0, 1.0))
+    for nm_, val_ in (("vm_rkd", rdn), ("vm_rka", r_p), ("vm_rkm", rn_),
+                      ("vm_rkt", rk_t), ("vm_rku", rk_du), ("vm_rkh", rk_hd)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+        b.L(r_chain2, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        r_chain2 = st_.outputs["Geometry"]
+    r_rot_st = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="QUATERNION", domain="POINT")
+    b.L(r_chain2, r_rot_st.inputs["Geometry"])
+    r_rot_st.inputs["Name"].default_value = "vm_rkr"
+    b.L(r_az.outputs["Rotation"], r_rot_st.inputs["Value"])
+    r_sz_st = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(r_rot_st.outputs["Geometry"], r_sz_st.inputs["Geometry"])
+    r_sz_st.inputs["Name"].default_value = "vm_rks"
+    b.L(v3(vmath("LENGTH", rd_, None, out="Value"), r_w, et), r_sz_st.inputs["Value"])
+    r_mv = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(r_sz_st.outputs["Geometry"], r_mv.inputs["Geometry"])
+    b.L(r_c, r_mv.inputs["Position"])
+    r_cube = b.N("GeometryNodeMeshCube", random_loc())
+    r_cube.inputs["Size"].default_value = (1.0, 1.0, 1.0)
+    r_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(r_mv.outputs["Geometry"], r_iop.inputs["Points"])
+    b.L(r_cube.outputs["Mesh"], r_iop.inputs["Instance"])
+    b.L(dnamed("vm_rkr", "QUATERNION"), r_iop.inputs["Rotation"])
+    b.L(dnamed("vm_rks", "FLOAT_VECTOR"), r_iop.inputs["Scale"])
+    r_real0 = b.N("GeometryNodeRealizeInstances", random_loc())
+    b.L(r_iop.outputs["Instances"], r_real0.inputs["Geometry"])
+    # the upper end is cut PLUMB (a gable's two rakes meet in a vertical
+    # joint at the apex, not overlapping): a corner past the vertical plane
+    # through the edge's top slides back along the board onto it
+    rk_top = dnamed("vm_rkt", "FLOAT_VECTOR")
+    rk_dup, rk_h = dnamed("vm_rku", "FLOAT_VECTOR"), dnamed("vm_rkh", "FLOAT_VECTOR")
+    rk_rp = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    rk_s = em("MAXIMUM", vmath("DOT_PRODUCT", vmath("SUBTRACT", rk_rp, rk_top), rk_h, out="Value"), 0.0)
+    rk_mv = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(r_real0.outputs["Geometry"], rk_mv.inputs["Geometry"])
+    b.L(vmath("SCALE", rk_dup, em("DIVIDE", em("MULTIPLY", rk_s, -1.0),
+                                  em("MAXIMUM", vmath("DOT_PRODUCT", rk_dup, rk_h, out="Value"), 0.05))),
+        rk_mv.inputs["Offset"])
+    r_real = rk_mv
+    r_pp = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    r_uv = v3(em("MULTIPLY", vmath("DOT_PRODUCT", r_pp, dnamed("vm_rkd", "FLOAT_VECTOR"), out="Value"), geo_f),
+              em("MULTIPLY", em("ADD", vmath("DOT_PRODUCT", r_pp, dnamed("vm_rka", "FLOAT_VECTOR"), out="Value"),
+                                vmath("DOT_PRODUCT", r_pp, dnamed("vm_rkm", "FLOAT_VECTOR"), out="Value")), geo_f), 0.0)
+    r_uvs = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT2", domain="CORNER")
+    b.L(r_real.outputs["Geometry"], r_uvs.inputs["Geometry"])
+    r_uvs.inputs["Name"].default_value = "UVMap"
+    b.L(r_uv, r_uvs.inputs["Value"])
+    r_mat = b.N("GeometryNodeSetMaterial", random_loc())
+    b.L(r_uvs.outputs["Geometry"], r_mat.inputs["Geometry"])
+    b.L(gi.outputs["Edge Board Material"], r_mat.inputs["Material"])
+    r_tr = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="FACE")
+    b.L(r_mat.outputs["Geometry"], r_tr.inputs["Geometry"])
+    r_tr.inputs["Name"].default_value = "vm_trim"
+    r_tr.inputs["Value"].default_value = 1.0
+    b.L(r_tr.outputs["Geometry"], join_all.inputs["Geometry"])
     # ---- v2.20 NO LONE BOARDS (the user's 'the boards ARE the wall - where
     # they are gone you see inside, and no single plank may float'). The
     # cutting layer now opens the wall wherever a board is gone, so a board
@@ -5177,11 +5320,6 @@ def build_node_group():
 
     def vmul(a_, b_):
         return vmath("MULTIPLY", a_, b_)
-
-    def sxyz(v_):
-        n_ = b.N("ShaderNodeSeparateXYZ", random_loc())
-        b.L(v_, n_.inputs["Vector"])
-        return n_.outputs["X"], n_.outputs["Y"], n_.outputs["Z"]
     # one point per new opening, at its cut box centre
     o_pts = b.N("GeometryNodeInstancesToPoints", random_loc())
     b.L(c_inst, o_pts.inputs["Instances"])
@@ -5195,13 +5333,21 @@ def build_node_group():
     o_hi = vmul(dnamed("vm_obmax", "FLOAT_VECTOR"), dnamed("vm_oscl", "FLOAT_VECTOR"))
     lx, _ly, lz = sxyz(o_lo)
     hx, _hy, hz = sxyz(o_hi)
-    ins_l = em("DIVIDE", gi.outputs["Opening Inset"], geo_f)
-    dep_l = em("DIVIDE", gi.outputs["Wall Depth"], geo_f)
+    # v2.23 a DOOR (tall opening) is a bare leaf, not a framed prop: its hole
+    # is the leaf plus a 1 cm gap (and down past the threshold), deep enough
+    # to take the leaf set back into the wall (below), and it gets a casing
+    o_dr = tcmp("GREATER_THAN", em("SUBTRACT", hz, lz), em("MULTIPLY", em("SUBTRACT", hx, lx), 1.8))
+    dr_set = em("ADD", _hy, em("DIVIDE", em("ADD", em("SUBTRACT", gi.outputs["Backing Offset"], gi.outputs["Embed"]),
+                                            DOOR_RECESS), geo_f))
+    ins_l = tsw(o_dr, em("DIVIDE", gi.outputs["Opening Inset"], geo_f), em("DIVIDE", -DOOR_GAP, geo_f))
+    ins_z = tsw(o_dr, ins_l, em("DIVIDE", -0.5 * (DOOR_GAP + DOOR_SILL_CUT), geo_f))
+    dep_l = tsw(o_dr, em("DIVIDE", gi.outputs["Wall Depth"], geo_f),
+                em("MAXIMUM", em("DIVIDE", gi.outputs["Wall Depth"], geo_f), em("ADD", dr_set, em("DIVIDE", 0.03, geo_f))))
     out_l = em("DIVIDE", 0.05, geo_f)
     o_hu = em("MAXIMUM", em("SUBTRACT", em("MULTIPLY", em("SUBTRACT", hx, lx), 0.5), ins_l), 0.001)
-    o_hz = em("MAXIMUM", em("SUBTRACT", em("MULTIPLY", em("SUBTRACT", hz, lz), 0.5), ins_l), 0.001)
+    o_hz = em("MAXIMUM", em("SUBTRACT", em("MULTIPLY", em("SUBTRACT", hz, lz), 0.5), ins_z), 0.001)
     o_ctr_l = v3(em("MULTIPLY", em("ADD", lx, hx), 0.5), em("MULTIPLY", em("SUBTRACT", out_l, dep_l), 0.5),
-                 em("MULTIPLY", em("ADD", lz, hz), 0.5))
+                 em("ADD", em("MULTIPLY", em("ADD", lz, hz), 0.5), tsw(o_dr, 0.0, em("DIVIDE", 0.5 * (DOOR_GAP - DOOR_SILL_CUT), geo_f))))
     o_pos = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
     o_ctr = vmath("ADD", o_pos, rot(o_ctr_l, o_rot))
     o_chain = o_pts.outputs["Points"]
@@ -5402,6 +5548,20 @@ def build_node_group():
         b.L(drop_.outputs["Geometry"], j_.inputs["Geometry"])
         return j_.outputs["Geometry"]
     c_tiles = trim_pass(trim_pass(c_inst))
+    # v2.23 the door leaf goes INTO its hole: its front DOOR_RECESS behind the
+    # wall face (it stood on the siding, its back on the backing plane)
+    dl_lo = sxyz(vmul(dnamed("vm_obmin", "FLOAT_VECTOR"), dnamed("vm_oscl", "FLOAT_VECTOR")))
+    dl_hi = sxyz(vmul(dnamed("vm_obmax", "FLOAT_VECTOR"), dnamed("vm_oscl", "FLOAT_VECTOR")))
+    dl_is = tand(is_new, tcmp("GREATER_THAN", em("SUBTRACT", dl_hi[2], dl_lo[2]),
+                              em("MULTIPLY", em("SUBTRACT", dl_hi[0], dl_lo[0]), 1.8)))
+    dl_set = em("ADD", dl_hi[1], em("DIVIDE", em("ADD", em("SUBTRACT", gi.outputs["Backing Offset"], gi.outputs["Embed"]),
+                                                 DOOR_RECESS), geo_f))
+    dl_tr = b.N("GeometryNodeTranslateInstances", random_loc())
+    b.L(c_tiles, dl_tr.inputs["Instances"])
+    b.L(dl_is, dl_tr.inputs["Selection"])
+    b.L(rot(v3(0.0, em("MULTIPLY", dl_set, -1.0), 0.0), i_rot), dl_tr.inputs["Translation"])
+    dl_tr.inputs["Local Space"].default_value = False
+    c_tiles = dl_tr.outputs["Instances"]
     c_done = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
     b.L(c_tiles, c_done.inputs["Geometry"])
     c_done.inputs["Name"].default_value = "vm_cutdone"
@@ -5732,6 +5892,68 @@ def build_node_group():
             b.ng.links.remove(lk)
     b.L(material_gate(b, c_walls, gi.outputs["Interior Material"], is_hole, random_loc()),
         c_join.inputs["Geometry"])
+    # v2.23 DOOR CASING: two side boards and a head board (Jamb Material) on
+    # the siding round every door this layer cut - they hide the cut board
+    # ends and frame the leaf set back in its hole - and a sill from the leaf
+    # out to the casing's face (over the floor's ends under the door). A door whose wall is gone
+    # (it went with its wall above) takes its casing with it.
+    cs_ucx = em("MULTIPLY", em("ADD", lx, hx), 0.5)
+    cs_hu = em("ADD", em("MULTIPLY", em("SUBTRACT", hx, lx), 0.5), em("DIVIDE", DOOR_GAP, geo_f))
+    cs_top = em("ADD", hz, em("DIVIDE", DOOR_GAP, geo_f))
+    cs_w, cs_h = em("DIVIDE", CASING_W, geo_f), em("DIVIDE", CASING_HEAD, geo_f)
+    cs_t = em("DIVIDE", CASING_T, geo_f)
+    cs_ear = em("DIVIDE", 0.02, geo_f)
+    cs_cube = b.N("GeometryNodeMeshCube", random_loc())
+    cs_cube.inputs["Size"].default_value = (1.0, 1.0, 1.0)
+    cs_back = em("DIVIDE", em("ADD", em("SUBTRACT", gi.outputs["Backing Offset"], gi.outputs["Embed"]), DOOR_RECESS), geo_f)
+    cs_join = b.N("GeometryNodeJoinGeometry", random_loc())
+    cs_ty, cs_tc = cs_t, em("MULTIPLY", cs_t, 0.5)
+    for k_, (cx_, cz_, sx_, sz_, sy_, cy_) in enumerate((
+            (em("SUBTRACT", cs_ucx, em("ADD", cs_hu, em("MULTIPLY", cs_w, 0.5))), em("MULTIPLY", em("ADD", lz, cs_top), 0.5),
+             cs_w, em("SUBTRACT", cs_top, lz), cs_ty, cs_tc),
+            (em("ADD", cs_ucx, em("ADD", cs_hu, em("MULTIPLY", cs_w, 0.5))), em("MULTIPLY", em("ADD", lz, cs_top), 0.5),
+             cs_w, em("SUBTRACT", cs_top, lz), cs_ty, cs_tc),
+            (cs_ucx, em("ADD", cs_top, em("MULTIPLY", cs_h, 0.5)),
+             em("MULTIPLY", em("ADD", cs_hu, em("ADD", cs_w, cs_ear)), 2.0), cs_h, cs_ty, cs_tc),
+            (cs_ucx, em("ADD", lz, em("DIVIDE", -0.005, geo_f)), em("MULTIPLY", cs_hu, 2.0), em("DIVIDE", 0.07, geo_f),
+             em("ADD", cs_t, cs_back), em("MULTIPLY", em("SUBTRACT", cs_t, cs_back), 0.5)))):
+        cs_mv = b.N("GeometryNodeSetPosition", random_loc())
+        b.L(o_cloud, cs_mv.inputs["Geometry"])
+        b.L(vmath("ADD", o_pos, rot(v3(cx_, cy_, cz_), o_rot)), cs_mv.inputs["Position"])
+        cs_k = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="POINT")
+        b.L(cs_mv.outputs["Geometry"], cs_k.inputs["Geometry"])
+        cs_k.inputs["Name"].default_value = "vm_casing"
+        cs_k.inputs["Value"].default_value = 1.0 if k_ < 2 else 2.0      # 2 = grain along the wall
+        cs_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+        b.L(cs_k.outputs["Geometry"], cs_iop.inputs["Points"])
+        b.L(o_dr, cs_iop.inputs["Selection"])
+        b.L(cs_cube.outputs["Mesh"], cs_iop.inputs["Instance"])
+        b.L(o_rot, cs_iop.inputs["Rotation"])
+        b.L(v3(sx_, sy_, sz_), cs_iop.inputs["Scale"])
+        b.L(cs_iop.outputs["Instances"], cs_join.inputs["Geometry"])
+    cs_real = b.N("GeometryNodeRealizeInstances", random_loc())
+    b.L(cs_join.outputs["Geometry"], cs_real.inputs["Geometry"])
+    # wood UVs in meters, the grain up the side boards and along the head
+    cs_head = tcmp("GREATER_THAN", dnamed("vm_casing", "FLOAT"), 1.5)
+    cs_p = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    cs_cu, cs_cup = dnamed("vm_cu", "FLOAT_VECTOR"), dnamed("vm_cup", "FLOAT_VECTOR")
+    cs_uv = v3(em("MULTIPLY", vmath("DOT_PRODUCT", cs_p, vsw(cs_head, cs_cup, cs_cu), out="Value"), geo_f),
+               em("MULTIPLY", em("ADD", vmath("DOT_PRODUCT", cs_p, vsw(cs_head, cs_cu, cs_cup), out="Value"),
+                                 vmath("DOT_PRODUCT", cs_p, dnamed("vm_cn", "FLOAT_VECTOR"), out="Value")), geo_f), 0.0)
+    cs_st = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT2", domain="CORNER")
+    b.L(cs_real.outputs["Geometry"], cs_st.inputs["Geometry"])
+    cs_st.inputs["Name"].default_value = "UVMap"
+    b.L(cs_uv, cs_st.inputs["Value"])
+    cs_gone = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="FACE")
+    b.L(cs_st.outputs["Geometry"], cs_gone.inputs["Geometry"])
+    b.L(og_near(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
+                em("DIVIDE", 0.25, geo_f), em("DIVIDE", 0.25, geo_f)), cs_gone.inputs["Selection"])
+    cs_tr = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="FACE")
+    b.L(cs_gone.outputs["Geometry"], cs_tr.inputs["Geometry"])
+    cs_tr.inputs["Name"].default_value = "vm_trim"
+    cs_tr.inputs["Value"].default_value = 1.0
+    b.L(material_gate(b, cs_tr.outputs["Geometry"], gi.outputs["Jamb Material"], bor(cs_head, bnot(cs_head)),
+                      random_loc()), c_join.inputs["Geometry"])
     # holes alone (no opening on the building) also need the cut
     for lk in list(b.ng.links):
         if lk.to_node == c_sw and lk.to_socket.name == "Switch":
@@ -12237,6 +12459,54 @@ def main():
           f"shakes inside {ds_on[3]}); 35 deg: {ds_flat[0]}; Dormers off: {ds_off[0]}")
     results["dormers_v222"] = dict(windows=ds_on[0], upright=ds_on[1], open=ds_on[2], inside=ds_on[3],
                                    flat=ds_flat[0], off=ds_off[0])
+
+    # ---- v2.23: the door is SET INTO the wall (the user's 'the door is
+    # basically just placed on top of the wall') with a casing round it; the
+    # sloped edges of the walls (gable rakes, dormer fronts and cheeks) get a
+    # rake board over the stepped board ends (the user's 'above the windows
+    # the planks don't cover all of the wall')
+    set_params(rc_d, rc_d.node_group, {"Pitch": math.radians(48.0), "Dormers": True})
+    fx_d.update_tag()
+    dg_s = bpy.context.evaluated_depsgraph_get()
+    dg_s.update()
+    door_d = {o.name for o in bpy.data.collections["VM_Doors"].all_objects}
+    base_vs = [fx_d.matrix_world @ v_.co for v_ in fx_d.data.vertices]
+    top_s = max(v_.z for v_ in base_vs)
+    me_s = fx_d.evaluated_get(dg_s).data
+    mw_s = fx_d.matrix_world
+    cas_a = me_s.attributes.get("vm_casing")
+    cas_vs = [mw_s @ me_s.vertices[i_].co for i_, d_ in enumerate(cas_a.data) if d_.value > 0.5] if cas_a else []
+    set_in, cased = [], []
+    for inst in dg_s.object_instances:
+        if not (inst.is_instance and inst.parent is not None and inst.parent.original == fx_d
+                and inst.object.name in door_d):
+            continue
+        m_ = inst.matrix_world.copy()
+        n_ = m_.col[1].to_3d().normalized()
+        y_hi = max(c_[1] for c_ in inst.object.bound_box)
+        front_ = (m_ @ Vector((0.0, y_hi, 0.9))).dot(n_)
+        wall_ = max(v_.dot(n_) for v_ in base_vs)
+        set_in.append(round(front_ - wall_, 3))
+        cased.append(sum(1 for v_ in cas_vs if (v_ - m_.translation).length < 2.6))   # (head ~2 m up)
+    rh_a, rt_a, rn_a = (me_s.attributes.get(nm_) for nm_ in ("vm_rkh", "vm_rkt", "vm_rkm"))
+    rk_v = []
+    if rh_a and rt_a and rn_a:
+        for i_, d_ in enumerate(rh_a.data):
+            if d_.vector.length > 0.5:
+                rk_v.append((me_s.vertices[i_].co.copy(), Vector(d_.vector), Vector(rt_a.data[i_].vector),
+                             Vector(rn_a.data[i_].vector)))
+    past_top = sum(1 for co_, h_, t_, _n in rk_v if (co_ - t_).dot(h_) > 0.002)
+    off_wall = sum(1 for co_, _h, t_, n_ in rk_v if abs((co_ - t_).dot(n_)) > 0.08)
+    rk_roof = sum(1 for co_, *_r in rk_v if (mw_s @ co_).z > top_s + 0.3)
+    check("v2.23(doors set in, rake boards): every door leaf stands IN its hole (its face 1-6 cm behind the "
+          "wall) framed by a casing (2 side boards, a head, a sill); the sloped wall edges carry rake boards "
+          "lying on the wall, cut plumb at the top (none past its apex)",
+          set_in and all(-0.06 <= s_ <= -0.01 for s_ in set_in) and all(c_ >= 32 for c_ in cased)
+          and len(rk_v) >= 64 and rk_roof >= 32 and past_top == 0 and off_wall == 0,
+          f"door faces vs the wall={set_in} m, casing vertices per door={cased}; rake board vertices="
+          f"{len(rk_v)} (above the walls {rk_roof}), past the plumb cut={past_top}, off the wall={off_wall}")
+    results["doors_v223"] = dict(set_in=set_in, casing=cased, rake_vertices=len(rk_v), rake_roof=rk_roof,
+                                 past_top=past_top, off_wall=off_wall)
     bpy.data.objects.remove(fx_d)
 
     # ---- v2.10: UPDATE an older engine in place - settings survive

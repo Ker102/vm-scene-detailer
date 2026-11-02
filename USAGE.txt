@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.22) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.23) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.22) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.23) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,29 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (266 checks: the original 197 kept
-    green + 69 v2.7-v2.22 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (267 checks: the original 197 kept
+    green + 70 v2.7-v2.23 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.23 (2026-11-02) - DOORS SET INTO THE WALL; RAKE BOARDS; CLOSED RIDGE CAPS
+-------------------------------------------------------------------------------
+* Doors: the cutting layer (the add-on's Windows layer, Cut Openings on) now
+  sets every door leaf INTO its hole - its face 3 cm behind the wall, a 1 cm
+  gap round it in the hole - instead of standing it on the siding. A casing
+  frames it: two side boards (9 cm), a head board (12 cm, a little wider)
+  and a sill from the leaf out to the casing's face, all in the Jamb
+  Material. A door whose wall is gone takes its casing with it. Windows are
+  unchanged (their frame is part of the prop).
+* Rake boards: with Edge Boards on, every sloped edge where a clad wall ends
+  - a gable's rake, a dormer front's, a dormer cheek's line on the roof -
+  gets a flat 17 cm board on the siding (Edge Board Material). A course of
+  siding is cut to the narrower width of its triangle, so the courses step
+  along those edges and used to leave triangles of bare wall; the board
+  covers them. The two boards of a gable meet in a plumb joint at the apex.
+* Edge boards (ridge caps, hip caps, corner boards) are solid down to the
+  faces they cover and made of blocks that only touch: seen end-on at a
+  gable a ridge cap was a hollow V with a dark X in it.
 
 v2.22 (2026-11-02) - DORMERS
 -------------------------------------------------------------------------------
@@ -1207,8 +1226,12 @@ in-memory:
     / Half Broken 0 turn both off;
   * v2.22(dormers): a 48 deg Gable roof grows dormers with an upright window
     cut through each front and no roof shakes inside them; at 35 deg or
-    with Dormers off there are none.
-Total for this release: 266 checks, 266 passed (verification_v2.json).
+    with Dormers off there are none;
+  * v2.23(doors set in, rake boards): every door's face stands 1-6 cm behind
+    its wall in a casing (side boards, head, sill); the dormer house's sloped
+    wall edges carry rake boards that lie on the wall and stop at the plumb
+    line through their top.
+Total for this release: 267 checks, 267 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered
