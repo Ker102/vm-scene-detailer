@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.27) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.28) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.27) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.28) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,36 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (271 checks: the original 197 kept
-    green + 74 v2.7-v2.27 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (273 checks: the original 197 kept
+    green + 76 v2.7-v2.28 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.28 (2026-11-03) - WEATHERED DAMAGE, IVY OVER PORCHES AND ROOFS
+-------------------------------------------------------------------------------
+* The worn and broken boards and shakes are weathered for REAL geometry,
+  not flat slabs with a cut outline: ragged, splintered edges, grain
+  grooves, edges worn round, gouges and lost chunks, knot / rot holes right
+  through, rotted soft ends, splits that gape with the split-off strip
+  springing out, and the whole piece warped - bowed, the bottom edge
+  cupping out, a free end curling off the wall (a shake's butt curls up).
+* The board material reads two attributes those pieces carry: vm_wear
+  bleaches weathered wood silver-grey, vm_cut shows paler raw wood in the
+  gouges and at a break. Intact tiles have neither and look as before.
+* Bigger pools: 16 worn boards, 12 broken board pairs, 12 worn shakes,
+  8 broken shake pairs. The worn variants run LIGHT to HEAVY (_01 .. _16):
+  the engine picks heavier ones nearer the damage (a hanging board is a
+  heavy one), so the wear deepens towards a hole instead of an intact
+  board sitting right at its edge.
+* Wear (the band of worn tiles around the damage) now defaults to 0.22
+  (was 0.12) - about twice as many worn tiles around each patch.
+* Ivy roots at porch and balcony posts (and corner boards) too and grows
+  over the porch. A stem that runs up into a soffit or a porch beam now
+  turns outward along it and rounds the edge - with a tall Vine Height the
+  ivy carries on over the eaves onto the roof (it used to die in that
+  corner). Vine Height drives up to 200 growth steps (was 140).
+* Through the chips, bites and knot holes of the worn boards you now see a
+  little more of the sheathing behind (the v2.20 check allows 5 %, was 3 %).
 
 v2.27 (2026-11-03) - EVERY BOARD AND SHAKE VARIANT IS USED
 -------------------------------------------------------------------------------
@@ -327,7 +353,7 @@ v2.13 (2026-10-31) - REAL DAMAGED GEOMETRY, NOTHING FLOATING
   collections VM_Tiles_PlankBroken / VM_Tiles_ShingleBroken, wired to the
   new 'Broken Props' socket). Each piece keeps the tile's nailed end exactly
   where it was. Empty 'Broken Props' = the old cut-short behaviour.
-* WORN tiles: a 'Wear' band just outside the damage (default 0.12) swaps in
+* WORN tiles: a 'Wear' band just outside the damage (default 0.22) swaps in
   full-size worn tiles - end splits running up the grain, chipped corners,
   bites out of the edges (VM_Tiles_PlankWorn / VM_Tiles_ShingleWorn on the new
   'Worn Props' socket). Damage now builds up: intact -> worn -> loose ->
@@ -1320,8 +1346,9 @@ in-memory:
     it), Damage off makes every pane whole;
   * v2.19(vines) / v2.20(ivy): Vines on grows leafy ivy over the building,
     in front of the surfaces and never inside them; Vines off = none;
-  * v2.20(no backing): rays at a damaged wall never stop on a bare wall
-    behind the boards - they go into the building (Wall Holes 0 shows it);
+  * v2.20(no backing): rays at a damaged wall stop on the bare wall behind
+    the boards at most 5 % of the time (the worn boards' chips) - they go
+    into the building (Wall Holes 0 shows that wall);
   * v2.21(roof holes / half broken): the Weathered preset's roof has holes
     with rafters and battens that stay inside the roof, partly broken
     windows have no inner part left past their break line, and Roof Holes 0
@@ -1345,8 +1372,14 @@ in-memory:
   * v2.26(steep roofs): a 62 or 68 deg gable roof carries at least as many
     shakes as a 45 deg one;
   * v2.27(variants): the dormer house's wall and roof courses use all six
-    plank and all six shake variants, none more than twice its fair share.
-Total for this release: 271 checks, 271 passed (verification_v2.json).
+    plank and all six shake variants, none more than twice its fair share;
+  * v2.28(weathered damage): the worn / broken pools are 16 / 12 pairs /
+    12 / 8 pairs, every piece has a dense weathered surface and the
+    vm_wear / vm_cut attributes, the worn variants run light to heavy;
+  * v2.28(ivy porch / roof): on the dormer house with a porch, ivy grows
+    out over the porch (30+ leaves beyond the walls, none without it) and
+    at Vine Height 7 m onto the roof, none there at 2 m.
+Total for this release: 273 checks, 273 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered
