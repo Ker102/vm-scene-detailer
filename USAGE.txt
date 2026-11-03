@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.26) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.27) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.26) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.27) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,28 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (270 checks: the original 197 kept
-    green + 73 v2.7-v2.26 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (271 checks: the original 197 kept
+    green + 74 v2.7-v2.27 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.27 (2026-11-03) - EVERY BOARD AND SHAKE VARIANT IS USED
+-------------------------------------------------------------------------------
+* Fix: with No-Repeat on (the default) every intact wall board, roof shake
+  and floorboard was the FIRST variant of its Primary Props (Plank_01,
+  Shingle_01) - No-Repeat read a pick that only the Slots layout stored.
+  The courses now pick their own: the next board along a course is always
+  a different variant, each course starts at a random one. Over ten houses
+  the six plank and six shake variants each take ~1/6 of the boards; worn
+  and broken pieces were already varied (10/10, 16/16, 8/8, 12/12 used).
+* Tested over an abandoned-house run (build/abandon_cases.py): six copies
+  of one cottage and four other shapes, each with random whole-building or
+  zone damage, missing / broken shares, roof and wall holes, broken and
+  half-broken windows and 15-40 vines. Every copy came out different; a
+  zone concentrates its damage (24-39 % of the boards missing and 29-48 %
+  worn or broken inside it, ~0-2 % outside); ivy keeps to the walls (no
+  leaf more than 30 cm off the building) and under Vine Height; no board,
+  shake, door or window floats off the building.
 
 v2.26 (2026-11-02) - STEEP ROOFS ARE CLAD
 -------------------------------------------------------------------------------
@@ -1325,8 +1343,10 @@ in-memory:
     a different set of pieces (Posts reach the ground, Brackets stay up on
     the wall); Balcony off has none;
   * v2.26(steep roofs): a 62 or 68 deg gable roof carries at least as many
-    shakes as a 45 deg one.
-Total for this release: 270 checks, 270 passed (verification_v2.json).
+    shakes as a 45 deg one;
+  * v2.27(variants): the dormer house's wall and roof courses use all six
+    plank and all six shake variants, none more than twice its fair share.
+Total for this release: 271 checks, 271 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

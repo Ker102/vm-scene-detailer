@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.26"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.27"   # the ONE version label: About sockets, descriptions, checks, add-on
 # v2.23 doors set INTO the wall (world m): the leaf front this far behind the
 # wall face, a gap round the leaf in its hole, and the casing boards round it
 DOOR_RECESS, DOOR_GAP = 0.03, 0.01
@@ -3515,7 +3515,32 @@ def build_node_group():
     del_c = b.N("GeometryNodeDeleteGeometry", (4250, -2200), domain="POINT")
     b.L(st_cd.outputs["Geometry"], del_c.inputs["Geometry"])
     b.L(not_keep.outputs["Boolean"], del_c.inputs["Selection"])
-    clad_geo = del_c.outputs["Geometry"]
+    # v2.27 No-Repeat for the courses too: the instance pick reads vm_pick
+    # whenever No-Repeat is on, and only the Slots branch stored it - every
+    # cladding tile picked variant 0. A cycle like the slots' (col +
+    # a random offset per course + the column): the boards along a course
+    # never repeat, the course above / below only by chance (a fixed stride
+    # aliases with the stagger - every other course repeated diagonally)
+    cpk_id = b.N("ShaderNodeMath", random_loc(), operation="MULTIPLY_ADD")
+    b.L(named("vm_fi"), cpk_id.inputs[0])
+    cpk_id.inputs[1].default_value = 1009.0
+    b.L(gj_v, cpk_id.inputs[2])
+    cpk_r = b.N("FunctionNodeRandomValue", random_loc(), data_type="INT")
+    cpk_r.inputs["Min"].default_value = 0
+    cpk_r.inputs["Max"].default_value = 250
+    b.L(cpk_id.outputs["Value"], cpk_r.inputs["ID"])
+    b.L(gi.outputs["Seed"], cpk_r.inputs["Seed"])
+    cpk_c = b.N("ShaderNodeMath", random_loc(), operation="ADD")
+    b.L(gi_v, cpk_c.inputs[0])
+    b.L(cpk_r.outputs["Value"], cpk_c.inputs[1])
+    cpk_m = b.N("ShaderNodeMath", random_loc(), operation="FLOORED_MODULO")
+    b.L(cpk_c.outputs["Value"], cpk_m.inputs[0])
+    cpk_m.inputs[1].default_value = 251.0
+    cpk_st = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="POINT")
+    b.L(del_c.outputs["Geometry"], cpk_st.inputs["Geometry"])
+    cpk_st.inputs["Name"].default_value = "vm_pick"
+    b.L(cpk_m.outputs["Value"], cpk_st.inputs["Value"])
+    clad_geo = cpk_st.outputs["Geometry"]
 
     # ---------------- shared: masks + cap on mode-selected points ----------------
     pts_all, mode_bools = b.menu_switch(
@@ -13551,6 +13576,30 @@ def main():
           st_n[45.0] > 100 and st_n[62.0] >= st_n[45.0] and st_n[68.0] >= st_n[45.0],
           f"shakes on the main roof: {st_n}")
     results["steep_v226"] = st_n
+
+    # ---- v2.27: the courses use EVERY variant of their Primary Props (the
+    # abandoned-house run found every intact board and shake was variant 0:
+    # No-Repeat read a pick only the slots stored)
+    fx_d.update_tag()
+    dg_v = bpy.context.evaluated_depsgraph_get()
+    dg_v.update()
+    pl_d = {o.name for o in bpy.data.collections["VM_Tiles_Plank"].all_objects}
+    used_v = {"Plank": Counter(), "Shingle": Counter()}
+    for inst in dg_v.object_instances:
+        if inst.is_instance and inst.parent is not None and inst.parent.original == fx_d:
+            nm_ = inst.object.name
+            if nm_ in pl_d:
+                used_v["Plank"][nm_] += 1
+            elif nm_ in shk_d:
+                used_v["Shingle"][nm_] += 1
+    pools_ = {"Plank": len(pl_d), "Shingle": len(shk_d)}
+    tops_ = {k_: (max(c_.values()) / max(sum(c_.values()), 1)) for k_, c_ in used_v.items()}
+    check("v2.27(variants): the wall and roof courses use every Primary Props variant (none takes more than "
+          "twice its fair share) - not variant 0 on every intact board and shake",
+          all(len(used_v[k_]) == pools_[k_] and tops_[k_] < 2.0 / pools_[k_] for k_ in used_v),
+          "; ".join(f"{k_}: {len(used_v[k_])}/{pools_[k_]} variants, top share {tops_[k_]:.0%} of "
+                    f"{sum(used_v[k_].values())}" for k_ in used_v))
+    results["variants_v227"] = {k_: dict(c_) for k_, c_ in used_v.items()}
     bpy.data.objects.remove(fx_d)
 
     # ---- v2.10: UPDATE an older engine in place - settings survive
