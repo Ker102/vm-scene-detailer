@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.28) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.29) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.28) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.29) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +31,67 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (273 checks: the original 197 kept
-    green + 76 v2.7-v2.28 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (275 checks: the original 197 kept
+    green + 78 v2.7-v2.29 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.29 (2026-11-03) - SHEATHING BOARDS BEHIND THE DAMAGE, YARD PROPS
+-------------------------------------------------------------------------------
+* Behind damaged siding there is now REAL sheathing: diagonal boards laid at
+  45 degrees on a lattice fixed to each wall, butted on every second 40 cm
+  stud (plumb ends, joints staggered from board to board), rough-sawn brown
+  wood (brown_planks_09) with the same weathered geometry as the damaged
+  siding - ragged edges, grain, gouges, knot holes. It used to be the flat
+  wall face painted with a plank texture (the brown with no geometry the
+  user saw round the damage).
+  - It lies under every gap, broken, loose and worn wall board, so it shows
+    through bites, chips, knot holes and jagged break ends, and fills the
+    gaps where the wall is not cut open (Wall Holes below 0.5).
+  - Where the wall IS cut open, a piece still nailed to a stud beside the
+    hole stays - whole across it or broken off over it (jagged, splintered)
+    - and one with no stud left has fallen, so you see into the building
+    between the boards that remain.
+  - Behind a hole stand the STUDS the boards are nailed to: 38 x 70 mm
+    framing every 40 cm up the wall (Stud Props, VM_Tiles_Stud - four
+    lengths, stacked), only where the hole opens it and never in a door or
+    window. So the damage shows wood three ways: the siding across, the
+    sheathing at 45 degrees, the framing up.
+  - A piece goes only where all of it lies on the wall face: never past an
+    outline (corner, gable, eaves) and never into a door or window.
+  - Sheathing (Windows layer, Wall Holes panel, default 0.85) is the share
+    of pieces still on the wall; 0 = none. Sheathing Props is wired to
+    VM_Tiles_Sheathing (10 whole + 10 broken pieces).
+  - The bare wall face (VM_Sheathing) is now dark - it only shows between
+    the boards and where one is gone, and reads as the cavity behind.
+* YARD: Dress Object puts props round the foot of the building - all of it
+  AT the walls, as if the place were abandoned and the plants were taking it
+  back (no landscape: no lawn, rocks, stumps or trees) (Windows layer, Yard
+  panel; Yard on). All are Poly Haven CC0 models, downloaded to
+  ViperMeshAssets/props/yard/<id>/ (each with a SOURCE.txt):
+  - touching the walls (Yard Wall Props, VM_Yard_Wall): wine barrel, two
+    barrels, crate, bucket, planter box, step ladder;
+  - dropped at the foot of the walls (Yard Clutter Props, VM_Yard_Clutter):
+    an old tyre on its side, a rotten log along the wall, dry branches,
+    broken barrel staves;
+  - a dense band along the foundation, thinning out (Yard Plant Props,
+    VM_Yard_Plants): ferns, nettles, weeds, small shrubs, rank grass
+    clumps, celandine, dandelions;
+  - bushes pressed against the walls (Yard Shrub Props, VM_Yard_Shrubs):
+    four shrubs, a rooibos bush.
+  The barrels, crates and clutter gather in clusters along some stretches
+  of wall (the same spots for all three - a corner with a stack of barrels,
+  staves and branches round them), the walls between bare; the bushes and
+  plants grow up round them and right up to the porch posts and deck edge.
+  Nothing is placed inside the building, on a door's path (3 m out, the
+  door's width + 80 cm each side), on or under the porch, or on top of
+  another prop. Yard Width (how far out the plants thin out to, default
+  1.2 m; the bushes and clutter reach half of it), Clutter Amount and Plant
+  Amount (0 = none, 1 = default) and Yard Seed (another arrangement) tune
+  it. The props stand at the building's lowest point (its ground). (The
+  weed, grass, celandine and dandelion scans are scaled up 1.4-2.2x and the
+  nettles 2x - the scans are small young plants.)
+  The library's prop textures are kept at 2k (colour) and 1k (other maps).
 
 v2.28 (2026-11-03) - WEATHERED DAMAGE, IVY OVER PORCHES AND ROOFS
 -------------------------------------------------------------------------------
@@ -1378,8 +1435,16 @@ in-memory:
     vm_wear / vm_cut attributes, the worn variants run light to heavy;
   * v2.28(ivy porch / roof): on the dormer house with a porch, ivy grows
     out over the porch (30+ leaves beyond the walls, none without it) and
-    at Vine Height 7 m onto the roof, none there at 2 m.
-Total for this release: 273 checks, 273 passed (verification_v2.json).
+    at Vine Height 7 m onto the roof, none there at 2 m;
+  * v2.29(sheathing): on the Weathered gable house the damage has real
+    diagonal sheathing boards behind it (20 in the pool, whole and broken
+    pieces both), every one wholly on the wall - none past an outline or in
+    an opening - and at most 2.5 mm proud of the wall face; Sheathing 0 =
+    none;
+  * v2.29(yard): on the porch house every yard set is out (wall props,
+    clutter, plants, shrubs) with the porch on and off, none inside the
+    building, on a door's path or on the porch; Yard off = none.
+Total for this release: 275 checks, 275 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

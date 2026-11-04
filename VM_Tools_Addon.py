@@ -70,7 +70,15 @@ AUTO_COLLECTIONS = {
                                   "Broken Props": "VM_Tiles_ShingleBroken",
                                   "Worn Props": "VM_Tiles_ShingleWorn"},
     "VM_SceneDetailer_Door": {"Primary Props": "VM_Doors"},
-    "VM_SceneDetailer_Windows": {"Primary Props": "VM_Windows"},
+    # v2.29: the diagonal sheathing boards behind the damaged siding
+    "VM_SceneDetailer_Windows": {"Primary Props": "VM_Windows",
+                                 "Sheathing Props": "VM_Tiles_Sheathing",
+                                 "Stud Props": "VM_Tiles_Stud",
+                                 # v2.29: the yard props (Poly Haven CC0)
+                                 "Yard Wall Props": "VM_Yard_Wall",
+                                 "Yard Clutter Props": "VM_Yard_Clutter",
+                                 "Yard Plant Props": "VM_Yard_Plants",
+                                 "Yard Shrub Props": "VM_Yard_Shrubs"},
 }
 DEBRIS_COLLECTION = "VM_Debris_Trash"
 
@@ -348,6 +356,8 @@ def dress_stack():
         "Cut Openings": ["val", "", True],
         "Opening Inset": ["val", "", 0.03], "Wall Depth": ["val", "", 0.15],
         "Window Glass": ["val", "", True],
+        # v2.29: barrels, crates, plants, bushes, logs round the building
+        "Yard": ["val", "", True],
     })
     return [
         # v2.11: the roof cap runs BEFORE the wall planks so its gable

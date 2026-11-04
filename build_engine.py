@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.28"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.29"   # the ONE version label: About sockets, descriptions, checks, add-on
 # v2.23 doors set INTO the wall (world m): the leaf front this far behind the
 # wall face, a gap round the leaf in its hole, and the casing boards round it
 DOOR_RECESS, DOOR_GAP = 0.03, 0.01
@@ -1345,6 +1345,268 @@ def make_worn_shakes(col, name, n, mat, length=0.42, width=0.2, butt=0.024, tip=
                          seed=seed * 100 + i, fray=fray)
         me.materials.append(mat)
         col.objects.link(bpy.data.objects.new(nm, me))
+
+
+
+SHEATH_STUD = 0.4        # v2.29 stud spacing behind the sheathing (world m)
+SHEATH_PITCH = 0.14      # board centre to board centre, across the boards
+SHEATH_WIDTH = 0.132     # one board (8 mm gaps between them)
+STUD_CELL = 0.25         # v2.29 a stud is stacked from lengths this long (world m)
+
+
+def make_sheathing_boards(col, name, n, mat, stud=SHEATH_STUD, width=SHEATH_WIDTH, seed=29):
+    """v2.29 SHEATHING boards (the user's 'brown material behind the planks -
+    no damage geometry'): the old diagonal board sheathing under the siding,
+    laid at 45 degrees and butted on every second stud, so each piece runs
+    2 studs along the wall and both its ends are PLUMB cuts (a parallelogram
+    in its own frame: X along the board, Z across it, +Y out of the wall, the
+    front 1.5 mm proud of the wall face). `n` intact pieces (`name`A_NN,
+    light to medium weathering, the odd knot hole) and `n` broken ones
+    (`name`B_NN: the nailed end plumb at -X, broken off anywhere from a third
+    to most of the way along - a jagged, splintered end). Rough-sawn weathered
+    surface from _weathering, the same mesh attributes as the damaged tiles."""
+    import random
+    rng = random.Random(seed)
+    L, h = stud * math.sqrt(2.0) - 0.001, width / 2
+
+    def front(x, z):
+        return 0.0015
+
+    def capped(d_):
+        # the grain may groove in but never stand proud (the siding sits just
+        # in front of it)
+        def f_(x, z, t, db):
+            dy, w_, c_ = d_(x, z, t, db)
+            return min(dy, 0.0003), w_, c_
+        return f_
+    for kind in ("A", "B"):
+        for i in range(n):
+            sev = (0.12 + 0.45 * i / max(n - 1, 1)) if kind == "A" else rng.uniform(0.35, 0.8)
+            if kind == "A":
+                ol = [(-L - h, -h), (L - h, -h), (L + h, h), (-L + h, h)]
+                if rng.random() < 0.35:                     # a chipped end corner
+                    c1, c2 = rng.uniform(0.02, 0.05), rng.uniform(0.04, 0.12)
+                    ol = [(-L - h, -h), (L - h - c2, -h), (L - h - c2 * 0.4, -h + c1 * 0.6),
+                          (L - h + c1 * 0.9, -h + c1), (L + h, h), (-L + h, h)]
+                disp, fray = _weathering(rng, sev, True, -L - h, L + h, h, ends=(-L, L), bleach=0.5)
+                holes = _knot_holes(rng, sev, -L + 0.1, L - 0.1, -h, h, 0.03, 2)
+                x_b = L
+            else:
+                x_b = -L + 2.0 * L * rng.uniform(0.3, 0.85)
+                depth = rng.uniform(0.02, 0.09)
+                spike = rng.choice([0.0, rng.uniform(0.04, 0.1), rng.uniform(0.1, 0.22)])
+                jag = _jag(rng, h, -h, rng.randint(3, 7), depth, spike=spike)
+                ol = [(-L - h, -h), (-L + h, h)] + [(x_b + off, t) for off, t in jag]
+                disp, fray = _weathering(rng, sev, True, -L - h, x_b, h, ends=(-L,), brk=1.0, bleach=0.5)
+                holes = _knot_holes(rng, sev, -L + 0.1, x_b - 0.12, -h, h, 0.03, 1)
+            cup = rng.uniform(0.0, 0.0004)
+
+            def warp(x, z, cup=cup):
+                return cup * (z / h) ** 2
+            nm = f"{name}{kind}_{i + 1:02d}"
+            me = _rough_tile(nm, ol, front, -0.0155, "X", -h, width, capped(disp), warp, holes,
+                             step=(0.04, 0.012), seed=seed * 100 + i + (50 if kind == "B" else 0), fray=fray)
+            me.materials.append(mat)
+            col.objects.link(bpy.data.objects.new(nm, me))
+
+
+
+def make_studs(col, name, n, mat, seed=31):
+    """v2.29 STUDS (the framing the sheathing boards are nailed to - without
+    it the boards hung in the air across a hole): STUD_CELL lengths of a
+    38 x 70 mm stud, stacked up the wall where a hole opens it. Frame: X
+    along the wall (38 mm), Z up (centred), +Y out of the wall, the face just
+    behind the sheathing (1.6 cm in), 7 cm deep; the grain runs up it."""
+    import random
+    rng = random.Random(seed)
+    w, hh = 0.019, STUD_CELL / 2
+    for i in range(n):
+        ol = [(-w, -hh), (w, -hh), (w, hh), (-w, hh)]
+        cup = rng.uniform(0.0, 0.0008)
+
+        def face(x, z, cup=cup):
+            return -0.0158 - cup * (x / w) ** 2
+        nm = f"{name}_{i + 1:02d}"
+        me = _rough_tile(nm, ol, face, -0.0858, "Z", -w, 2.0 * w, None, None, (),
+                         step=(0.05, 0.019), seed=seed * 100 + i)
+        me.materials.append(mat)
+        col.objects.link(bpy.data.objects.new(nm, me))
+
+
+# v2.29 YARD props (the user's 'objects around the building - barrels, bushes
+# ... as realistic as possible'): Poly Haven CC0 scans/models downloaded into
+# ASSET_SRC/props/yard/<id>/ (each with its SOURCE.txt). Per collection:
+# (asset id, object-name filter, mode, scale) - mode 'merge' joins the parts
+# of one object (barrel + lid), 'each' keeps every match as its own variant,
+# 'flat' lays it down (a tyre on its side). The LOD kept is the first listed.
+YARD_SRC = os.path.join(ASSET_SRC, "props", "yard")
+YARD_SETS = (
+    ("VM_Yard_Wall", (           # stood against the walls
+        ("wine_barrel_01", "", "merge", 1.0),
+        ("wooden_barrels_01", "barrel0", "each", 1.0),
+        ("wooden_crate_01", "", "merge", 1.0),
+        ("wooden_bucket_01", "", "merge", 1.0),
+        ("planter_box_01", "", "merge", 1.0),
+        ("wooden_ladder_02", "", "merge", 1.0))),
+    ("VM_Yard_Clutter", (        # dropped at the foot of the walls
+        ("old_tyre", "", "flat", 1.0),
+        ("dead_tree_trunk", "", "merge", 0.6),
+        ("dry_branches_medium_01", "", "each", 1.0),
+        ("wooden_barrels_01", "piece0", "each", 1.0))),
+    ("VM_Yard_Plants", (         # weeds, nettles, ferns, grass along the walls
+        ("fern_02", "", "each", 1.4),
+        ("nettle_plant", "tall|medium", "each", 2.0),    # (the scans are seedlings)
+        ("weed_plant_02", "", "each", 2.2),       # (the scans are 4-7 cm rosettes)
+        ("shrub_04", "", "each", 1.0),
+        ("grass_medium_01", "", "each", 1.6),     # (rank, uncut grass)
+        ("grass_medium_02", "", "each", 1.6),
+        ("celandine_01", "", "each", 1.4),
+        ("dandelion_01", "", "each", 1.5))),
+    ("VM_Yard_Shrubs", (         # bushes
+        ("shrub_02", "", "each", 1.0),
+        ("wild_rooibos_bush", "", "each", 1.0))),
+)
+
+
+def _shrink_images(imgs, out_dir, keep_diff=2048, other=1024):
+    """Library size: colour maps stay at most 2k, every other map (normal,
+    roughness, alpha) goes to 1k - saved next to the build (8-bit JPEG, PNG
+    for an alpha / mask map), packed later."""
+    os.makedirs(out_dir, exist_ok=True)
+    for img in imgs:
+        try:
+            w, h = img.size
+        except Exception:
+            continue
+        lim = keep_diff if "diff" in img.name.lower() else other
+        if max(w, h) <= lim or w == 0:
+            continue
+        img.scale(max(1, w * lim // max(w, h)), max(1, h * lim // max(w, h)))
+        png = "alpha" in img.name.lower() or "mask" in img.name.lower()
+        img.filepath_raw = os.path.join(out_dir, os.path.splitext(bpy.path.clean_name(img.name))[0]
+                                        + (".png" if png else ".jpg"))
+        img.file_format = "PNG" if png else "JPEG"
+        img.save()
+
+
+def _join_yard(grp, name, col):
+    """The parts of one prop joined into one object in `col` - joined in the
+    scene's own collection (the library collections may be outside the view
+    layer, where the join operator cannot see them)."""
+    sc_ = bpy.context.scene
+    for o in grp:
+        for c in list(o.users_collection):
+            c.objects.unlink(o)
+        sc_.collection.objects.link(o)
+    bpy.context.view_layer.update()
+    if len(grp) > 1:
+        for o in bpy.context.view_layer.objects:
+            o.select_set(o in grp)
+        bpy.context.view_layer.objects.active = grp[0]
+        with bpy.context.temp_override(active_object=grp[0], object=grp[0], selected_objects=grp,
+                                       selected_editable_objects=grp):
+            bpy.ops.object.join()
+    ob = grp[0]
+    ob.name = name
+    ob.data.name = name
+    sc_.collection.objects.unlink(ob)
+    col.objects.link(ob)
+    return ob
+
+
+def make_yard_props(parent, out_dir):
+    """v2.29 the yard prop collections (YARD_SETS) under `parent`. Every variant
+    is one mesh object: transforms applied, centred on X / Y, its ground at
+    z = 0 as authored (roots and buried rock stay under it); a 'flat' one is
+    laid on its side and set on the ground. Left out: the asset's preview
+    sphere, exact duplicates and slivers (under a quarter the size of the
+    asset's biggest piece). Each source blend is read once. Returns
+    {collection: [names]}."""
+    import re
+    out, loaded = {}, {}
+    for cname, specs in YARD_SETS:
+        col = bpy.data.collections.get(cname) or bpy.data.collections.new(cname)
+        if col.name not in parent.children:
+            parent.children.link(col)
+        for aid, filt, mode, scl in specs:
+            if aid not in loaded:
+                d = os.path.join(YARD_SRC, aid)
+                blends = sorted(f for f in os.listdir(d) if f.endswith(".blend")) if os.path.isdir(d) else []
+                if not blends:
+                    log(f"  !! yard prop missing: {d}")
+                    loaded[aid] = []
+                    continue
+                with bpy.data.libraries.load(os.path.join(d, blends[0]), link=False) as (src, dst):
+                    dst.objects = src.objects[:]
+                obs = []
+                for o in dst.objects:
+                    if o is None:
+                        continue
+                    if o.type != "MESH" or "sphere" in o.name.lower() or any(
+                            m and "sphere" in m.name.lower() for m in o.data.materials):
+                        bpy.data.objects.remove(o, do_unlink=True)
+                        continue
+                    o.data = o.data.copy() if o.data.users > 1 else o.data
+                    o.data.transform(o.matrix_world)
+                    o.matrix_world = Matrix.Identity(4)
+                    o.parent = None
+                    obs.append(o)
+                loaded[aid] = obs
+            obs = loaded[aid]
+            # one LOD per variant: the base name before _LODn, the lowest LOD
+            groups = {}
+            for o in obs:
+                m_ = re.match(r"(.*?)_LOD(\d+)$", o.name)
+                base, lod = (m_.group(1), int(m_.group(2))) if m_ else (o.name, 0)
+                if filt and not re.search(filt, base):
+                    continue
+                if base not in groups or lod < groups[base][0]:
+                    groups[base] = (lod, o)
+            picked = [groups[k][1] for k in sorted(groups)]
+            if not picked:
+                continue
+            for o in picked:
+                obs.remove(o)
+            if mode == "each":
+                # no exact duplicates (the same piece twice in the source) and
+                # no slivers - under a quarter the size of the biggest piece
+                def ext(o_):
+                    vs_ = [v.co for v in o_.data.vertices]
+                    return max(max(v[k] for v in vs_) - min(v[k] for v in vs_) for k in range(3)) if vs_ else 0.0
+                big = max(ext(o) for o in picked)
+                seen, keep = set(), []
+                for o in picked:
+                    sig = (len(o.data.vertices), len(o.data.polygons), round(ext(o), 3))
+                    if sig in seen or ext(o) < 0.25 * big:
+                        bpy.data.objects.remove(o, do_unlink=True)
+                        continue
+                    seen.add(sig)
+                    keep.append(o)
+                picked = keep
+            parts = [picked] if mode in ("merge", "flat") else [[o] for o in picked]
+            tag = re.sub(r"[^a-z]", "", filt.split("|")[0]) if filt else ""
+            for k, grp in enumerate(parts):
+                nm = f"Yard_{aid}" + (f"_{tag}" if tag else "") + ("" if len(parts) == 1 else f"_{k + 1:02d}")
+                ob = _join_yard(grp, nm, col)
+                me = ob.data
+                if mode == "flat":
+                    me.transform(Matrix.Rotation(math.pi / 2, 4, "X"))
+                if scl != 1.0:
+                    me.transform(Matrix.Scale(scl, 4))
+                xs = [v.co.x for v in me.vertices]; ys = [v.co.y for v in me.vertices]
+                zs = [v.co.z for v in me.vertices]
+                dz = -min(zs) if mode == "flat" or min(zs) > 0.0 else 0.0
+                me.transform(Matrix.Translation((-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, dz)))
+                me.update()
+                out.setdefault(cname, []).append(ob.name)
+        imgs = {n.image for o in col.objects for m in o.data.materials if m and m.node_tree
+                for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image}
+        _shrink_images(sorted(imgs, key=lambda i: i.name), out_dir)
+        log(f"  {cname}: {len(col.objects)} variants")
+    for obs in loaded.values():          # the parts no set took
+        for o in obs:
+            bpy.data.objects.remove(o, do_unlink=True)
+    return out
 
 
 def make_debris(debris_col):
@@ -6857,6 +7119,574 @@ def build_node_group():
            "broken - a jagged part of the frame and sash broken away, the glass smashed")
     b.L(gi.outputs["Roof Holes"], rh_ph.inputs[0])
     b.L(gi.outputs["Half Broken"], hb_ph.inputs[0])
+
+    # ---- v2.29 SHEATHING (the user's 'brown material behind the planks - it
+    # has no damage geometry like the rest of the wood'): wherever the damage
+    # reaches the siding (a gap, a broken / loose / worn board) the old board
+    # sheathing under it is REAL wood - diagonal pieces (Sheathing Props, see
+    # make_sheathing_boards) on a lattice fixed to the wall: 45 degrees up it,
+    # butted on every second 40 cm stud (plumb ends, joints staggered from
+    # board to board), so neighbouring damage shares the same boards. A piece
+    # goes only where ALL of it lies on the wall face (never past an outline,
+    # never into an opening). Over a hole the gaps opened, a piece still nailed
+    # to a stud beside the hole stays - whole across it or broken off over it -
+    # and one with no stud left has fallen. Of the rest, Sheathing is the
+    # share still on the wall (the bare wall face shows where one is gone).
+    b.sock("Sheathing", "NodeSocketFloat", p_hole, 0.85, 0.0, 1.0, "FACTOR",
+           "v2.29: share of the sheathing boards still on the wall behind the damaged siding - "
+           "diagonal boards from Sheathing Props (0 = none: the bare wall face shows). Needs Cut "
+           "Openings here and Damage on the cladding")
+    b.sock("Sheathing Props", "NodeSocketCollection", p_hole, None,
+           desc="v2.29: sheathing pieces - <name>A_NN whole (2 studs long, both ends plumb, laid at "
+                "45 degrees), <name>B_NN broken (the nailed end at -X); the add-on wires "
+                "VM_Tiles_Sheathing")
+    b.sock("Stud Props", "NodeSocketCollection", p_hole, None,
+           desc="v2.29: lengths of stud (the framing behind the sheathing), stacked up the wall where "
+                "a hole opens it; the add-on wires VM_Tiles_Stud")
+    sh_inst, sh_n = coll_count("Sheathing Props")
+    sh_na = em("MAXIMUM", em("FLOOR", em("DIVIDE", sh_n, 2.0)), 1.0)
+    sh_live = tand(tand(gi.outputs["Cut Openings"], is_fit),
+                   tand(tcmp("GREATER_THAN", gi.outputs["Sheathing"], 0.001), tcmp("GREATER_THAN", sh_n, 1.5)))
+    sh_r2 = math.sqrt(0.5)
+    sh_st = em("DIVIDE", SHEATH_STUD, geo_f)                  # one stud bay
+    sh_pt = em("DIVIDE", SHEATH_PITCH, geo_f)                 # board to board, across
+    sh_bh = em("DIVIDE", SHEATH_WIDTH * 0.5 * math.sqrt(2.0), geo_f)   # a board's half height up the wall
+    # the damage's footprints on the walls: every wall gap marker (its box
+    # centre sits 1 cm out - back onto the wall face) and every broken / loose /
+    # worn wall BOARD (shakes and roofs have their own underlay)
+    sh_ib = b.N("GeometryNodeInputInstanceBounds", random_loc())
+    sl_x, _sl_y, sl_z = sxyz(vmul(sh_ib.outputs["Min"], i_scl))
+    su_x, _su_y, su_z = sxyz(vmul(sh_ib.outputs["Max"], i_scl))
+    sh_dc = dnamed("vm_dcat", "FLOAT")
+    sh_tile = tand(tand(tcmp("LESS_THAN", em("ABSOLUTE", sxyz(rot(v3(0.0, 1.0, 0.0), i_rot))[2]), 0.5),
+                        tcmp("GREATER_THAN", em("SUBTRACT", su_x, sl_x), em("SUBTRACT", su_z, sl_z))),
+                   tand(tand(tcmp("GREATER_THAN", sh_dc, 1.5), tcmp("LESS_THAN", sh_dc, 4.5)),
+                        tcmp("LESS_THAN", dnamed("vm_openmark", "FLOAT"), 0.5)))
+    sh_mark = tand(is_ph, tcmp("LESS_THAN", dnamed("vm_kroof", "FLOAT"), 0.5))
+    sh_kr = dnamed("vm_kr", "QUATERNION")
+    sh_src = b.N("GeometryNodeJoinGeometry", random_loc())
+    for sel_, r_, h_, at_ in (
+            (sh_mark, sh_kr, vmath("SCALE", dnamed("vm_ks", "FLOAT_VECTOR"), 0.5),
+             vmath("SUBTRACT", b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
+                   vmath("SCALE", rot(v3(0.0, 1.0, 0.0), sh_kr), em("DIVIDE", 0.01, geo_f)))),
+            (sh_tile, i_rot, v3(em("MULTIPLY", em("SUBTRACT", su_x, sl_x), 0.5), 0.0,
+                                em("MULTIPLY", em("SUBTRACT", su_z, sl_z), 0.5)),
+             vmath("ADD", b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
+                   rot(v3(em("MULTIPLY", em("ADD", sl_x, su_x), 0.5), 0.0, em("MULTIPLY", em("ADD", sl_z, su_z), 0.5)),
+                       i_rot)))):
+        ch_ = c_inst
+        for nm_, dt_, val_ in (("vm_shr", "QUATERNION", r_), ("vm_shh", "FLOAT_VECTOR", h_)):
+            st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="INSTANCE")
+            b.L(ch_, st_.inputs["Geometry"])
+            st_.inputs["Name"].default_value = nm_
+            b.L(val_, st_.inputs["Value"])
+            ch_ = st_.outputs["Geometry"]
+        ip_ = b.N("GeometryNodeInstancesToPoints", random_loc())
+        b.L(ch_, ip_.inputs["Instances"])
+        b.L(tand(sh_live, sel_), ip_.inputs["Selection"])
+        b.L(at_, ip_.inputs["Position"])
+        b.L(ip_.outputs["Points"], sh_src.inputs["Geometry"])
+    sh_r = dnamed("vm_shr", "QUATERNION")
+    sh_u, sh_v = rot(v3(1.0, 0.0, 0.0), sh_r), rot(v3(0.0, 0.0, 1.0), sh_r)
+    sh_p0 = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    sh_ca = vmath("DOT_PRODUCT", sh_p0, sh_u, out="Value")    # along the wall
+    sh_cv = vmath("DOT_PRODUCT", sh_p0, sh_v, out="Value")    # up it
+    sh_hu, _sh_hy, sh_hz = sxyz(dnamed("vm_shh", "FLOAT_VECTOR"))
+    sh_hu = em("ADD", sh_hu, em("DIVIDE", 0.02, geo_f))
+    sh_hz = em("ADD", sh_hz, em("DIVIDE", 0.02, geo_f))
+    # board k: (along - up) / sqrt 2 in [k, k + 1) pitches; its pieces run
+    # between joints at along = (2 m + phase) studs
+    sh_d2lo = em("MULTIPLY", em("SUBTRACT", em("SUBTRACT", sh_ca, sh_hu), em("ADD", sh_cv, sh_hz)), sh_r2)
+    sh_d2hi = em("MULTIPLY", em("SUBTRACT", em("ADD", sh_ca, sh_hu), em("SUBTRACT", sh_cv, sh_hz)), sh_r2)
+    sh_k2lo = em("FLOOR", em("DIVIDE", sh_d2lo, sh_pt))
+    sh_nk2 = em("ADD", em("SUBTRACT", em("FLOOR", em("DIVIDE", sh_d2hi, sh_pt)), sh_k2lo), 1.0)
+    sh_nm = em("ADD", em("FLOOR", em("DIVIDE", sh_hu, sh_st)), 2.0)
+    sh_kst = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(sh_src.outputs["Geometry"], sh_kst.inputs["Geometry"])
+    sh_kst.inputs["Name"].default_value = "vm_shk"
+    b.L(v3(sh_k2lo, sh_nk2, sh_nm), sh_kst.inputs["Value"])
+    sh_dup = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
+    b.L(sh_kst.outputs["Geometry"], sh_dup.inputs["Geometry"])
+    b.L(em("MULTIPLY", sh_nk2, sh_nm), sh_dup.inputs["Amount"])
+    sh_k2lo_, sh_nk2_, _sh_nm_ = sxyz(dnamed("vm_shk", "FLOAT_VECTOR"))
+    sh_i = sh_dup.outputs["Duplicate Index"]
+    sh_k2 = em("ADD", sh_k2lo_, em("FLOORED_MODULO", sh_i, sh_nk2_))
+    sh_ph = em("FLOOR", em("MULTIPLY", em("FRACT", em("MULTIPLY", sh_k2, 0.7548776662)), 2.0))
+    sh_m = em("ADD", em("FLOOR", em("DIVIDE", em("SUBTRACT", em("SUBTRACT", sh_ca, sh_hu), em("MULTIPLY", sh_ph, sh_st)),
+                                       em("MULTIPLY", sh_st, 2.0))),
+              em("FLOOR", em("DIVIDE", sh_i, sh_nk2_)))
+    sh_aj = em("MULTIPLY", tm("MULTIPLY_ADD", sh_m, 2.0, sh_ph), sh_st)        # the piece's low joint
+    sh_dd = em("DIVIDE", em("MULTIPLY", em("ADD", sh_k2, 0.5), sh_pt), sh_r2)  # along - up on its centre line
+    # (a piece is kept only if it overlaps this footprint: the along spans
+    # meet and the board's band crosses the footprint's height in there)
+    sh_alo = em("MAXIMUM", sh_aj, em("SUBTRACT", sh_ca, sh_hu))
+    sh_ahi = em("MINIMUM", em("ADD", sh_aj, em("MULTIPLY", sh_st, 2.0)), em("ADD", sh_ca, sh_hu))
+    sh_hit = tand(tcmp("LESS_THAN", sh_alo, sh_ahi),
+                  tand(tcmp("LESS_THAN", em("SUBTRACT", em("SUBTRACT", sh_alo, sh_dd), sh_bh), em("ADD", sh_cv, sh_hz)),
+                       tcmp("GREATER_THAN", em("ADD", em("SUBTRACT", sh_ahi, sh_dd), sh_bh), em("SUBTRACT", sh_cv, sh_hz))))
+    sh_ac = em("ADD", sh_aj, sh_st)
+    sh_chain = sh_dup.outputs["Geometry"]
+    for nm_, dt_, val_ in (("vm_shid", "FLOAT_VECTOR", v3(sh_k2, sh_m, 0.0)), ("vm_shhit", "BOOLEAN", sh_hit)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="POINT")
+        b.L(sh_chain, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        sh_chain = st_.outputs["Geometry"]
+    sh_mv = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(sh_chain, sh_mv.inputs["Geometry"])
+    b.L(vmath("ADD", sh_p0, vmath("ADD", vmath("SCALE", sh_u, em("SUBTRACT", sh_ac, sh_ca)),
+                                  vmath("SCALE", sh_v, em("SUBTRACT", em("SUBTRACT", sh_ac, sh_dd), sh_cv)))),
+        sh_mv.inputs["Position"])
+    sh_hd = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(sh_mv.outputs["Geometry"], sh_hd.inputs["Geometry"])
+    b.L(bnot(dnamed("vm_shhit", "BOOLEAN")), sh_hd.inputs["Selection"])
+    # neighbouring footprints offered the same pieces: one each
+    sh_mg = b.N("GeometryNodeMergeByDistance", random_loc())
+    b.L(sh_hd.outputs["Geometry"], sh_mg.inputs["Geometry"])
+    b.L(em("DIVIDE", 0.01, geo_f), sh_mg.inputs["Distance"])
+    # the piece on the wall: samples along its centre line (the three studs it
+    # is nailed to among them) and at its four corners
+    sh_c = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+
+    def sh_at(fa_, fb_=0.0):
+        # fa_ stud bays along the piece's centre line, fb_ (+-1) its half
+        # height up / down the wall
+        off_ = em("MULTIPLY", sh_st, fa_)
+        up_ = off_ if fb_ == 0.0 else em("ADD", off_, em("MULTIPLY", sh_bh, fb_ * 0.8))
+        return vmath("ADD", sh_c, vmath("ADD", vmath("SCALE", sh_u, off_), vmath("SCALE", sh_v, up_)))
+
+    def sh_onwall(pos_):
+        px_ = b.N("GeometryNodeProximity", random_loc())
+        px_.target_element = "FACES"
+        b.L(c_host.outputs["Geometry"], px_.inputs["Geometry"])
+        b.L(pos_, px_.inputs["Sample Position"])
+        # (inside a cutter box, or within 6 cm of one)
+        cn_p = b.N("GeometryNodeSampleNearestSurface", random_loc(), data_type="FLOAT_VECTOR")
+        b.L(o_real.outputs["Geometry"], cn_p.inputs["Mesh"])
+        b.L(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"], cn_p.inputs["Value"])
+        b.L(pos_, cn_p.inputs["Sample Position"])
+        cn_n = b.N("GeometryNodeSampleNearestSurface", random_loc(), data_type="FLOAT_VECTOR")
+        b.L(o_real.outputs["Geometry"], cn_n.inputs["Mesh"])
+        b.L(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"], cn_n.inputs["Value"])
+        b.L(pos_, cn_n.inputs["Sample Position"])
+        crel_ = vmath("SUBTRACT", pos_, cn_p.outputs["Value"])
+        in_box = tand(tand(has_open, tand(gi.outputs["Cut Openings"], is_fit)),
+                      bor(tcmp("LESS_THAN", vmath("DOT_PRODUCT", crel_, cn_n.outputs["Value"], out="Value"), 0.0),
+                          tcmp("LESS_THAN", vmath("LENGTH", crel_, None, out="Value"), em("DIVIDE", 0.06, geo_f))))
+        return tand(tcmp("LESS_THAN", px_.outputs["Distance"], em("DIVIDE", 0.004, geo_f)),
+                    bnot(bor(open_cut_at(pos_, em("DIVIDE", 0.06, geo_f)), in_box)))
+    e_ = 1.0 - 0.03 / SHEATH_STUD
+    sh_all, sh_anyg, sh_g = None, None, {}
+    for k_, (fa_, fb_) in (("lo", (-e_, 0.0)), ("mid", (0.0, 0.0)), ("hi", (e_, 0.0)), ("q1", (-0.5, 0.0)),
+                           ("q3", (0.5, 0.0)), ("c1", (-e_, 1.0)), ("c2", (-e_, -1.0)), ("c3", (e_, 1.0)),
+                           ("c4", (e_, -1.0))):
+        p_ = sh_at(fa_, fb_)
+        w_, g_ = sh_onwall(p_), gap_at(p_)
+        sh_g[k_] = g_
+        sh_all = w_ if sh_all is None else tand(sh_all, w_)
+        sh_anyg = g_ if sh_anyg is None else bor(sh_anyg, g_)
+    n_lo, n_mid, n_hi = bnot(sh_g["lo"]), bnot(sh_g["mid"]), bnot(sh_g["hi"])
+    sh_kid = sxyz(dnamed("vm_shid", "FLOAT_VECTOR"))
+    sh_rid = em("ADD", em("MULTIPLY", sh_kid[0], 1009.0), sh_kid[1])
+    sh_rv = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT_VECTOR")
+    sh_rv.inputs["Min"].default_value = (0.0, 0.0, 0.0)
+    sh_rv.inputs["Max"].default_value = (1.0, 1.0, 1.0)
+    b.L(sh_rid, sh_rv.inputs["ID"])
+    b.L(seed_node(b, d_seed, 331), sh_rv.inputs["Seed"])
+    sh_rx, sh_ry, sh_rz = sxyz(sh_rv.outputs["Value"])
+    sh_whole = tand(n_lo, n_hi)
+    sh_lo1 = tand(n_lo, bnot(n_hi))
+    sh_hi1 = tand(bnot(n_lo), n_hi)
+    sh_mid1 = tand(tand(bnot(n_lo), bnot(n_hi)), tand(n_mid, tcmp("LESS_THAN", sh_ry, 0.35)))
+    sh_share = em("MULTIPLY", gi.outputs["Sheathing"], tsw(sh_anyg, 1.0, 0.8))
+    sh_keep = tand(tand(sh_all, tcmp("LESS_THAN", sh_rx, sh_share)),
+                   bor(bor(sh_whole, sh_mid1), bor(sh_lo1, sh_hi1)))
+    sh_snap = tand(sh_whole, tcmp("LESS_THAN", sh_rz, 0.12))     # broken anyway, now and then
+    sh_brk = bor(bor(sh_lo1, sh_hi1), sh_snap)
+    sh_side = bor(sh_hi1, tand(sh_snap, tcmp("LESS_THAN", sh_ry, 0.5)))  # nailed end at +X
+    sh_rv2 = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT")
+    b.L(sh_rid, sh_rv2.inputs["ID"])
+    b.L(seed_node(b, d_seed, 337), sh_rv2.inputs["Seed"])
+    sh_pk = sh_rv2.outputs["Value"]
+    sh_nb = em("MAXIMUM", em("SUBTRACT", sh_n, sh_na), 1.0)
+    sh_idx = tsw(sh_brk, em("MINIMUM", em("FLOOR", em("MULTIPLY", sh_pk, sh_na)), em("SUBTRACT", sh_na, 1.0)),
+                 em("ADD", sh_na, em("MINIMUM", em("FLOOR", em("MULTIPLY", sh_pk, sh_nb)), em("SUBTRACT", sh_nb, 1.0))))
+    sh_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(sh_mg.outputs["Geometry"], sh_del.inputs["Geometry"])
+    b.L(bnot(sh_keep), sh_del.inputs["Selection"])
+    sh_eul = b.N("FunctionNodeEulerToRotation", random_loc())
+    b.L(v3(0.0, tsw(sh_side, -0.25 * math.pi, 0.75 * math.pi), 0.0), sh_eul.inputs["Euler"])
+    sh_rr = b.N("FunctionNodeRotateRotation", random_loc())
+    sh_rr.rotation_space = "LOCAL"
+    b.L(sh_r, sh_rr.inputs["Rotation"])
+    b.L(sh_eul.outputs["Rotation"], sh_rr.inputs["Rotate By"])
+    sh_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(sh_del.outputs["Geometry"], sh_iop.inputs["Points"])
+    b.L(sh_inst, sh_iop.inputs["Instance"])
+    sh_iop.inputs["Pick Instance"].default_value = True
+    b.L(sh_idx, sh_iop.inputs["Instance Index"])
+    b.L(sh_rr.outputs["Rotation"], sh_iop.inputs["Rotation"])
+    b.L(v3(em("DIVIDE", 1.0, geo_f), em("DIVIDE", 1.0, geo_f), em("DIVIDE", 1.0, geo_f)), sh_iop.inputs["Scale"])
+    sh_tag = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+    b.L(sh_iop.outputs["Instances"], sh_tag.inputs["Geometry"])
+    sh_tag.inputs["Name"].default_value = "vm_sheath"
+    sh_tag.inputs["Value"].default_value = 1.0
+    b.L(sh_tag.outputs["Geometry"], g_join.inputs["Geometry"])
+    # the STUDS behind it (the boards across a hole are nailed to something):
+    # every SHEATH_STUD along the wall (the sheathing's own joint lattice),
+    # stacked from STUD_CELL lengths over the height of each cut hole and a
+    # length past it, only where the wall face is (never in an opening) and
+    # only where a length shows in a hole
+    st_inst, st_n = coll_count("Stud Props")
+    st_pts = b.N("GeometryNodeInstancesToPoints", random_loc())
+    ch_ = c_inst
+    for nm_, dt_, val_ in (("vm_shr", "QUATERNION", sh_kr),
+                           ("vm_shh", "FLOAT_VECTOR", vmath("SCALE", dnamed("vm_ks", "FLOAT_VECTOR"), 0.5))):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="INSTANCE")
+        b.L(ch_, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        ch_ = st_.outputs["Geometry"]
+    b.L(ch_, st_pts.inputs["Instances"])
+    b.L(tand(tand(sh_live, tcmp("GREATER_THAN", st_n, 0.5)),
+             tand(tand(h_cut, tand(is_ph, h_deep)), tcmp("LESS_THAN", dnamed("vm_kroof", "FLOAT"), 0.5))),
+        st_pts.inputs["Selection"])
+    b.L(vmath("SUBTRACT", b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
+              vmath("SCALE", rot(v3(0.0, 1.0, 0.0), sh_kr), em("DIVIDE", 0.01, geo_f))), st_pts.inputs["Position"])
+    st_cl = em("DIVIDE", STUD_CELL, geo_f)
+    st_hu, _st_hy, st_hz = sxyz(dnamed("vm_shh", "FLOAT_VECTOR"))
+    st_jlo = em("CEIL", em("DIVIDE", em("SUBTRACT", sh_ca, st_hu), sh_st))
+    st_nj = em("MAXIMUM", em("ADD", em("SUBTRACT", em("FLOOR", em("DIVIDE", em("ADD", sh_ca, st_hu), sh_st)), st_jlo), 1.0),
+               0.0)
+    st_clo = em("FLOOR", em("DIVIDE", em("SUBTRACT", em("SUBTRACT", sh_cv, st_hz), st_cl), st_cl))
+    st_nc = em("ADD", em("SUBTRACT", em("FLOOR", em("DIVIDE", em("ADD", em("ADD", sh_cv, st_hz), st_cl), st_cl)), st_clo),
+               1.0)
+    st_k = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(st_pts.outputs["Points"], st_k.inputs["Geometry"])
+    st_k.inputs["Name"].default_value = "vm_stk"
+    b.L(v3(st_jlo, st_nj, st_clo), st_k.inputs["Value"])
+    st_dup = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
+    b.L(st_k.outputs["Geometry"], st_dup.inputs["Geometry"])
+    b.L(em("MULTIPLY", st_nj, st_nc), st_dup.inputs["Amount"])
+    st_jlo_, st_nj_, st_clo_ = sxyz(dnamed("vm_stk", "FLOAT_VECTOR"))
+    st_i = st_dup.outputs["Duplicate Index"]
+    st_j = em("ADD", st_jlo_, em("FLOORED_MODULO", st_i, em("MAXIMUM", st_nj_, 1.0)))
+    st_c = em("ADD", st_clo_, em("FLOOR", em("DIVIDE", st_i, em("MAXIMUM", st_nj_, 1.0))))
+    st_idv = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(st_dup.outputs["Geometry"], st_idv.inputs["Geometry"])
+    st_idv.inputs["Name"].default_value = "vm_stid"
+    b.L(v3(st_j, st_c, 0.0), st_idv.inputs["Value"])
+    st_mv = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(st_idv.outputs["Geometry"], st_mv.inputs["Geometry"])
+    b.L(vmath("ADD", sh_p0, vmath("ADD", vmath("SCALE", sh_u, em("SUBTRACT", em("MULTIPLY", st_j, sh_st), sh_ca)),
+                                  vmath("SCALE", sh_v, em("SUBTRACT", em("MULTIPLY", em("ADD", st_c, 0.5), st_cl), sh_cv)))),
+        st_mv.inputs["Position"])
+    # neighbouring holes offered the same lengths: one each
+    st_mg = b.N("GeometryNodeMergeByDistance", random_loc())
+    b.L(st_mv.outputs["Geometry"], st_mg.inputs["Geometry"])
+    b.L(em("DIVIDE", 0.01, geo_f), st_mg.inputs["Distance"])
+    st_c0 = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    st_all, st_any = None, None
+
+    def st_hole(pos_):
+        # the cut wall is gone here: no face of it within 1.5 cm
+        px_ = b.N("GeometryNodeProximity", random_loc())
+        px_.target_element = "FACES"
+        b.L(c_open.outputs["Geometry"], px_.inputs["Geometry"])
+        b.L(pos_, px_.inputs["Sample Position"])
+        return tcmp("GREATER_THAN", px_.outputs["Distance"], em("DIVIDE", 0.015, geo_f))
+    for fz_ in (-0.45, 0.0, 0.45):
+        p_ = vmath("ADD", st_c0, vmath("SCALE", sh_v, em("MULTIPLY", st_cl, fz_)))
+        w_, g_ = sh_onwall(p_), st_hole(p_)
+        st_all = w_ if st_all is None else tand(st_all, w_)
+        st_any = g_ if st_any is None else bor(st_any, g_)
+    st_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(st_mg.outputs["Geometry"], st_del.inputs["Geometry"])
+    b.L(bnot(tand(st_all, st_any)), st_del.inputs["Selection"])
+    st_id = sxyz(dnamed("vm_stid", "FLOAT_VECTOR"))
+    st_rv = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT")
+    b.L(em("ADD", em("MULTIPLY", st_id[0], 1013.0), st_id[1]), st_rv.inputs["ID"])
+    b.L(seed_node(b, d_seed, 347), st_rv.inputs["Seed"])
+    st_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(st_del.outputs["Geometry"], st_iop.inputs["Points"])
+    b.L(st_inst, st_iop.inputs["Instance"])
+    st_iop.inputs["Pick Instance"].default_value = True
+    b.L(em("MINIMUM", em("FLOOR", em("MULTIPLY", st_rv.outputs["Value"], st_n)), em("SUBTRACT", st_n, 1.0)),
+        st_iop.inputs["Instance Index"])
+    b.L(dnamed("vm_shr", "QUATERNION"), st_iop.inputs["Rotation"])
+    b.L(v3(em("DIVIDE", 1.0, geo_f), em("DIVIDE", 1.0, geo_f), em("DIVIDE", 1.0, geo_f)), st_iop.inputs["Scale"])
+    st_tag = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+    b.L(st_iop.outputs["Instances"], st_tag.inputs["Geometry"])
+    st_tag.inputs["Name"].default_value = "vm_sheath"
+    st_tag.inputs["Value"].default_value = 1.0
+    b.L(st_tag.outputs["Geometry"], g_join.inputs["Geometry"])
+
+    # ---- v2.29 YARD (the user's 'objects around the building - barrels,
+    # bushes ... as realistic as possible'): real props from Poly Haven (CC0,
+    # see YARD_SETS) round the foot of the building. Points run along the
+    # outline of the building's bottom faces, each pushed out from its wall a
+    # random distance: barrels / crates / a bucket or ladder stood against the
+    # walls, weeds, nettles, ferns and grass crowding the foundation (thinning
+    # out to Yard Width), bushes pressed against them, and a tyre, a log,
+    # branches and barrel staves dropped at their foot - nature taking the
+    # abandoned place back, no landscape. Nothing on the door's path,
+    # on or under a porch, or inside the building; the sets keep clear of each
+    # other. Turn it on on ONE layer (the add-on's Windows layer).
+    p_yd = b.panel("Yard", "Any mode (v2.29): props round the foot of the building - barrels, crates, "
+                   "plants, bushes, a log, a tyre - all at the walls")
+    b.sock("Yard", "NodeSocketBool", p_yd, False,
+           desc="v2.29: put props round the building (use it on ONE layer - the add-on's Windows layer)")
+    b.sock("Yard Seed", "NodeSocketInt", p_yd, 0, desc="Yard: another arrangement")
+    b.sock("Yard Width", "NodeSocketFloat", p_yd, 1.2, 0.3, 50.0, "DISTANCE",
+           "Yard: how far out from the walls the props and plants reach (world m) - they crowd the "
+           "walls, thinning out to this")
+    b.sock("Clutter Amount", "NodeSocketFloat", p_yd, 1.0, 0.0, 5.0, "FACTOR",
+           "Yard: how many barrels, crates, branches, a log, a tyre ... (1 = default, 0 = none)")
+    b.sock("Plant Amount", "NodeSocketFloat", p_yd, 1.0, 0.0, 5.0, "FACTOR",
+           "Yard: how many weeds, nettles, ferns, grass clumps and bushes (0 = none)")
+    for nm_, ds_ in (("Yard Wall Props", "stood against the walls (barrels, crates, a bucket, a ladder)"),
+                     ("Yard Clutter Props", "dropped at the foot of the walls (a tyre, a log, branches, staves)"),
+                     ("Yard Plant Props", "along the foundation (weeds, nettles, ferns, grass)"),
+                     ("Yard Shrub Props", "bushes")):
+        b.sock(nm_, "NodeSocketCollection", p_yd, None,
+               desc=f"Yard: props {ds_} - origin at the base centre (the add-on wires VM_Yard_*)")
+    yd_on = gi.outputs["Yard"]
+    yd_seed = gi.outputs["Yard Seed"]
+    yd_zs = b.N("GeometryNodeAttributeStatistic", random_loc(), data_type="FLOAT", domain="POINT")
+    b.L(c_host.outputs["Geometry"], yd_zs.inputs["Geometry"])
+    b.L(sxyz(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"])[2], yd_zs.inputs["Attribute"])
+    yd_zb = yd_zs.outputs["Min"]
+    # the footprint: the boundary of the building's bottom faces
+    yd_bot = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="FACE")
+    b.L(c_host.outputs["Geometry"], yd_bot.inputs["Geometry"])
+    b.L(bnot(tand(tcmp("LESS_THAN", sxyz(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"])[2], -0.5),
+                  tcmp("LESS_THAN", sxyz(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"])[2],
+                       em("ADD", yd_zb, em("DIVIDE", 0.05, geo_f))))),
+        yd_bot.inputs["Selection"])
+    yd_en = b.N("GeometryNodeInputMeshEdgeNeighbors", random_loc())
+    yd_m2c = b.N("GeometryNodeMeshToCurve", random_loc())
+    b.L(yd_bot.outputs["Geometry"], yd_m2c.inputs["Mesh"])
+    b.L(tcmp("LESS_THAN", yd_en.outputs["Face Count"], 1.5), yd_m2c.inputs["Selection"])
+    # the doors (tall openings standing on the ground): their path stays clear
+    yd_ib = b.N("GeometryNodeInputInstanceBounds", random_loc())
+    yl_x, _yl_y, yl_z = sxyz(vmul(yd_ib.outputs["Min"], i_scl))
+    yu_x, _yu_y, yu_z = sxyz(vmul(yd_ib.outputs["Max"], i_scl))
+    yd_dsel = tand(tand(tcmp("GREATER_THAN", dnamed("vm_openmark", "FLOAT"), 0.5),
+                        tcmp("GREATER_THAN", em("SUBTRACT", yu_z, yl_z), em("MULTIPLY", em("SUBTRACT", yu_x, yl_x), 1.6))),
+                   # (a door stands on the ground - a ground-floor window's sill is
+                   # 0.6 m and up, and it has no path to keep clear)
+                   tcmp("LESS_THAN", em("ADD", sxyz(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"])[2], yl_z),
+                        em("ADD", yd_zb, em("DIVIDE", 0.3, geo_f))))
+    yd_dst = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="INSTANCE")
+    b.L(c_inst, yd_dst.inputs["Geometry"])
+    yd_dst.inputs["Name"].default_value = "vm_ydn"
+    b.L(rot(v3(0.0, 1.0, 0.0), i_rot), yd_dst.inputs["Value"])
+    yd_door = b.N("GeometryNodeInstancesToPoints", random_loc())
+    b.L(yd_dst.outputs["Geometry"], yd_door.inputs["Instances"])
+    b.L(yd_dsel, yd_door.inputs["Selection"])
+    yd_dn = b.N("GeometryNodeAttributeDomainSize", random_loc())
+    yd_dn.component = "POINTCLOUD"
+    b.L(yd_door.outputs["Points"], yd_dn.inputs["Geometry"])
+    yd_hasd = tcmp("GREATER_THAN", yd_dn.outputs["Point Count"], 0.5)
+
+    def yd_up(pos_):
+        # a point 30 cm up (clear of the bottom faces' edge for the tests)
+        return vmath("ADD", pos_, v3(0.0, 0.0, em("DIVIDE", 0.3, geo_f)))
+
+    def yd_outside(pos_):
+        # (the nearest host face has this point on its outer side) and how far
+        sn_p = b.N("GeometryNodeSampleNearestSurface", random_loc(), data_type="FLOAT_VECTOR")
+        b.L(c_host.outputs["Geometry"], sn_p.inputs["Mesh"])
+        b.L(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"], sn_p.inputs["Value"])
+        b.L(pos_, sn_p.inputs["Sample Position"])
+        sn_n = b.N("GeometryNodeSampleNearestSurface", random_loc(), data_type="FLOAT_VECTOR")
+        b.L(c_host.outputs["Geometry"], sn_n.inputs["Mesh"])
+        b.L(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"], sn_n.inputs["Value"])
+        b.L(pos_, sn_n.inputs["Sample Position"])
+        rel_ = vmath("SUBTRACT", pos_, sn_p.outputs["Value"])
+        return (tcmp("GREATER_THAN", vmath("DOT_PRODUCT", rel_, sn_n.outputs["Value"], out="Value"), 0.0),
+                vmath("LENGTH", rel_, None, out="Value"))
+
+    def yd_rand(geo_, off_):
+        rv_ = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT_VECTOR")
+        rv_.inputs["Min"].default_value = (0.0, 0.0, 0.0)
+        rv_.inputs["Max"].default_value = (1.0, 1.0, 1.0)
+        b.L(seed_node(b, yd_seed, off_), rv_.inputs["Seed"])
+        return sxyz(rv_.outputs["Value"])
+    yd_clear = []                                   # (points, keep-off distance) of the sets placed so far
+    yd_all = b.N("GeometryNodeJoinGeometry", random_loc())
+
+    def yd_set(sock_, spacing_, d_lo, d_hi, share_, amount_, clear_, s_lo, s_hi, sink_, along_, off_, far_pow=1.0,
+               plant_=False, crowd_=None, cluster_=False):
+        """one prop set: outline points every spacing_ m, share_ * amount_ of
+        them kept, pushed d_lo..d_hi m out from the wall (far_pow > 1 crowds
+        them in), jittered along it; along_ = turned with the wall (else any
+        way round); clear_ = room kept round each one. plant_: growth - it
+        crowds round the props placed before (keeping off only the heart of
+        their footprint) and grows up to the posts and trims. crowd_: keep
+        off only this share of an earlier prop's room (a bush pressing round
+        a barrel). cluster_: only along some stretches of wall (one noise for
+        every clustered set, so the barrels, crates and clutter gather in the
+        same spots)."""
+        ci_ = b.N("GeometryNodeCollectionInfo", random_loc())
+        b.L(gi.outputs[sock_], ci_.inputs["Collection"])
+        ci_.inputs["Separate Children"].default_value = True
+        ci_.inputs["Reset Children"].default_value = True
+        cn_ = b.N("GeometryNodeAttributeDomainSize", random_loc())
+        cn_.component = "INSTANCES"
+        b.L(ci_.outputs["Instances"], cn_.inputs["Geometry"])
+        n_ = cn_.outputs["Instance Count"]
+        c2p_ = b.N("GeometryNodeCurveToPoints", random_loc(), mode="LENGTH")
+        b.L(yd_m2c.outputs["Curve"], c2p_.inputs["Curve"])
+        b.L(em("DIVIDE", spacing_, geo_f), c2p_.inputs["Length"])
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+        b.L(c2p_.outputs["Points"], st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = "vm_ydt"
+        b.L(c2p_.outputs["Tangent"], st_.inputs["Value"])
+        rx_, ry_, rz_ = yd_rand(None, off_)
+        t_ = vmath("NORMALIZE", dnamed("vm_ydt", "FLOAT_VECTOR"), None)
+        n0_ = vmath("NORMALIZE", vmath("CROSS_PRODUCT", t_, v3(0.0, 0.0, 1.0)), None)
+        p0_ = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+        out_a, _d = yd_outside(yd_up(vmath("ADD", p0_, vmath("SCALE", n0_, em("DIVIDE", 0.05, geo_f)))))
+        nout_ = vmath("SCALE", n0_, tsw(out_a, -1.0, 1.0))
+        span_ = em("SUBTRACT", d_hi, d_lo) if not isinstance(d_hi, (int, float)) else d_hi - d_lo
+        dist_ = em("ADD", em("MULTIPLY", em("POWER", ry_, far_pow), span_), d_lo)
+        pc_ = vmath("ADD", vmath("ADD", p0_, vmath("SCALE", nout_, em("DIVIDE", dist_, geo_f))),
+                    vmath("SCALE", t_, em("DIVIDE", em("MULTIPLY", em("SUBTRACT", rz_, 0.5), spacing_ * 0.8), geo_f)))
+        keep_ = tand(yd_on, tcmp("LESS_THAN", rx_, em("MULTIPLY", share_, amount_)))
+        if cluster_:
+            cz_ = b.N("ShaderNodeTexNoise", random_loc())
+            cz_.inputs["Scale"].default_value = 0.55
+            cz_.inputs["Detail"].default_value = 0.0
+            b.L(vmath("ADD", vmath("SCALE", p0_, geo_f),
+                      v3(em("MULTIPLY", yd_seed, 17.31), em("MULTIPLY", yd_seed, 5.77), 0.0)), cz_.inputs["Vector"])
+            keep_ = tand(keep_, tcmp("GREATER_THAN", cz_.outputs["Fac"], 0.53))
+        ch_ = st_.outputs["Geometry"]
+        for nm2_, dt2_, val2_ in (("vm_ydk", "BOOLEAN", keep_), ("vm_ydw", "FLOAT_VECTOR", nout_)):
+            s2_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt2_, domain="POINT")
+            b.L(ch_, s2_.inputs["Geometry"])
+            s2_.inputs["Name"].default_value = nm2_            # (vm_ydw: the wall's outward normal)
+            b.L(val2_, s2_.inputs["Value"])
+            ch_ = s2_.outputs["Geometry"]
+        mv_ = b.N("GeometryNodeSetPosition", random_loc())
+        b.L(ch_, mv_.inputs["Geometry"])
+        b.L(pc_, mv_.inputs["Position"])
+        dk_ = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+        b.L(mv_.outputs["Geometry"], dk_.inputs["Geometry"])
+        # where it landed: outside the building, clear of other walls, the
+        # porch / trims, the doors' paths and the sets placed before
+        pq_ = yd_up(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"])
+        out_b, d_b = yd_outside(pq_)
+        bad_ = bor(bnot(dnamed("vm_ydk", "BOOLEAN")),
+                   bor(bnot(out_b), tcmp("LESS_THAN", d_b, em("DIVIDE", max(d_lo * 0.7, 0.03), geo_f))))
+        tp_ = b.N("GeometryNodeProximity", random_loc())
+        tp_.target_element = "FACES"
+        b.L(c_trims.outputs["Geometry"], tp_.inputs["Geometry"])
+        b.L(pq_, tp_.inputs["Sample Position"])
+        tn_ = b.N("GeometryNodeAttributeDomainSize", random_loc())
+        tn_.component = "MESH"
+        b.L(c_trims.outputs["Geometry"], tn_.inputs["Geometry"])
+        bad_ = bor(bad_, tand(tcmp("GREATER_THAN", tn_.outputs["Face Count"], 0.5),
+                              tcmp("LESS_THAN", tp_.outputs["Distance"], em("DIVIDE", 0.12 if plant_ else 0.35, geo_f))))
+        rc_up = b.N("GeometryNodeRaycast", random_loc())
+        b.L(c_trims.outputs["Geometry"], rc_up.inputs["Target Geometry"])
+        rc_src = vmath("ADD", b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
+                       v3(0.0, 0.0, em("SUBTRACT", em("ADD", yd_zb, em("DIVIDE", 0.02, geo_f)),
+                                       sxyz(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"])[2])))
+        b.L(rc_src, rc_up.inputs["Source Position"])
+        rc_up.inputs["Ray Direction"].default_value = (0.0, 0.0, 1.0)
+        b.L(em("DIVIDE", 1.2, geo_f), rc_up.inputs["Ray Length"])      # (the deck - not the eaves above)
+        # ... and 30 cm further out too: a porch deck stops short of its wall,
+        # and a fern rooted in that gap grew up through the boards
+        rc_up2 = b.N("GeometryNodeRaycast", random_loc())
+        b.L(c_trims.outputs["Geometry"], rc_up2.inputs["Target Geometry"])
+        b.L(vmath("ADD", rc_src,
+                  vmath("SCALE", dnamed("vm_ydw", "FLOAT_VECTOR"), em("DIVIDE", 0.3, geo_f))),
+            rc_up2.inputs["Source Position"])
+        rc_up2.inputs["Ray Direction"].default_value = (0.0, 0.0, 1.0)
+        b.L(em("DIVIDE", 1.2, geo_f), rc_up2.inputs["Ray Length"])
+        bad_ = bor(bad_, tand(tcmp("GREATER_THAN", tn_.outputs["Face Count"], 0.5),
+                              bor(rc_up.outputs["Is Hit"], rc_up2.outputs["Is Hit"])))
+        dsn_ = b.N("GeometryNodeSampleNearest", random_loc(), domain="POINT")
+        b.L(yd_door.outputs["Points"], dsn_.inputs["Geometry"])
+        b.L(pq_, dsn_.inputs["Sample Position"])
+
+        def d_at(field_):
+            si_ = b.N("GeometryNodeSampleIndex", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+            b.L(yd_door.outputs["Points"], si_.inputs["Geometry"])
+            b.L(field_, si_.inputs["Value"])
+            b.L(dsn_.outputs["Index"], si_.inputs["Index"])
+            return si_.outputs["Value"]
+        dn_ = d_at(dnamed("vm_ydn", "FLOAT_VECTOR"))
+        drel_ = vmath("SUBTRACT", b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
+                      d_at(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]))
+        dalong_ = vmath("DOT_PRODUCT", drel_, dn_, out="Value")
+        dlat_ = vmath("LENGTH", vmath("SUBTRACT", drel_, vmath("SCALE", dn_, dalong_)), None, out="Value")
+        # (either side of the door - its stored normal may face in; the points
+        # inside are gone already)
+        on_path = tand(tcmp("LESS_THAN", em("ABSOLUTE", dalong_), em("DIVIDE", 3.5, geo_f)),
+                       tcmp("LESS_THAN", dlat_, em("DIVIDE", 1.25 + clear_ * 0.5, geo_f)))
+        bad_ = bor(bad_, tand(yd_hasd, on_path))
+        for cp_, cd_ in yd_clear:
+            px_ = b.N("GeometryNodeProximity", random_loc())
+            px_.target_element = "POINTS"
+            b.L(cp_[0], px_.inputs["Geometry"])
+            b.L(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"], px_.inputs["Sample Position"])
+            bad_ = bor(bad_, tand(cp_[1], tcmp("LESS_THAN", px_.outputs["Distance"],
+                                               em("DIVIDE", cd_ * 0.4 if plant_ else
+                                                  (cd_ * crowd_ if crowd_ else max(cd_, clear_)), geo_f))))
+        b.L(bad_, dk_.inputs["Selection"])
+        mg_ = b.N("GeometryNodeMergeByDistance", random_loc())
+        b.L(dk_.outputs["Geometry"], mg_.inputs["Geometry"])
+        b.L(em("DIVIDE", clear_, geo_f), mg_.inputs["Distance"])
+        pts_ = mg_.outputs["Geometry"]
+        pn_ = b.N("GeometryNodeAttributeDomainSize", random_loc())
+        pn_.component = "POINTCLOUD"
+        b.L(pts_, pn_.inputs["Geometry"])
+        yd_clear.append(((pts_, tcmp("GREATER_THAN", pn_.outputs["Point Count"], 0.5)), clear_))
+        # placed: on the ground (sunk a little), a random variant, turned with
+        # the wall (its back to it) or any way round, a little bigger or smaller
+        ax_, ay_, az_ = yd_rand(None, off_ + 1)
+        w_ = sxyz(dnamed("vm_ydw", "FLOAT_VECTOR"))
+        yaw_w = b.N("ShaderNodeMath", random_loc(), operation="ARCTAN2")
+        b.L(w_[1], yaw_w.inputs[0]); b.L(w_[0], yaw_w.inputs[1])
+        yaw_ = (em("ADD", em("SUBTRACT", yaw_w.outputs["Value"], 0.5 * math.pi), em("MULTIPLY", em("SUBTRACT", ax_, 0.5), 0.5))
+                if along_ else em("MULTIPLY", ax_, 2.0 * math.pi))
+        eu_ = b.N("FunctionNodeEulerToRotation", random_loc())
+        b.L(v3(0.0, 0.0, yaw_), eu_.inputs["Euler"])
+        sc_ = em("DIVIDE", tm("MULTIPLY_ADD", ay_, s_hi - s_lo, s_lo), geo_f)
+        gp_ = b.N("GeometryNodeSetPosition", random_loc())
+        b.L(pts_, gp_.inputs["Geometry"])
+        gpp_ = sxyz(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"])
+        b.L(v3(gpp_[0], gpp_[1], em("SUBTRACT", yd_zb, em("DIVIDE", sink_, geo_f))), gp_.inputs["Position"])
+        iop_ = b.N("GeometryNodeInstanceOnPoints", random_loc())
+        b.L(gp_.outputs["Geometry"], iop_.inputs["Points"])
+        b.L(tcmp("GREATER_THAN", n_, 0.5), iop_.inputs["Selection"])
+        b.L(ci_.outputs["Instances"], iop_.inputs["Instance"])
+        iop_.inputs["Pick Instance"].default_value = True
+        b.L(em("MINIMUM", em("FLOOR", em("MULTIPLY", az_, n_)), em("SUBTRACT", n_, 1.0)), iop_.inputs["Instance Index"])
+        b.L(eu_.outputs["Rotation"], iop_.inputs["Rotation"])
+        b.L(v3(sc_, sc_, sc_), iop_.inputs["Scale"])
+        b.L(iop_.outputs["Instances"], yd_all.inputs["Geometry"])
+    ca_, pa_ = gi.outputs["Clutter Amount"], gi.outputs["Plant Amount"]
+    yw_ = gi.outputs["Yard Width"]
+    # (all of it at the walls: bushes pressed against them, barrels / crates /
+    # a bucket touching them, a tyre, branches and staves dropped there, and
+    # a dense band of weeds, nettles, ferns and rank grass along the
+    # foundation thinning out to Yard Width)
+    yw_h = em("MAXIMUM", em("MULTIPLY", yw_, 0.5), 0.3)
+    yd_set("Yard Wall Props", 0.4, 0.33, 0.42, 0.9, ca_, 0.62, 0.9, 1.08, 0.0, True, 411, cluster_=True)
+    yd_set("Yard Clutter Props", 0.5, 0.3, yw_h, 0.6, ca_, 0.5, 0.85, 1.15, 0.02, True, 421, 1.5, crowd_=0.7,
+           cluster_=True)
+    yd_set("Yard Shrub Props", 0.8, 0.4, em("MAXIMUM", yw_h, 0.5), 0.6, pa_, 0.6, 0.8, 1.35, 0.03, False, 401, 1.5,
+           crowd_=0.85)
+    yd_set("Yard Plant Props", 0.1, 0.03, 0.35, 0.95, pa_, 0.09, 1.0, 1.8, 0.01, False, 431, 2.0, True)
+    yd_set("Yard Plant Props", 0.22, 0.25, yw_, 0.6, pa_, 0.16, 0.9, 1.6, 0.01, False, 441, 1.8, True)
+    yd_tag = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+    b.L(yd_all.outputs["Geometry"], yd_tag.inputs["Geometry"])
+    yd_tag.inputs["Name"].default_value = "vm_yard"
+    yd_tag.inputs["Value"].default_value = 1.0
+    b.L(yd_tag.outputs["Geometry"], g_join.inputs["Geometry"])
     v_seed = gi.outputs["Vine Seed"]
 
     def vnorm(v_):
@@ -13417,10 +14247,17 @@ def main():
         vstem=make_principled("VM_VineStem", (0.09, 0.06, 0.035), rough=0.85),
         vleaf=make_leaf_material("VM_VineLeaf"),
         # v2.12: what missing siding reveals - old dark sheathing boards
+        # (v2.29: real sheathing boards lie over it now - the bare face only
+        # shows between and behind them, so it reads as the dark cavity)
         sheath=make_textured_material(
             "VM_Sheathing", os.path.join(ASSET_SRC, "materials", "walls", "weathered_plank_siding"),
             "weathered_plank_siding_diff.jpg", "weathered_plank_siding_rough.jpg",
-            "weathered_plank_siding_nor.jpg", 0.5, darken=0.3))
+            "weathered_plank_siding_nor.jpg", 0.5, darken=0.1),
+        # v2.29: the diagonal sheathing boards - rough-sawn brown wood, kept
+        # out of the weather, so not the siding's silver grey
+        sheathb=make_board_material(
+            "VM_SheathBoard", os.path.join(ASSET_SRC, "materials", "walls", "brown_planks_09"),
+            "brown_planks_09", 7, 0.08, 0.95, 0.55, 0.9))
     for cn, maker, mat_ in (("VM_Tiles_Plank", make_siding_variants, lib_mats["siding"]),
                             ("VM_Tiles_Shingle", make_shake_variants, lib_mats["shake"])):
         col_ = bpy.data.collections[cn]
@@ -13434,10 +14271,17 @@ def main():
     for cn, maker, mat_, n_ in (("VM_Tiles_PlankBroken", make_broken_siding, lib_mats["siding"], 12),
                                 ("VM_Tiles_PlankWorn", make_worn_siding, lib_mats["siding"], 16),
                                 ("VM_Tiles_ShingleBroken", make_broken_shakes, lib_mats["shake"], 8),
-                                ("VM_Tiles_ShingleWorn", make_worn_shakes, lib_mats["shake"], 12)):
+                                ("VM_Tiles_ShingleWorn", make_worn_shakes, lib_mats["shake"], 12),
+                                # v2.29 sheathing under the siding (10 whole + 10 broken)
+                                ("VM_Tiles_Sheathing", make_sheathing_boards, lib_mats["sheathb"], 10),
+                                ("VM_Tiles_Stud", make_studs, lib_mats["sheathb"], 4)):
         col_ = bpy.data.collections.new(cn)
         tile_parent.children.link(col_)
         maker(col_, cn.replace("VM_Tiles_", ""), n_, mat_)
+    # v2.29 the yard props (Poly Haven CC0), next to the tiles
+    yard_parent = bpy.data.collections.new("VM_Yard")
+    tile_parent.children.link(yard_parent)
+    make_yard_props(yard_parent, os.path.join(ROOT, "yard_tex"))
     pack_images()
     keep_obs = set(lib_root.all_objects)
     for ob in list(bpy.data.objects):
@@ -13673,6 +14517,80 @@ def main():
           f"kept {rs_on[2]} (inner past the line {rs_on[3]}); off: rafter faces {rs_off[0]}, "
           f"partly broken points {rs_off[2]}")
     results["roof_half_v221"] = dict(rafters=rs_on[0], out=rs_on[1], kept=rs_on[2], past=rs_on[3])
+
+    # ---- v2.29: SHEATHING under the damaged siding (the user's 'brown material
+    # behind the planks - it has no damage geometry'): real diagonal boards in
+    # the damage, every piece wholly on the wall (none past an outline, none in
+    # an opening) and no more than 2.5 mm proud of the wall face, whole and
+    # broken pieces both; Sheathing 0 = none
+    sh_pool = {o_.name for o_ in bpy.data.collections["VM_Tiles_Sheathing"].all_objects}
+    sh_opens = {o_.name for cn_ in ("VM_Windows", "VM_Doors") for o_ in bpy.data.collections[cn_].all_objects}
+
+    def sheath_scan():
+        fx_w.update_tag()
+        dg_s = bpy.context.evaluated_depsgraph_get()
+        dg_s.update()
+        mw_ = fx_w.matrix_world
+        bb_ = [mw_ @ v_.co for v_ in fx_w.data.vertices]
+        lo_ = Vector([min(c_[k_] for c_ in bb_) for k_ in range(3)])
+        hi_ = Vector([max(c_[k_] for c_ in bb_) for k_ in range(3)])
+        pcs_, opn_ = [], []
+        bvh_s = BVHTree.FromObject(fx_w.evaluated_get(dg_s), dg_s)
+        mwi_ = mw_.inverted()
+        uncut_ = []
+        for inst in dg_s.object_instances:
+            if not (inst.is_instance and inst.parent is not None and inst.parent.original == fx_w):
+                continue
+            nm_ = inst.object.name
+            if nm_ in sh_pool:
+                m_ = inst.matrix_world
+                pcs_.append((nm_, [m_ @ v_.co for v_ in inst.object.data.vertices]))
+            elif nm_ in sh_opens:
+                c_ = [inst.matrix_world @ Vector(q_) for q_ in inst.object.bound_box]
+                a_ = Vector([min(q_[k_] for q_ in c_) for k_ in range(3)])
+                b_ = Vector([max(q_[k_] for q_ in c_) for k_ in range(3)])
+                if b_.z - a_.z > 0.4 and min(b_.x - a_.x, b_.y - a_.y) < 0.25:   # upright in a wall
+                    cw_ = (a_ + b_) * 0.5
+                    kw_ = 1 if abs(b_.x - a_.x) > abs(b_.y - a_.y) else 0
+                    cw_[kw_] = lo_[kw_] if abs(cw_[kw_] - lo_[kw_]) < abs(cw_[kw_] - hi_[kw_]) else hi_[kw_]
+                    hw_ = bvh_s.find_nearest(mwi_ @ cw_)
+                    if hw_[0] is not None and hw_[3] < 0.03:
+                        uncut_.append(nm_)                 # closed wall behind it: not an opening
+                    else:
+                        opn_.append((a_, b_, nm_))
+        off_, inop_, proud_, hit_ = 0, 0, 0.0, []
+        for _n, vs_ in pcs_:
+            out_d = [max(v_.x - hi_.x, lo_.x - v_.x, v_.y - hi_.y, lo_.y - v_.y) for v_ in vs_]
+            proud_ = max(proud_, max(out_d))
+            if any(d_ > 0.01 for d_ in out_d) or any(v_.z < lo_.z - 0.03 for v_ in vs_):
+                off_ += 1
+            else:
+                for a_, b_, on_ in opn_:
+                    ks_ = (0, 2) if abs(b_.x - a_.x) > abs(b_.y - a_.y) else (1, 2)
+                    kn_ = 1 if ks_[0] == 0 else 0
+                    if any(all(a_[k_] + 0.1 < v_[k_] < b_[k_] - 0.1 for k_ in ks_)
+                           and a_[kn_] - 0.1 < v_[kn_] < b_[kn_] + 0.1 for v_ in vs_):
+                        inop_ += 1
+                        hit_.append((_n, on_, tuple(round(x_, 2) for x_ in a_), tuple(round(x_, 2) for x_ in b_)))
+                        break
+        kinds_ = Counter(nm_[len("Sheathing")] for nm_, _v in pcs_)
+        return len(pcs_), kinds_, off_, inop_, proud_, hit_, len(opn_), uncut_
+    sh_on = sheath_scan()
+    set_params(wl_w, wl_w.node_group, {"Sheathing": 0.0})
+    sh_off = sheath_scan()
+    set_params(wl_w, wl_w.node_group, {"Sheathing": 0.85})
+    check("v2.29(sheathing): behind the damaged siding lie REAL diagonal sheathing boards (whole and broken "
+          "pieces), every one wholly on the wall - none past an outline or in an opening cut through it "
+          "(inside its casing) - and at most "
+          "2.5 mm proud of the wall face; Sheathing 0 = none",
+          len(sh_pool) == 20 and sh_on[0] >= 20 and sh_on[1]["A"] > 0 and sh_on[1]["B"] > 0
+          and sh_on[2] == 0 and sh_on[3] == 0 and sh_on[4] <= 0.0025 and sh_off[0] == 0,
+          f"pool {len(sh_pool)}; pieces {sh_on[0]} (whole {sh_on[1]['A']}, broken {sh_on[1]['B']}), off the "
+          f"wall {sh_on[2]}, in an opening {sh_on[3]} {sh_on[5][:3]} (of {sh_on[6]} cut openings; on closed "
+          f"wall {sh_on[7]}), proud {sh_on[4] * 1000:.1f} mm; "
+          f"Sheathing 0: {sh_off[0]}")
+    results["sheathing_v229"] = dict(pieces=sh_on[0], whole=sh_on[1]["A"], broken=sh_on[1]["B"],
+                                     off=sh_on[2], opening=sh_on[3])
     bpy.data.objects.remove(fx_w)
 
     # ---- v2.22: DORMERS out of a steep gable roof, a window in each
@@ -14050,6 +14968,69 @@ def main():
           f"porch on: leaves {iv_p[0]}, out on the porch {iv_p[1]}, on the roof {iv_p[2]}; porch off: "
           f"{iv_n[0]} / {iv_n[1]} / {iv_n[2]}; Vine Height 2 m: {iv_lo[0]} / {iv_lo[1]} / {iv_lo[2]}")
     results["ivy_v228"] = dict(porch=iv_p, no_porch=iv_n, low=iv_lo)
+
+    # ---- v2.29: YARD props round the house (the user's 'barrels, bushes ...
+    # as realistic as possible' - Poly Haven CC0): every set out, none inside
+    # the building, on the door's path or on / under the porch; Yard off = none
+    yd_of = {o_.name: c_.name for c_ in bpy.data.collections["VM_Yard"].children for o_ in c_.all_objects}
+
+    def yard_scan(porch_, on_):
+        set_params(rc_d, rc_d.node_group, {"Porch": porch_})
+        set_params(wl_d, wl_d.node_group, {"Yard": on_})
+        fx_d.update_tag()
+        dg_y = bpy.context.evaluated_depsgraph_get()
+        dg_y.update()
+        me_y = fx_d.evaluated_get(dg_y).data
+        tr_ = me_y.attributes.get("vm_trim")
+        tv_ = ([d_.value for d_ in tr_.data] if tr_.domain == "FACE" else
+               [sum(tr_.data[v_].value for v_ in f_.vertices) / len(f_.vertices) for f_ in me_y.polygons]) \
+            if tr_ is not None and tr_.domain in ("FACE", "POINT") else []
+        deck_ = [fx_d.matrix_world @ me_y.polygons[i_].center for i_, v_ in enumerate(tv_) if v_ > 0.5]
+        deck_ = [c_ for c_ in deck_ if c_.z < 1.2 and max(bx_d[0] - c_.x, c_.x - bx_d[1],
+                                                           bx_d[2] - c_.y, c_.y - bx_d[3]) > 0.1]
+        dk_bb = ((min(c_.x for c_ in deck_), max(c_.x for c_ in deck_), min(c_.y for c_ in deck_),
+                  max(c_.y for c_ in deck_)) if deck_ else None)
+        per_, pos_, doors_ = Counter(), [], []
+        for inst in dg_y.object_instances:
+            if not (inst.is_instance and inst.parent is not None and inst.parent.original == fx_d):
+                continue
+            nm_ = inst.object.name
+            if nm_ in yd_of:
+                per_[yd_of[nm_][8:]] += 1
+                pos_.append(inst.matrix_world.translation.copy())
+            elif nm_ in door_names:
+                c_ = [inst.matrix_world @ Vector(q_) for q_ in inst.object.bound_box]
+                doors_.append((Vector([min(q_[k_] for q_ in c_) for k_ in range(3)]),
+                               Vector([max(q_[k_] for q_ in c_) for k_ in range(3)])))
+        inside_ = sum(1 for p_ in pos_ if bx_d[0] + 0.05 < p_.x < bx_d[1] - 0.05 and bx_d[2] + 0.05 < p_.y < bx_d[3] - 0.05)
+
+        def on_path(p_, a_, b_):
+            if abs(b_.x - a_.x) >= abs(b_.y - a_.y):          # in a wall along X: the path runs along Y
+                out_ = (p_.y - b_.y) if abs(a_.y - bx_d[3]) < 0.3 else (a_.y - p_.y)
+                return a_.x - 0.8 < p_.x < b_.x + 0.8 and 0.0 < out_ < 3.0
+            out_ = (p_.x - b_.x) if abs(a_.x - bx_d[1]) < 0.3 else (a_.x - p_.x)
+            return a_.y - 0.8 < p_.y < b_.y + 0.8 and 0.0 < out_ < 3.0
+        path_ = sum(1 for p_ in pos_ for a_, b_ in doors_ if on_path(p_, a_, b_))
+        porch_n = sum(1 for p_ in pos_ if dk_bb and dk_bb[0] + 0.02 < p_.x < dk_bb[1] - 0.02
+                      and dk_bb[2] + 0.02 < p_.y < dk_bb[3] - 0.02)
+        return per_, inside_, path_, porch_n, len(doors_), bool(deck_)
+    door_names = {o_.name for o_ in bpy.data.collections["VM_Doors"].all_objects}
+    yd_p = yard_scan(True, True)
+    yd_n = yard_scan(False, True)
+    yd_o = yard_scan(False, False)
+    set_params(wl_d, wl_d.node_group, {"Yard": True})
+    sets_ = ("Wall", "Clutter", "Plants", "Shrubs")
+    check("v2.29(yard): Dress Object puts real props round the house - barrels / crates against the walls, "
+          "a log, branches and a tyre at their foot, weeds and grass along the foundation, bushes - none inside "
+          "the building, on the door's path or on / under the porch deck; Yard off = none",
+          all(yd_p[0][k_] > 0 for k_ in sets_) and all(yd_n[0][k_] > 0 for k_ in sets_)
+          and yd_p[1] == 0 and yd_n[1] == 0 and yd_p[2] == 0 and yd_n[2] == 0 and yd_p[3] == 0
+          and yd_p[4] > 0 and yd_p[5] and sum(yd_o[0].values()) == 0,
+          f"porch on: {dict(yd_p[0])}, inside {yd_p[1]}, on the door path {yd_p[2]} (doors {yd_p[4]}), "
+          f"on the porch {yd_p[3]}; porch off: {dict(yd_n[0])}, inside {yd_n[1]}, path {yd_n[2]}; "
+          f"Yard off: {sum(yd_o[0].values())}")
+    results["yard_v229"] = dict(porch={k_: yd_p[0][k_] for k_ in sets_}, no_porch={k_: yd_n[0][k_] for k_ in sets_})
+    set_params(rc_d, rc_d.node_group, {"Porch": False})
     bpy.data.objects.remove(fx_d)
 
     # ---- v2.10: UPDATE an older engine in place - settings survive
