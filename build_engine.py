@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.29"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.30"   # the ONE version label: About sockets, descriptions, checks, add-on
 # v2.23 doors set INTO the wall (world m): the leaf front this far behind the
 # wall face, a gap round the leaf in its hole, and the casing boards round it
 DOOR_RECESS, DOOR_GAP = 0.03, 0.01
@@ -7148,9 +7148,12 @@ def build_node_group():
     sh_live = tand(tand(gi.outputs["Cut Openings"], is_fit),
                    tand(tcmp("GREATER_THAN", gi.outputs["Sheathing"], 0.001), tcmp("GREATER_THAN", sh_n, 1.5)))
     sh_r2 = math.sqrt(0.5)
-    sh_st = em("DIVIDE", SHEATH_STUD, geo_f)                  # one stud bay
-    sh_pt = em("DIVIDE", SHEATH_PITCH, geo_f)                 # board to board, across
-    sh_bh = em("DIVIDE", SHEATH_WIDTH * 0.5 * math.sqrt(2.0), geo_f)   # a board's half height up the wall
+    # v2.30: the lattice is laid in WORLD metres along / up the wall (an
+    # unapplied non-uniform object scale stretched it: gaps between the boards,
+    # studs off the joints) - positions go back to local units by sh_fu / sh_fv
+    sh_st = em("ADD", SHEATH_STUD, 0.0)                      # one stud bay
+    sh_pt = em("ADD", SHEATH_PITCH, 0.0)                     # board to board, across
+    sh_bh = em("ADD", SHEATH_WIDTH * 0.5 * math.sqrt(2.0), 0.0)   # a board's half height up the wall
     # the damage's footprints on the walls: every wall gap marker (its box
     # centre sits 1 cm out - back onto the wall face) and every broken / loose /
     # worn wall BOARD (shakes and roofs have their own underlay)
@@ -7189,11 +7192,14 @@ def build_node_group():
     sh_r = dnamed("vm_shr", "QUATERNION")
     sh_u, sh_v = rot(v3(1.0, 0.0, 0.0), sh_r), rot(v3(0.0, 0.0, 1.0), sh_r)
     sh_p0 = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
-    sh_ca = vmath("DOT_PRODUCT", sh_p0, sh_u, out="Value")    # along the wall
-    sh_cv = vmath("DOT_PRODUCT", sh_p0, sh_v, out="Value")    # up it
+    # world metres per local unit along / up the wall (exactly 1.0 unscaled)
+    sh_fu = ws["eff_of"](sh_u, random_loc())
+    sh_fv = ws["eff_of"](sh_v, random_loc())
+    sh_ca = em("MULTIPLY", vmath("DOT_PRODUCT", sh_p0, sh_u, out="Value"), sh_fu)    # along the wall
+    sh_cv = em("MULTIPLY", vmath("DOT_PRODUCT", sh_p0, sh_v, out="Value"), sh_fv)    # up it
     sh_hu, _sh_hy, sh_hz = sxyz(dnamed("vm_shh", "FLOAT_VECTOR"))
-    sh_hu = em("ADD", sh_hu, em("DIVIDE", 0.02, geo_f))
-    sh_hz = em("ADD", sh_hz, em("DIVIDE", 0.02, geo_f))
+    sh_hu = em("ADD", em("MULTIPLY", sh_hu, sh_fu), 0.02)
+    sh_hz = em("ADD", em("MULTIPLY", sh_hz, sh_fv), 0.02)
     # board k: (along - up) / sqrt 2 in [k, k + 1) pitches; its pieces run
     # between joints at along = (2 m + phase) studs
     sh_d2lo = em("MULTIPLY", em("SUBTRACT", em("SUBTRACT", sh_ca, sh_hu), em("ADD", sh_cv, sh_hz)), sh_r2)
@@ -7234,8 +7240,9 @@ def build_node_group():
         sh_chain = st_.outputs["Geometry"]
     sh_mv = b.N("GeometryNodeSetPosition", random_loc())
     b.L(sh_chain, sh_mv.inputs["Geometry"])
-    b.L(vmath("ADD", sh_p0, vmath("ADD", vmath("SCALE", sh_u, em("SUBTRACT", sh_ac, sh_ca)),
-                                  vmath("SCALE", sh_v, em("SUBTRACT", em("SUBTRACT", sh_ac, sh_dd), sh_cv)))),
+    b.L(vmath("ADD", sh_p0, vmath("ADD", vmath("SCALE", sh_u, em("DIVIDE", em("SUBTRACT", sh_ac, sh_ca), sh_fu)),
+                                  vmath("SCALE", sh_v, em("DIVIDE", em("SUBTRACT", em("SUBTRACT", sh_ac, sh_dd),
+                                                                        sh_cv), sh_fv)))),
         sh_mv.inputs["Position"])
     sh_hd = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
     b.L(sh_mv.outputs["Geometry"], sh_hd.inputs["Geometry"])
@@ -7253,7 +7260,8 @@ def build_node_group():
         # height up / down the wall
         off_ = em("MULTIPLY", sh_st, fa_)
         up_ = off_ if fb_ == 0.0 else em("ADD", off_, em("MULTIPLY", sh_bh, fb_ * 0.8))
-        return vmath("ADD", sh_c, vmath("ADD", vmath("SCALE", sh_u, off_), vmath("SCALE", sh_v, up_)))
+        return vmath("ADD", sh_c, vmath("ADD", vmath("SCALE", sh_u, em("DIVIDE", off_, sh_fu)),
+                                        vmath("SCALE", sh_v, em("DIVIDE", up_, sh_fv))))
 
     def sh_onwall(pos_):
         px_ = b.N("GeometryNodeProximity", random_loc())
@@ -7320,15 +7328,41 @@ def build_node_group():
     sh_rr.rotation_space = "LOCAL"
     b.L(sh_r, sh_rr.inputs["Rotation"])
     b.L(sh_eul.outputs["Rotation"], sh_rr.inputs["Rotate By"])
+    def world_shape(geo_):
+        """v2.30: undo the host's unapplied scale S on each instance about its
+        own origin (T(p) . S^-1 . T(-p) . M), so a barrel or a board is never
+        stretched by it; the instances are made at their WORLD size (scale 1).
+        Exactly the identity for an unscaled object."""
+        it_ = b.N("GeometryNodeInstanceTransform", random_loc()).outputs["Transform"]
+        ip_ = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+        mats_ = []
+        for tr_, sc_ in ((ip_, None), (None, v3(em("DIVIDE", 1.0, sx_g), em("DIVIDE", 1.0, sy_g),
+                                                em("DIVIDE", 1.0, sz_g))),
+                         (vmath("SCALE", ip_, -1.0), None)):
+            ct_ = b.N("FunctionNodeCombineTransform", random_loc())
+            if tr_ is not None:
+                b.L(tr_, ct_.inputs["Translation"])
+            if sc_ is not None:
+                b.L(sc_, ct_.inputs["Scale"])
+            mats_.append(ct_.outputs["Transform"])
+        m_ = mats_[0]
+        for nx_ in mats_[1:] + [it_]:
+            mm_ = b.N("FunctionNodeMatrixMultiply", random_loc())
+            b.L(m_, mm_.inputs[0])
+            b.L(nx_, mm_.inputs[1])
+            m_ = mm_.outputs["Matrix"]
+        si_ = b.N("GeometryNodeSetInstanceTransform", random_loc())
+        b.L(geo_, si_.inputs["Instances"])
+        b.L(m_, si_.inputs["Transform"])
+        return si_.outputs["Instances"]
     sh_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
     b.L(sh_del.outputs["Geometry"], sh_iop.inputs["Points"])
     b.L(sh_inst, sh_iop.inputs["Instance"])
     sh_iop.inputs["Pick Instance"].default_value = True
     b.L(sh_idx, sh_iop.inputs["Instance Index"])
     b.L(sh_rr.outputs["Rotation"], sh_iop.inputs["Rotation"])
-    b.L(v3(em("DIVIDE", 1.0, geo_f), em("DIVIDE", 1.0, geo_f), em("DIVIDE", 1.0, geo_f)), sh_iop.inputs["Scale"])
     sh_tag = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
-    b.L(sh_iop.outputs["Instances"], sh_tag.inputs["Geometry"])
+    b.L(world_shape(sh_iop.outputs["Instances"]), sh_tag.inputs["Geometry"])
     sh_tag.inputs["Name"].default_value = "vm_sheath"
     sh_tag.inputs["Value"].default_value = 1.0
     b.L(sh_tag.outputs["Geometry"], g_join.inputs["Geometry"])
@@ -7353,8 +7387,9 @@ def build_node_group():
         st_pts.inputs["Selection"])
     b.L(vmath("SUBTRACT", b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
               vmath("SCALE", rot(v3(0.0, 1.0, 0.0), sh_kr), em("DIVIDE", 0.01, geo_f))), st_pts.inputs["Position"])
-    st_cl = em("DIVIDE", STUD_CELL, geo_f)
+    st_cl = em("ADD", STUD_CELL, 0.0)                         # (world m, like the lattice)
     st_hu, _st_hy, st_hz = sxyz(dnamed("vm_shh", "FLOAT_VECTOR"))
+    st_hu, st_hz = em("MULTIPLY", st_hu, sh_fu), em("MULTIPLY", st_hz, sh_fv)
     st_jlo = em("CEIL", em("DIVIDE", em("SUBTRACT", sh_ca, st_hu), sh_st))
     st_nj = em("MAXIMUM", em("ADD", em("SUBTRACT", em("FLOOR", em("DIVIDE", em("ADD", sh_ca, st_hu), sh_st)), st_jlo), 1.0),
                0.0)
@@ -7378,8 +7413,10 @@ def build_node_group():
     b.L(v3(st_j, st_c, 0.0), st_idv.inputs["Value"])
     st_mv = b.N("GeometryNodeSetPosition", random_loc())
     b.L(st_idv.outputs["Geometry"], st_mv.inputs["Geometry"])
-    b.L(vmath("ADD", sh_p0, vmath("ADD", vmath("SCALE", sh_u, em("SUBTRACT", em("MULTIPLY", st_j, sh_st), sh_ca)),
-                                  vmath("SCALE", sh_v, em("SUBTRACT", em("MULTIPLY", em("ADD", st_c, 0.5), st_cl), sh_cv)))),
+    b.L(vmath("ADD", sh_p0, vmath("ADD", vmath("SCALE", sh_u, em("DIVIDE", em("SUBTRACT", em("MULTIPLY", st_j, sh_st),
+                                                                          sh_ca), sh_fu)),
+                                  vmath("SCALE", sh_v, em("DIVIDE", em("SUBTRACT", em("MULTIPLY", em("ADD", st_c, 0.5),
+                                                                                      st_cl), sh_cv), sh_fv)))),
         st_mv.inputs["Position"])
     # neighbouring holes offered the same lengths: one each
     st_mg = b.N("GeometryNodeMergeByDistance", random_loc())
@@ -7396,7 +7433,7 @@ def build_node_group():
         b.L(pos_, px_.inputs["Sample Position"])
         return tcmp("GREATER_THAN", px_.outputs["Distance"], em("DIVIDE", 0.015, geo_f))
     for fz_ in (-0.45, 0.0, 0.45):
-        p_ = vmath("ADD", st_c0, vmath("SCALE", sh_v, em("MULTIPLY", st_cl, fz_)))
+        p_ = vmath("ADD", st_c0, vmath("SCALE", sh_v, em("DIVIDE", em("MULTIPLY", st_cl, fz_), sh_fv)))
         w_, g_ = sh_onwall(p_), st_hole(p_)
         st_all = w_ if st_all is None else tand(st_all, w_)
         st_any = g_ if st_any is None else bor(st_any, g_)
@@ -7414,9 +7451,8 @@ def build_node_group():
     b.L(em("MINIMUM", em("FLOOR", em("MULTIPLY", st_rv.outputs["Value"], st_n)), em("SUBTRACT", st_n, 1.0)),
         st_iop.inputs["Instance Index"])
     b.L(dnamed("vm_shr", "QUATERNION"), st_iop.inputs["Rotation"])
-    b.L(v3(em("DIVIDE", 1.0, geo_f), em("DIVIDE", 1.0, geo_f), em("DIVIDE", 1.0, geo_f)), st_iop.inputs["Scale"])
     st_tag = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
-    b.L(st_iop.outputs["Instances"], st_tag.inputs["Geometry"])
+    b.L(world_shape(st_iop.outputs["Instances"]), st_tag.inputs["Geometry"])
     st_tag.inputs["Name"].default_value = "vm_sheath"
     st_tag.inputs["Value"].default_value = 1.0
     b.L(st_tag.outputs["Geometry"], g_join.inputs["Geometry"])
@@ -7654,11 +7690,11 @@ def build_node_group():
                 if along_ else em("MULTIPLY", ax_, 2.0 * math.pi))
         eu_ = b.N("FunctionNodeEulerToRotation", random_loc())
         b.L(v3(0.0, 0.0, yaw_), eu_.inputs["Euler"])
-        sc_ = em("DIVIDE", tm("MULTIPLY_ADD", ay_, s_hi - s_lo, s_lo), geo_f)
+        sc_ = tm("MULTIPLY_ADD", ay_, s_hi - s_lo, s_lo)       # (world size: world_shape)
         gp_ = b.N("GeometryNodeSetPosition", random_loc())
         b.L(pts_, gp_.inputs["Geometry"])
         gpp_ = sxyz(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"])
-        b.L(v3(gpp_[0], gpp_[1], em("SUBTRACT", yd_zb, em("DIVIDE", sink_, geo_f))), gp_.inputs["Position"])
+        b.L(v3(gpp_[0], gpp_[1], em("SUBTRACT", yd_zb, em("DIVIDE", sink_, sz_g))), gp_.inputs["Position"])
         iop_ = b.N("GeometryNodeInstanceOnPoints", random_loc())
         b.L(gp_.outputs["Geometry"], iop_.inputs["Points"])
         b.L(tcmp("GREATER_THAN", n_, 0.5), iop_.inputs["Selection"])
@@ -7683,7 +7719,7 @@ def build_node_group():
     yd_set("Yard Plant Props", 0.1, 0.03, 0.35, 0.95, pa_, 0.09, 1.0, 1.8, 0.01, False, 431, 2.0, True)
     yd_set("Yard Plant Props", 0.22, 0.25, yw_, 0.6, pa_, 0.16, 0.9, 1.6, 0.01, False, 441, 1.8, True)
     yd_tag = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
-    b.L(yd_all.outputs["Geometry"], yd_tag.inputs["Geometry"])
+    b.L(world_shape(yd_all.outputs["Geometry"]), yd_tag.inputs["Geometry"])
     yd_tag.inputs["Name"].default_value = "vm_yard"
     yd_tag.inputs["Value"].default_value = 1.0
     b.L(yd_tag.outputs["Geometry"], g_join.inputs["Geometry"])
@@ -15032,6 +15068,52 @@ def main():
     results["yard_v229"] = dict(porch={k_: yd_p[0][k_] for k_ in sets_}, no_porch={k_: yd_n[0][k_] for k_ in sets_})
     set_params(rc_d, rc_d.node_group, {"Porch": False})
     bpy.data.objects.remove(fx_d)
+
+    # ---- v2.30: the v2.29 parts under an UNAPPLIED non-uniform object scale
+    # (the user's 'no bugs when scaling the building'): yard props, sheathing
+    # boards and studs keep their world shape, and the studs stand on the
+    # 0.4 m lattice in WORLD metres along the stretched wall
+    fx_s = fx_cube("FreshS", 48.0)
+    fx_s.data.transform(Matrix.Diagonal((2.5, 2.0, 1.2, 1.0)))     # a 5 x 4 x 2.4 m mesh ...
+    fx_s.scale = (1.6, 1.0, 1.3)                                    # ... scaled, NOT applied
+    bpy.context.view_layer.update()
+    bpy.ops.vm.apply_preset(preset="lib:Base - Weathered gable")
+    wl_s = fx_s.modifiers["VM_SceneDetailer_Windows"]
+    set_params(wl_s, wl_s.node_group, {"Half Broken": 1.0, "Yard": True})
+    fx_s.update_tag()
+    dg_s2 = bpy.context.evaluated_depsgraph_get()
+    dg_s2.update()
+    ws_pool = {o_.name: ("yard" if c_.name.startswith("VM_Yard_") else
+                         "stud" if c_.name == "VM_Tiles_Stud" else "sheath")
+               for c_ in bpy.data.collections
+               if c_.name.startswith("VM_Yard_") or c_.name in ("VM_Tiles_Sheathing", "VM_Tiles_Stud")
+               for o_ in c_.all_objects}
+    ws_n = {"yard": 0, "sheath": 0, "stud": 0}
+    ws_an = {"yard": 1.0, "sheath": 1.0, "stud": 1.0}
+    ws_off, ws_xs = 0, 0
+    for inst in dg_s2.object_instances:
+        if not (inst.is_instance and inst.parent is not None and inst.parent.original == fx_s):
+            continue
+        k_ = ws_pool.get(inst.object.name)
+        if k_ is None:
+            continue
+        m_ = inst.matrix_world
+        ax_ = [m_.col[i_].xyz.length for i_ in range(3)]
+        ws_n[k_] += 1
+        ws_an[k_] = max(ws_an[k_], max(ax_) / max(min(ax_), 1e-9))
+        if k_ == "stud" and abs(m_.col[0].xyz.normalized().x) > 0.99:     # on a wall along X
+            ws_xs += 1
+            f_ = (m_.translation.x - fx_s.location.x) / SHEATH_STUD
+            if abs(f_ - round(f_)) * SHEATH_STUD > 0.02:
+                ws_off += 1
+    check("v2.30(world-space): with the house's (1.6, 1.0, 1.3) scale NOT applied, the yard props, sheathing "
+          "boards and studs keep their world shape (not stretched) and the studs stand every 0.4 WORLD m "
+          "along the stretched wall",
+          all(ws_n[k_] > 0 for k_ in ws_n) and all(ws_an[k_] < 1.01 for k_ in ws_an) and ws_xs > 0 and ws_off == 0,
+          f"instances {ws_n}, worst stretch {({k_: round(v_, 3) for k_, v_ in ws_an.items()})}, studs on the "
+          f"X walls {ws_xs}, off the 0.4 m lattice {ws_off}")
+    results["world_shape_v230"] = dict(n=ws_n, stretch=ws_an, studs_x=ws_xs, off=ws_off)
+    bpy.data.objects.remove(fx_s)
 
     # ---- v2.10: UPDATE an older engine in place - settings survive
     planks_a = fx_a.modifiers["VM_SceneDetailer_Planks"]
