@@ -12,11 +12,11 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.30) - THE ENGINE LIBRARY: both node groups (also marked
+  VM_Assets.blend (v2.31) - THE ENGINE LIBRARY: both node groups (also marked
     as Blender assets), the whole AssetLibrary pack tree, the default
     materials and the clean BASE PRESETS. The add-on imports from it into any
     file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.30) - the engine's interface across files: Import /
+  VM_Tools_Addon.py (v2.31) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -35,6 +35,24 @@ Files in this folder:
     green + 79 v2.7-v2.30 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.31 (2026-11-06) - THE ENGINE BUILDS IN MINUTES, NOT AN HOUR
+-------------------------------------------------------------------------------
+* The node groups are now made of hidden parts of about 100 nodes each
+  (.VM_SceneDetailer 01, 02, ... and .VM_RoofCap 01, ...). Inside
+  VM_SceneDetailer / VM_RoofCap you see group nodes labelled "part N"
+  (Tab into one to see its nodes).
+  - Why: Blender re-checks a whole node tree after every single change made
+    by a script, so one 6,886-node tree took about 61 min to build (each
+    change got slower as the tree grew). In parts it takes about 1.5 min;
+    the full build with every check went from about 73 to 47 min.
+  - Nothing else changes: every node, setting, default and link is the same
+    as in v2.30 (compared one by one), all 276 checks pass and the dressed
+    houses evaluate about 10% faster.
+* Import / Update Engine removes the old unused parts when it updates a
+  file, so updating does not leave '.001' copies behind.
+* Preview renders still use the CPU (the GPU was slower for these small
+  renders); set VM_RENDER_GPU=1 before a build to render on the GPU.
 
 v2.30 (2026-11-04) - THE YARD AND THE SHEATHING ON A SCALED HOUSE
 -------------------------------------------------------------------------------

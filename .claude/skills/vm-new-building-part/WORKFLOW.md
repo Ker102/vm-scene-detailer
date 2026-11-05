@@ -63,6 +63,20 @@ boxes), `has_open`, `gap_at`, `open_cut_at`, `is_fit`, `g_join`.
   object scale must not stretch anything. The build's `world-space:` checks pin this.
 - Seed every random value with `seed_node(...)` and a fresh offset, and key it on
   position, not on index, when instances can be deleted upstream (damage).
+- **The groups are built in ~100-node subgroups (v2.31, `CHUNK_NODES`, `chunked_build`).**
+  The builder code runs twice: a record pass, then the final pass into
+  `.VM_SceneDetailer NN` / `.VM_RoofCap NN`. A node's inputs may come from
+  another subgroup, and cross links are only wired at the end. So:
+  - link only with `b.L(out, in)`, remove links only with
+    `b.unlink(lambda lk: lk.from_node == x and lk.to_node == y)`,
+    and use `b.last` for "the node just made". Never touch `b.ng.links`,
+    `b.ng.nodes` or `socket.links`.
+  - don't read link state (`is_linked`, `.links`) during the build, and don't
+    create bpy data that must survive the record pass (it is deleted between passes).
+  - the code must make the same nodes in the same order on both passes (no
+    `random` without a fixed seed): the build stops if the two passes differ.
+  - `VM_CHUNK=0` builds the old single flat tree (~1 h for VM_SceneDetailer),
+    which is only useful to compare against.
 
 ## Tests
 1. **Fast loop (in-file):** a `build/vXXX_test.py` that imports `build_engine`,

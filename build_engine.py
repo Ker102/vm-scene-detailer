@@ -201,7 +201,7 @@ script), VM_ASSET_SRC = asset library (default ~/Documents/ViperMeshAssets),
 VM_DELIVER = deliverable mirror (default ~/Downloads/blender-engine).
 """
 
-import bpy, bmesh, os, sys, shutil, math, json
+import bpy, bmesh, os, sys, shutil, math, json, time
 from collections import Counter
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.30"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.31"   # the ONE version label: About sockets, descriptions, checks, add-on
 # v2.23 doors set INTO the wall (world m): the leaf front this far behind the
 # wall face, a gap round the leaf in its hole, and the casing boards round it
 DOOR_RECESS, DOOR_GAP = 0.03, 0.01
@@ -243,7 +243,52 @@ WIN_GLTF_BW07 = "props/windows/BrokenWindow07/scene.gltf"
 WIN_GLTF_MED = "props/windows/MedievalWindows/scene.gltf"
 PACK_PATHS = [DOOR_GLTF, WIN_GLTF_WW, WIN_GLTF_BW01, WIN_GLTF_BW07, WIN_GLTF_MED]
 
-log = lambda *a: print(*a, flush=True)
+_T0 = time.time()
+_T_LAST = [_T0]
+
+
+def log(*a):
+    """print + flush; phase headers ("== ...") and saves get an elapsed stamp
+    [+mm:ss total | +Ns since the previous header] so slow phases show in the log."""
+    s = " ".join(str(x) for x in a)
+    if s.lstrip("\n").startswith("== "):
+        now = time.time()
+        tot, d = now - _T0, now - _T_LAST[0]
+        _T_LAST[0] = now
+        s = s.replace("== ", f"== [+{int(tot // 60):02d}:{int(tot % 60):02d} | prev {d:.0f}s] ", 1)
+    print(s, flush=True)
+
+
+def set_render_device(scene):
+    """Cycles device for the build's preview renders: the CPU by default,
+    VM_RENDER_GPU=1 for OptiX (else CUDA). Measured 2026-11-05 on the RTX 2080
+    Super: the 960x540 32-spp previews took ~25 s each on OptiX vs 10-17 s on the
+    CPU (scene sync + GN evaluation dominate, not sampling) and the first OptiX
+    render compiled kernels for ~8 min. Call after every clear_scene():
+    read_factory_settings resets the Cycles device preferences. No check reads
+    render pixels, so the device never changes a PASS/FAIL."""
+    scene.cycles.device = "CPU"
+    if os.environ.get("VM_RENDER_GPU") != "1":
+        log("  render device: CPU")
+        return "CPU"
+    try:
+        cp = bpy.context.preferences.addons["cycles"].preferences
+        for typ in ("OPTIX", "CUDA"):
+            try:
+                cp.compute_device_type = typ
+            except TypeError:
+                continue
+            cp.get_devices()
+            if any(d.type == typ for d in cp.devices):
+                for d in cp.devices:
+                    d.use = d.type == typ
+                scene.cycles.device = "GPU"
+                log(f"  render device: GPU ({typ})")
+                return typ
+    except Exception as e:
+        log(f"  render device: GPU setup failed ({e}), CPU")
+    log("  render device: CPU (no GPU found)")
+    return "CPU"
 
 
 # ---------------------------------------------------------------------------- helpers
@@ -1691,13 +1736,85 @@ CLAD_EPS = 0.0005
 V28_FLAGS = dict(contain=True, gate1=True, greedy=True, occ=True, rr=True)
 
 
+class _LLink:
+    """One logical link b.L(a, c) made. `real` is the Blender link that ends at
+    the target socket (inside the target's subgroup when chunked), or None for a
+    cross-tree link in the recording pass. b.unlink() matches on these."""
+    __slots__ = ("from_socket", "to_socket", "real", "alive")
+
+    def __init__(self, a, c):
+        self.from_socket, self.to_socket, self.real, self.alive = a, c, None, True
+
+    @property
+    def from_node(self):
+        return self.from_socket.node
+
+    @property
+    def to_node(self):
+        return self.to_socket.node
+
+
+# Why chunks (v2.31): every edit of a node tree through bpy (nodes.new, a
+# property, a default value, a link) re-runs Blender's update of the WHOLE tree,
+# and that update costs ~n^2 in the tree's node count (measured: ~4 ms per edit
+# at 1k nodes, ~150 ms at 5k). Built as one flat 6.9k-node tree,
+# VM_SceneDetailer took ~64 min; built as ~100-node subgroups it takes ~1.5 min.
+# Each group is built twice: a RECORD pass into throw-away scratch trees logs
+# every node and link, the plan cuts the dependency order into chunks (every
+# link points forward, so the subgroups can never form a cycle; a repeat zone
+# stays in one chunk), and the FINAL pass builds into the subgroups
+# ".<group> NN" and wires the cross-chunk links through their interfaces at the
+# end. Flattened, the result is node-for-node and link-for-link the flat graph
+# (verified against a VM_CHUNK=0 build with a canonical graph dump, 2026-11-05).
+# Rules for builder code: link with b.L, remove links with b.unlink(pred), use
+# b.last for the node just made - never touch b.ng.links / b.ng.nodes directly.
+CHUNK_NODES = int(os.environ.get("VM_CHUNK", "100"))   # 0 = the old flat build
+_IO_TYPES = ("NodeGroupInput", "NodeGroupOutput")
+_ZONE_PAIRS = {"GeometryNodeRepeatInput": "GeometryNodeRepeatOutput",
+               "GeometryNodeSimulationInput": "GeometryNodeSimulationOutput",
+               "GeometryNodeForeachGeometryElementInput": "GeometryNodeForeachGeometryElementOutput"}
+_SOCK_IFACE = {"VALUE": "NodeSocketFloat", "INT": "NodeSocketInt", "BOOLEAN": "NodeSocketBool",
+               "VECTOR": "NodeSocketVector", "RGBA": "NodeSocketColor", "STRING": "NodeSocketString",
+               "GEOMETRY": "NodeSocketGeometry", "OBJECT": "NodeSocketObject",
+               "COLLECTION": "NodeSocketCollection", "MATERIAL": "NodeSocketMaterial",
+               "IMAGE": "NodeSocketImage", "TEXTURE": "NodeSocketTexture", "ROTATION": "NodeSocketRotation",
+               "MENU": "NodeSocketMenu", "MATRIX": "NodeSocketMatrix", "BUNDLE": "NodeSocketBundle",
+               "CLOSURE": "NodeSocketClosure"}
+
+
 class NGBuilder:
-    """Small helper around interface creation + node/link sugar."""
+    """Small helper around interface creation + node/link sugar.
+
+    mode "flat":   every node in self.ng (the pre-v2.31 build; VM_CHUNK=0)
+    mode "record": nodes in rotating scratch trees, cross-tree links only logged
+    mode "final":  nodes in the planned subgroups ".<name> NN", cross links routed
+    Group Input / Output nodes always live in self.ng (the main group)."""
+    _mode = ("flat", None)
+    _current = None
 
     def __init__(self, name):
         self.ng = bpy.data.node_groups.new(name, "GeometryNodeTree")
         self.iface = self.ng.interface
         self.menu_defaults = []   # (socket, default) applied after switches are linked
+        self.mode, self.plan = NGBuilder._mode
+        NGBuilder._current = self
+        self.types, self.links, self.idx_of = [], [], {}
+        self.last = None
+        self._scratch, self._in_scratch = None, 0
+        self._chunks, self._gnodes, self._cio = [], [], []
+        self._out_port, self._in_port = {}, {}
+        self._deferred = []
+        self._into = {}            # single input socket ptr -> its live _LLink
+        if self.mode == "final":
+            # the subgroups get their group nodes in the main tree only in
+            # finish_links(): while nothing uses a subgroup, an edit inside it
+            # updates just that subgroup
+            n_ch = max(self.plan) + 1 if self.plan else 0
+            for k in range(n_ch):
+                ct = bpy.data.node_groups.new(f".{name} {k + 1:02d}", "GeometryNodeTree")
+                cgi = ct.nodes.new("NodeGroupInput"); cgi.location = (-400, 0)
+                cgo = ct.nodes.new("NodeGroupOutput"); cgo.location = (3000, 0)
+                self._chunks.append(ct); self._cio.append((cgi, cgo))
 
     def panel(self, name, desc=""):
         return self.iface.new_panel(name, description=desc)
@@ -1725,15 +1842,140 @@ class NGBuilder:
         self.menu_defaults.append((s, default))
         return s
 
+    def _tree_for(self, i, t):
+        if self.mode == "flat" or t in _IO_TYPES:
+            return self.ng
+        if self.mode == "final":
+            return self._chunks[self.plan[i]]
+        # record: a fresh scratch tree every CHUNK_NODES nodes (a zone's output
+        # stays with its input: pair_with_output needs one tree)
+        prev = self.types[i - 1] if i else None
+        if self._scratch is None or (self._in_scratch >= max(CHUNK_NODES, 50)
+                                     and _ZONE_PAIRS.get(prev) != t):
+            self._scratch = bpy.data.node_groups.new(".vm_scratch", "GeometryNodeTree")
+            self._in_scratch = 0
+        self._in_scratch += 1
+        return self._scratch
+
     def N(self, t, loc=(0, 0), **props):
-        n = self.ng.nodes.new(t)
+        i = len(self.types)
+        tree = self._tree_for(i, t)
+        self.types.append(t)
+        n = tree.nodes.new(t)
+        self.idx_of[n.as_pointer()] = i
         n.location = loc
         for k, v in props.items():
             setattr(n, k, v)
+        self.last = n
         return n
 
     def L(self, a, b):
-        self.ng.links.new(a, b)
+        ll = _LLink(a, b)
+        if not b.is_multi_input:
+            # a single input keeps only its LAST link (what links.new does in
+            # one tree) - drop the old one now, deferred or not
+            old = self._into.get(b.as_pointer())
+            if old is not None and old.alive:
+                old.alive = False
+                if old.real is not None:
+                    old.real.id_data.links.remove(old.real)
+                    old.real = None
+            self._into[b.as_pointer()] = ll
+        self.links.append(ll)
+        ta, tb = a.id_data, b.id_data
+        if self.mode == "final" and (ta != tb or b.is_multi_input):
+            # cross-chunk links are wired in finish_links(); links into a
+            # multi-input socket wait too, so each socket keeps its link order
+            self._deferred.append(ll)
+        elif ta == tb:
+            ll.real = tb.links.new(a, b)
+        elif self.mode == "flat":
+            raise RuntimeError(f"link across trees in a flat build: {a.node.name} -> {b.node.name}")
+        return ll.real
+
+    def unlink(self, pred):
+        """Remove every live logical link for which pred(link) is true (the link
+        has from_node / to_node / from_socket / to_socket like a NodeLink)."""
+        n = 0
+        for ll in self.links:
+            if ll.alive and pred(ll):
+                ll.alive = False
+                if ll.real is not None:
+                    ll.real.id_data.links.remove(ll.real)
+                    ll.real = None
+                n += 1
+        return n
+
+    # ---- chunk wiring (final mode). Socket identifiers are cached, never
+    # socket objects: group-node sockets are rebuilt when an interface grows.
+    @staticmethod
+    def _sock(coll, ident):
+        for s in coll:
+            if s.identifier == ident:
+                return s
+        raise KeyError(ident)
+
+    def _src_key(self, a):
+        """Where the main tree finds socket `a`: ('m', node name, identifier) for
+        the main Group Input, ('c', chunk, output identifier) for a chunk socket."""
+        if a.id_data == self.ng:
+            return ("m", a.node.name, a.identifier)
+        k = self._chunks.index(a.id_data)
+        key = a.as_pointer()
+        ident = self._out_port.get(key)
+        if ident is None:
+            ct = self._chunks[k]
+            it = ct.interface.new_socket(f"o{len(self._out_port)}", in_out="OUTPUT",
+                                         socket_type=_SOCK_IFACE[a.type])
+            ident = it.identifier
+            ct.links.new(a, self._sock(self._cio[k][1].inputs, ident))
+            self._out_port[key] = ident
+        return ("c", k, ident)
+
+    def _main_sock(self, key):
+        if key[0] == "m":
+            return self._sock(self.ng.nodes[key[1]].outputs, key[2])
+        return self._sock(self._gnodes[key[1]].outputs, key[2])
+
+    def finish_links(self):
+        """Wire the deferred links, in their original order per target socket:
+        1) chunk interfaces + chunk-side links while no chunk is used yet,
+        2) the chunks' group nodes in the main tree, 3) the main-tree links."""
+        if self.mode != "final" or self._gnodes:
+            return
+        live = [ll for ll in self._deferred if ll.alive]
+        self._deferred = []
+        main_final = []
+        for ll in live:
+            a, b = ll.from_socket, ll.to_socket
+            ta, tb = a.id_data, b.id_data
+            if ta == tb:
+                ll.real = tb.links.new(a, b)
+                continue
+            src = self._src_key(a)
+            if tb == self.ng:
+                main_final.append((ll, src))
+                continue
+            j = self._chunks.index(tb)
+            pk = (src, j)
+            ident = self._in_port.get(pk)
+            if ident is None:
+                kind = a.type
+                it = self._chunks[j].interface.new_socket(f"i{len(self._in_port)}", in_out="INPUT",
+                                                          socket_type=_SOCK_IFACE[kind])
+                ident = it.identifier
+                self._in_port[pk] = ident
+            ll.real = tb.links.new(self._sock(self._cio[j][0].outputs, ident), b)
+        for k, ct in enumerate(self._chunks):
+            gn = self.ng.nodes.new("GeometryNodeGroup")
+            gn.node_tree = ct
+            gn.location = (k * 260, 800)
+            gn.label = f"part {k + 1}"
+            self._gnodes.append(gn)
+        for (src, j), ident in self._in_port.items():
+            self.ng.links.new(self._main_sock(src), self._sock(self._gnodes[j].inputs, ident))
+        for ll, src in main_final:
+            ll.real = self.ng.links.new(self._main_sock(src), ll.to_socket)
 
     def menu_switch(self, items, data_type, menu_out, values, loc=(0, 0)):
         """Menu Switch with named items; values maps item name -> socket to link
@@ -1752,11 +1994,113 @@ class NGBuilder:
         return n.outputs["Output"], bools
 
     def finish_menu_defaults(self):
+        if self.mode == "record":
+            return               # scratch trees are not wired: no menu items yet
+        self.finish_links()      # menu items reach the main interface through the links
         for s, d in self.menu_defaults:
-            try:
-                s.default_value = d
-            except Exception as e:
-                log(f"  !! menu default {s.name}={d}: {e}")
+            for attempt in range(3):
+                try:
+                    s.default_value = d
+                    break
+                except Exception as e:
+                    if attempt == 2:
+                        log(f"  !! menu default {s.name}={d}: {e}")
+                    # chunked build: the main tree learns a subgroup's menu
+                    # items one tree update after the wiring - poke it
+                    r = self.ng.nodes.new("NodeReroute")
+                    self.ng.nodes.remove(r)
+
+
+def _make_plan(rec, size):
+    """Chunk index per node (-1 = main tree): the recorded graph in dependency
+    order (ties broken by creation order, so related nodes stay together),
+    cut every `size` nodes but never inside a zone's span."""
+    import heapq
+    n = len(rec.types)
+    io = [t in _IO_TYPES for t in rec.types]
+    succ, pred, indeg = [[] for _ in range(n)], [[] for _ in range(n)], [0] * n
+    for ll in rec.links:
+        if not ll.alive:
+            continue
+        s, d = rec.idx_of[ll.from_node.as_pointer()], rec.idx_of[ll.to_node.as_pointer()]
+        if io[s] or io[d] or s == d:
+            continue
+        succ[s].append(d); pred[d].append(s); indeg[d] += 1
+    h = [i for i in range(n) if not io[i] and indeg[i] == 0]
+    heapq.heapify(h)
+    order = []
+    while h:
+        i = heapq.heappop(h)
+        order.append(i)
+        for d in succ[i]:
+            indeg[d] -= 1
+            if indeg[d] == 0:
+                heapq.heappush(h, d)
+    if len(order) != n - sum(io):
+        raise RuntimeError("chunk plan: the recorded node graph has a cycle")
+    pos = {i: k for k, i in enumerate(order)}
+
+    def reach(start, nb):
+        seen, st = {start}, [start]
+        while st:
+            for j in nb[st.pop()]:
+                if j not in seen:
+                    seen.add(j); st.append(j)
+        return seen
+    spans = []
+    for i, t in enumerate(rec.types):
+        if t in _ZONE_PAIRS:
+            o = i + 1
+            if o >= n or rec.types[o] != _ZONE_PAIRS[t]:
+                raise RuntimeError(f"chunk plan: zone {t} #{i} is not followed by its output")
+            body = (reach(i, succ) & reach(o, pred)) | {i, o}
+            spans.append((min(pos[j] for j in body), max(pos[j] for j in body)))
+    plan, k, fill = [-1] * n, 0, 0
+    for p, i in enumerate(order):
+        if fill >= size and not any(s < p <= e for s, e in spans):
+            k, fill = k + 1, 0
+        plan[i] = k
+        fill += 1
+    return plan
+
+
+def chunked_build(fn):
+    """Run a group builder (build_node_group / build_roofcap_group body) as
+    record pass -> plan -> final pass. See CHUNK_NODES for why."""
+    if CHUNK_NODES <= 0:
+        NGBuilder._mode = ("flat", None)
+        return fn()
+    t0 = time.time()
+    kinds = ("node_groups", "materials", "objects", "meshes", "collections", "images", "textures")
+    before = {k: {d.as_pointer() for d in getattr(bpy.data, k)} for k in kinds}
+    NGBuilder._mode = ("record", None)
+    try:
+        fn()
+        rec = NGBuilder._current
+    finally:
+        NGBuilder._mode = ("flat", None)
+    plan = _make_plan(rec, CHUNK_NODES)
+    rec_types, n_links, t1 = list(rec.types), sum(ll.alive for ll in rec.links), time.time()
+    rec = NGBuilder._current = None           # no Python refs into data removed below
+    for k in kinds:
+        coll = getattr(bpy.data, k)
+        for d in [d for d in coll if d.as_pointer() not in before[k]]:
+            coll.remove(d)
+    NGBuilder._mode = ("final", plan)
+    try:
+        ng = fn()
+        fin = NGBuilder._current
+        fin.finish_links()
+    finally:
+        NGBuilder._mode = ("flat", None)
+    if fin.types != rec_types or sum(ll.alive for ll in fin.links) != n_links:
+        raise RuntimeError(f"{ng.name}: the final pass built a different graph than the record pass")
+    bad = sum(1 for t in [ng] + fin._chunks for l in t.links if not l.is_valid)
+    log(f"  {ng.name}: {len(rec_types)} nodes / {n_links} links in {len(fin._chunks)} subgroups "
+        f"({len(fin._out_port)} outputs, {len(fin._in_port)} inputs routed); record {t1 - t0:.0f}s, "
+        f"final {time.time() - t1:.0f}s" + (f"; {bad} links flagged invalid" if bad else ""))
+    NGBuilder._last_build = fin
+    return ng
 
 
 def seed_node(b, gi_seed, offset):
@@ -2147,6 +2491,10 @@ def region_frame(b, geo, loc):
 
 
 def build_node_group():
+    return chunked_build(_build_node_group)
+
+
+def _build_node_group():
     b = NGBuilder("VM_SceneDetailer")
     iface = b.iface
 
@@ -2813,24 +3161,24 @@ def build_node_group():
     # column-slot math. The per-item menu outputs are the item-selected bools.
     slot_sw, slot_bools = b.menu_switch(["Random", "Slots"], "BOOLEAN",
                                         gi.outputs["Slot Layout"], {}, loc=(-200, -1250))
-    b.ng.nodes[-1].inputs["Slots"].default_value = True
+    b.last.inputs["Slots"].default_value = True
     is_slots = slot_bools["Slots"]
     sill_sw, sill_bools = b.menu_switch(["Face Base", "Common Z"], "BOOLEAN",
                                         gi.outputs["Sill Line"], {}, loc=(-200, -1450))
-    b.ng.nodes[-1].inputs["Common Z"].default_value = True
+    b.last.inputs["Common Z"].default_value = True
     common_z = sill_bools["Common Z"]
     cm_sw, cm_bools = b.menu_switch(["Per Width", "Explicit", "Exact N"], "BOOLEAN",
                                     gi.outputs["Count Mode"], {}, loc=(-200, -1650))
-    b.ng.nodes[-1].inputs["Per Width"].default_value = True
+    b.last.inputs["Per Width"].default_value = True
     per_width_mode = cm_bools["Per Width"]
     exact_mode = cm_bools["Exact N"]
     ep_sw, ep_bools = b.menu_switch(["Spread", "First"], "BOOLEAN",
                                     gi.outputs["Exact Pick"], {}, loc=(-200, -1750))
-    b.ng.nodes[-1].inputs["Spread"].default_value = True
+    b.last.inputs["Spread"].default_value = True
     exact_spread = ep_bools["Spread"]
     of_sw, of_bools = b.menu_switch(["Drop", "Scale To Face"], "BOOLEAN",
                                     gi.outputs["Opening Fit"], {}, loc=(-200, -1850))
-    b.ng.nodes[-1].inputs["Scale To Face"].default_value = True
+    b.last.inputs["Scale To Face"].default_value = True
     fit_scale_mode = of_bools["Scale To Face"]
 
     # Max Base Height (BOTH layouts): a face whose base edge sits higher than
@@ -3398,7 +3746,7 @@ def build_node_group():
                                     gi.outputs["Column Select"],
                                     {"First Only": sgi_zero.outputs["Result"],
                                      "Skip First": sgi_pos.outputs["Result"]}, loc=(3200, -2250))
-    b.ng.nodes[-1].inputs["All"].default_value = True
+    b.last.inputs["All"].default_value = True
     keep_k1 = b.N("FunctionNodeBooleanMath", (3500, -2000), operation="AND")
     b.L(keep_c1.outputs["Result"], keep_k1.inputs[0])
     b.L(keep_r1.outputs["Result"], keep_k1.inputs[1])
@@ -5455,9 +5803,7 @@ def build_node_group():
                ("vm_elo", "FLOAT_VECTOR", end_pos(bb_mn.outputs["X"])),
                ("vm_ehi", "FLOAT_VECTOR", end_pos(bb_mx.outputs["X"])),
                ("vm_irot", "QUATERNION", i_rot), ("vm_iscl", "FLOAT_VECTOR", i_scl)]
-    for lk in list(b.ng.links):
-        if lk.from_node == dm_del and lk.to_node == join_all:
-            b.ng.links.remove(lk)
+    b.unlink(lambda lk: lk.from_node == dm_del and lk.to_node == join_all)
     d_chain = dm_del.outputs["Geometry"]
     for nm_, dt_, val_ in stores1:
         st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="INSTANCE")
@@ -6050,9 +6396,7 @@ def build_node_group():
            desc="Openings: inside walls and ceiling (empty = none assigned)")
     b.sock("Interior Floor Material", "NodeSocketMaterial", p_cut, None,
            desc="Openings: inside floor (empty = the Interior Material)")
-    for lk in list(b.ng.links):
-        if lk.from_node == join_all and lk.to_node == go:
-            b.ng.links.remove(lk)
+    b.unlink(lambda lk: lk.from_node == join_all and lk.to_node == go)
     c_sep = b.N("GeometryNodeSeparateComponents", random_loc())
     b.L(join_all.outputs["Geometry"], c_sep.inputs["Geometry"])
     c_inst0 = c_sep.outputs["Instances"]
@@ -6341,9 +6685,7 @@ def build_node_group():
     # ~1 m pieces and every piece takes the siding's own damage field - gone,
     # broken short (keeps its upper nail) or hanging loose from its upper end.
     # Damage off = one board per edge, exactly as before.
-    for lk in list(b.ng.links):
-        if lk.from_node == e_sp and lk.to_node == e_iop:
-            b.ng.links.remove(lk)
+    b.unlink(lambda lk: lk.from_node == e_sp and lk.to_node == e_iop)
     e_wlen = em("MULTIPLY", e_len.outputs["Value"], geo_f)
     e_n = tsw(d_live, 1.0, em("MAXIMUM", em("FLOOR", em("ADD", e_wlen, 0.5)), 1.0))
     e_dup = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
@@ -6441,9 +6783,7 @@ def build_node_group():
               rot(v3(0.0, em("MULTIPLY", em("SUBTRACT", k_out, em("ADD", ke_a, k_dep)), 0.5), 0.0), ke_rot)),
         ke_mv.inputs["Position"])
     gap_markers(ke_mv.outputs["Geometry"])
-    for lk in list(b.ng.links):
-        if lk.from_node == e_iop and lk.to_node == st_ed:
-            b.ng.links.remove(lk)
+    b.unlink(lambda lk: lk.from_node == e_iop and lk.to_node == st_ed)
     ecat = dnamed("vm_ecat", "FLOAT")
     etop = tcmp("GREATER_THAN", dnamed("vm_etop", "FLOAT"), 0.5)
     e_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="INSTANCE")
@@ -6635,18 +6975,14 @@ def build_node_group():
     hj_in = tand(tand(tcmp("GREATER_THAN", hj_cut, 0.5), tcmp("LESS_THAN", hj_cut, 1.5)),
                  og_near(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
                          em("DIVIDE", 0.05, geo_f), em("DIVIDE", 0.05, geo_f)))
-    for lk in list(b.ng.links):
-        if lk.to_node == c_open and lk.to_socket.name == "Selection":
-            b.ng.links.remove(lk)
+    b.unlink(lambda lk: lk.to_node == c_open and lk.to_socket.name == "Selection")
     b.L(bor(tcmp("GREATER_THAN", dnamed("vm_cutback", "FLOAT"), 0.5), hj_in), c_open.inputs["Selection"])
     # the boxes overlap each other: as INSTANCES each one is its own boolean
     # operand (no costly Self Intersection pass over one realized mesh)
     b.L(h_iop.outputs["Instances"], c_bool.inputs["Mesh 2"])
     # the broken edges of a hole are the wall's own boards, not jambs
     is_hole = tcmp("GREATER_THAN", dnamed("vm_cutter", "FLOAT"), 1.5)
-    for lk in list(b.ng.links):
-        if lk.to_node == c_join and lk.from_socket == c_walls:
-            b.ng.links.remove(lk)
+    b.unlink(lambda lk: lk.to_node == c_join and lk.from_socket == c_walls)
     b.L(material_gate(b, c_walls, gi.outputs["Interior Material"], is_hole, random_loc()),
         c_join.inputs["Geometry"])
     # v2.23 DOOR CASING: two side boards and a head board (Jamb Material) on
@@ -6712,9 +7048,7 @@ def build_node_group():
     b.L(material_gate(b, cs_tr.outputs["Geometry"], gi.outputs["Jamb Material"], bor(cs_head, bnot(cs_head)),
                       random_loc()), c_join.inputs["Geometry"])
     # holes alone (no opening on the building) also need the cut
-    for lk in list(b.ng.links):
-        if lk.to_node == c_sw and lk.to_socket.name == "Switch":
-            b.ng.links.remove(lk)
+    b.unlink(lambda lk: lk.to_node == c_sw and lk.to_socket.name == "Switch")
     b.L(tand(tand(gi.outputs["Cut Openings"], is_fit), bor(has_open, has_hole)), c_sw.inputs["Switch"])
     # the cutting layer used the markers up (an earlier, non-cutting layer
     # passes them on)
@@ -6800,9 +7134,7 @@ def build_node_group():
     hx_join = b.N("GeometryNodeJoinGeometry", random_loc())
     b.L(h_pts.outputs["Points"], hx_join.inputs["Geometry"])
     b.L(hx_pts.outputs["Points"], hx_join.inputs["Geometry"])
-    for lk in list(b.ng.links):
-        if lk.to_node == h_iop and lk.to_socket.name == "Points":
-            b.ng.links.remove(lk)
+    b.unlink(lambda lk: lk.to_node == h_iop and lk.to_socket.name == "Points")
     b.L(hx_join.outputs["Geometry"], h_iop.inputs["Points"])
     o_chain = h_fall.outputs["Geometry"]
     # v2.21 under every roof hole: the roof's frame - two rafters (on a
@@ -8975,6 +9307,10 @@ def add_porch(b, mesh_in, roof_t, fl, ph):
 
 
 def build_roofcap_group():
+    return chunked_build(_build_roofcap_group)
+
+
+def _build_roofcap_group():
     """v2.4 per-region roof cap.
 
     Every qualifying top face (up-facing quad >= Min Roof Face Size) is treated as
@@ -9841,9 +10177,7 @@ def build_roofcap_group():
              roof_main=roof_geo.outputs["Output"], gable=style_sw.outputs["Gable"]), pc_ph)
     b.L(pc_roof, pr_join.inputs["Geometry"])
     # v2.25: the roof reaches its material through the balcony's gable cut
-    for _lk in list(pr_join.inputs["Geometry"].links):
-        if _lk.from_socket == roof_geo.outputs["Output"]:
-            b.ng.links.remove(_lk)
+    b.unlink(lambda lk: lk.to_socket == pr_join.inputs["Geometry"] and lk.from_socket == roof_geo.outputs["Output"])
     b.L(pc_rmain, pr_join.inputs["Geometry"])
     in_sep = b.N("GeometryNodeSeparateComponents", (4650, -1150))
     b.L(gi.outputs["Geometry"], in_sep.inputs["Geometry"])
@@ -11142,7 +11476,7 @@ def main():
     clear_scene()
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
-    scene.cycles.device = "CPU"
+    set_render_device(scene)
     scene.cycles.samples = 32
     scene.cycles.use_denoising = True
     scene.render.resolution_x = 960
@@ -14029,7 +14363,7 @@ def main():
     bpy.ops.scene.new(type='NEW')
     df_scene = bpy.context.scene
     df_scene.render.engine = "CYCLES"
-    df_scene.cycles.device = "CPU"
+    set_render_device(df_scene)
     df_scene.cycles.samples = 32
     df_scene.cycles.use_denoising = True
     df_scene.render.resolution_x = 960
@@ -14104,7 +14438,7 @@ def main():
     bpy.ops.scene.new(type='NEW')
     ad_scene = bpy.context.scene
     ad_scene.render.engine = "CYCLES"
-    ad_scene.cycles.device = "CPU"
+    set_render_device(ad_scene)
     ad_scene.cycles.samples = 32
     ad_scene.cycles.use_denoising = True
     ad_scene.render.resolution_x = 960

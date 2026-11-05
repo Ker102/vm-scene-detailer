@@ -523,6 +523,21 @@ def _dedupe_appended(before):
     return n
 
 
+def _tidy_engine_parts():
+    """Since v2.31 each VM group is built from hidden subgroups '.<group> NN'.
+    After an update the old group's parts are unused and the appended ones got
+    '.001' names: drop the unused parts and give the live ones their library
+    names back, so updates never pile up copies."""
+    for base in VM_GROUPS:
+        pre = "." + base + " "
+        for g in [g for g in bpy.data.node_groups if g.name.startswith(pre) and g.users == 0]:
+            bpy.data.node_groups.remove(g)
+        for g in [g for g in bpy.data.node_groups if g.name.startswith(pre)]:
+            want = re.sub(r"\.\d{3}$", "", g.name)
+            if want != g.name and bpy.data.node_groups.get(want) is None:
+                g.name = want
+
+
 def import_engine(path, report):
     """Bring the engine into the CURRENT file without duplicating anything:
     missing node groups, the pack collections (AssetLibrary tree, excluded from
@@ -562,6 +577,7 @@ def import_engine(path, report):
         else:
             ng.name = base
             report.append(f"imported {base} {group_version(ng)}")
+    _tidy_engine_parts()
     for col in dst.collections:
         if col is None:
             continue
