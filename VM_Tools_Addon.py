@@ -1,7 +1,7 @@
 bl_info = {
     "name": "VM Engine - Import / Update / Presets / Dress",
     "author": "kristo / ViperMesh",
-    "version": (2, 0, 0),
+    "version": (2, 36, 0),
     "blender": (4, 2, 0),
     "location": "Properties > Modifiers tab | 3D Viewport N-Panel > VM",
     "description": "The VM engine's interface across .blend files: import or update the engine + asset library from VM_Assets.blend, apply clean base presets or your own, dress any mesh in one click, copy/paste setups",
@@ -13,7 +13,8 @@ import re
 import json
 import os
 import math
-from bpy.props import EnumProperty, StringProperty
+import time
+from bpy.props import BoolProperty, EnumProperty, StringProperty
 
 # ------------------------------------------------------------------ constants
 VM_GROUPS = ("VM_SceneDetailer", "VM_RoofCap")
@@ -78,7 +79,11 @@ AUTO_COLLECTIONS = {
                                  "Yard Wall Props": "VM_Yard_Wall",
                                  "Yard Clutter Props": "VM_Yard_Clutter",
                                  "Yard Plant Props": "VM_Yard_Plants",
-                                 "Yard Shrub Props": "VM_Yard_Shrubs"},
+                                 "Yard Shrub Props": "VM_Yard_Shrubs",
+                                 # v2.32: the roof under a hole + shards round it
+                                 "Batten Props": "VM_Tiles_Batten",
+                                 "Rafter Props": "VM_Tiles_Rafter",
+                                 "Roof Debris Props": "VM_Tiles_ShakeShard"},
 }
 DEBRIS_COLLECTION = "VM_Debris_Trash"
 
@@ -414,6 +419,7 @@ def library_path(context=None):
     prefs = _addon_prefs(context)
     cands = [LIBRARY_PATH_OVERRIDE, os.environ.get("VM_LIBRARY", ""),
              getattr(prefs, "library_path", "") if prefs else "",
+             managed_library(),                 # where 'Check for Updates' installs it
              os.path.join(os.path.dirname(os.path.abspath(__file__)), "VM_Assets.blend"),
              os.path.expanduser(os.path.join("~", "Downloads", "blender-engine", "VM_Assets.blend"))]
     for c in cands:
@@ -425,34 +431,108 @@ def library_path(context=None):
 _LIB_CACHE = {}
 
 
-def library_info(path):
-    """{'engine_version', 'presets': {name: {description, modifiers}}} from the
-    library's VM_Presets text (cached per file mtime); {} if unreadable."""
-    if not path:
+def _blend_json(path, text_name):
+    """The JSON text datablock `text_name` of a .blend (cached per file and mtime);
+    {} if the file or the text cannot be read."""
+    if not path or not os.path.isfile(path):
         return {}
-    key = (path, os.path.getmtime(path))
+    key = (path, os.path.getmtime(path), text_name)
     if key in _LIB_CACHE:
         return _LIB_CACHE[key]
     info = {}
     if bpy.data.filepath and os.path.samefile(path, bpy.data.filepath):
-        t = bpy.data.texts.get(PRESETS_TEXT)       # Blender cannot load from the open file
+        t = bpy.data.texts.get(text_name)          # Blender cannot load from the open file
         return json.loads(t.as_string()) if t else {}
     before = set(bpy.data.texts)
     try:
         with bpy.data.libraries.load(path, link=False) as (src, dst):
-            dst.texts = [PRESETS_TEXT] if PRESETS_TEXT in src.texts else []
+            dst.texts = [text_name] if text_name in src.texts else []
         for t in dst.texts:
             if t is not None:
                 info = json.loads(t.as_string())
     except Exception as e:
-        print(f"VM: cannot read library {path}: {e}")
+        print(f"VM: cannot read {path}: {e}")
     finally:
         for t in set(bpy.data.texts) - before:
             bpy.data.texts.remove(t)
     if info:                                       # never cache a failed read
-        _LIB_CACHE.clear()
+        for k in [k for k in _LIB_CACHE if k[0] == path and k[2] == text_name]:
+            del _LIB_CACHE[k]
         _LIB_CACHE[key] = info
     return info
+
+
+def library_info(path):
+    """{'engine_version', 'presets': {name: {description, modifiers}}} from the
+    library's VM_Presets text; {} if unreadable."""
+    return _blend_json(path, PRESETS_TEXT)
+
+
+# ------------------------------------------------------------------ example assets
+# The engine's own library (VM_Assets.blend) ships NO doors, windows or yard props:
+# its VM_Doors / VM_DoorHandles / VM_Windows / VM_Yard_* collections are empty
+# placeholders for the user's own objects. The example set used for the demo builds
+# (Sketchfab CC-BY doors and windows, Poly Haven CC0 yard) is a separate, optional
+# file, VM_ExampleAssets.blend: an 'AssetLibrary' root of the same layout whose
+# objects carry ob['vm_example'] and a 'VM_ExampleInfo' text (credits, collections).
+EXAMPLES_ASSET = "VM_ExampleAssets.blend"
+EXAMPLES_TEXT = "VM_ExampleInfo"
+
+
+def example_library_path(context=None):
+    """VM_ExampleAssets.blend: env VM_EXAMPLES -> where 'Check for Updates' puts it
+    -> next to the library -> next to this add-on -> the delivery folder; '' if none."""
+    lib = library_path(context)
+    cands = [os.environ.get("VM_EXAMPLES", ""), managed_examples(),
+             os.path.join(os.path.dirname(lib), EXAMPLES_ASSET) if lib else "",
+             os.path.join(os.path.dirname(os.path.abspath(__file__)), EXAMPLES_ASSET),
+             os.path.expanduser(os.path.join("~", "Downloads", "blender-engine", EXAMPLES_ASSET))]
+    for c in cands:
+        if c and os.path.isfile(c):
+            return c
+    return ""
+
+
+def example_info(path):
+    return _blend_json(path, EXAMPLES_TEXT)
+
+
+def examples_missing(path):
+    """Example objects (by name, in their collection) this file does not have yet."""
+    out = []
+    for col, names in example_info(path).get("collections", {}).items():
+        c = bpy.data.collections.get(col)
+        out += [n for n in names if c is None or c.objects.get(n) is None]
+    return out
+
+
+def import_examples(path, report, context=None):
+    """Append the example set and merge it into the engine's placeholder
+    collections (imports the engine first when this file has none). Objects the
+    file already has are kept as they are."""
+    if resolve_group("VM_SceneDetailer") is None or bpy.data.collections.get(LIBRARY_COLLECTION) is None:
+        lib = library_path(context)
+        if lib:
+            import_engine(lib, report)
+    if not examples_missing(path):
+        report.append("the example assets are already in this file")
+        return report
+    before = {k: {d.name_full for d in getattr(bpy.data, k)} for k in DEDUPE_KINDS}
+    with bpy.data.libraries.load(path, link=False) as (src, dst):
+        dst.collections = [LIBRARY_COLLECTION] if LIBRARY_COLLECTION in src.collections else []
+    if not any(c is not None for c in dst.collections):
+        raise RuntimeError(f"{os.path.basename(path)} has no '{LIBRARY_COLLECTION}' collection")
+    _merge_appended(before, prefer_new=False)
+    col = bpy.data.collections.get(LIBRARY_COLLECTION)
+    if col is not None:
+        col.use_fake_user = False
+        scene = (context or bpy.context).scene
+        if scene.collection.children.get(col.name) is None:
+            scene.collection.children.link(col)
+        _exclude_from_view_layers(col)
+    added = [o for o in bpy.data.objects if o.name_full not in before["objects"] and o.get("vm_example")]
+    report.append(f"added {len(added)} example assets (doors, windows, yard props and plants)")
+    return report
 
 
 def group_version(ng):
@@ -468,15 +548,16 @@ def sync_version_labels(ng):
     """Modifiers keep their own copy of every input, so after a group update the
     About panel would still show the old 'Engine Version' - reset it on every
     modifier that uses `ng` to the group's (new) default."""
-    it = find_input(ng, "Engine Version")
-    if it is None:
+    its = [it for it in (find_input(ng, "Engine Version"), find_input(ng, "Usage Hint")) if it is not None]
+    if not its:
         return
     for ob in bpy.data.objects:
         for m in ob.modifiers:
             if m.type == 'NODES' and m.node_group == ng:
-                sock = getattr(m.properties.inputs, it.identifier, None)
-                if sock is not None:
-                    sock.value = it.default_value
+                for it in its:
+                    sock = getattr(m.properties.inputs, it.identifier, None)
+                    if sock is not None:
+                        sock.value = it.default_value
 
 
 def file_engine_version():
@@ -500,27 +581,120 @@ def _exclude_from_view_layers(col):
                 walk(vl.layer_collection)
 
 
-DEDUPE_KINDS = ("collections", "objects", "meshes", "materials", "images")
+# node_groups: the packs' own groups (Auto Smooth, plant shader groups); the VM groups
+# and their '.VM_* NN' parts are updated by import_engine / _tidy_engine_parts instead
+DEDUPE_KINDS = ("collections", "objects", "meshes", "materials", "images", "node_groups")
 
 
-def _dedupe_appended(before):
-    """Appending a node group also appends what it references - VM_SceneDetailer's
-    'Primary Props' defaults to VM_Doors, so an update would bring a second
-    'VM_Doors.001' + door objects. Any new datablock whose LIBRARY name already
-    exists in this file is remapped to the existing one and removed."""
+def _is_engine_group(g):
+    return group_base(g) in VM_GROUPS or any(g.name.startswith("." + b + " ") for b in VM_GROUPS)
+
+
+def _input_ids(ng):
+    return {it.identifier for it in ng.interface.items_tree
+            if it.item_type == 'SOCKET' and it.in_out == 'INPUT'}
+
+
+def fill_new_slots(new_ids):
+    """After an UPDATE every modifier keeps its values, but a socket the old
+    engine did not have (v2.32 'Batten Props', 'Rafter Props', 'Roof Debris
+    Props'...) starts EMPTY, while Dress Object fills it - so an updated house
+    would have roof holes with no battens under them. Fill the default material
+    / collection slot of those NEW sockets only (`new_ids`: group base ->
+    identifiers added by this update); slots that existed before keep whatever
+    the user chose, empty included."""
     n = 0
+    for ob in bpy.data.objects:
+        for m in vm_modifiers(ob):
+            ng = m.node_group
+            fresh = new_ids.get(group_base(ng)) if ng is not None else None
+            if not fresh:
+                continue
+            want = [(k, "NodeSocketMaterial", v) for k, v in AUTO_MATERIALS.get(m.name, {}).items()]
+            if group_base(ng) == "VM_SceneDetailer":
+                cols = dict(AUTO_COLLECTIONS.get(m.name, {}), **{"Debris/Trash Props": DEBRIS_COLLECTION})
+                want += [(k, "NodeSocketCollection", v) for k, v in cols.items()]
+            for key, st, name in want:
+                it = find_input(ng, key)
+                if it is None or it.identifier not in fresh:
+                    continue
+                sock = getattr(m.properties.inputs, it.identifier, None)
+                ref = getattr(bpy.data, ID_SOCKETS[st]).get(name)
+                if sock is not None and sock.value is None and ref is not None:
+                    sock.value = ref
+                    n += 1
+    return n
+
+
+def _lib_name(d):
+    wr = d.library_weak_reference
+    return wr.id_name[2:] if wr is not None else re.sub(r"\.\d{3}$", "", d.name)
+
+
+def _merge_appended(before, prefer_new):
+    """Appending the node groups also appends everything they reference (the
+    pack collections, their objects, meshes, materials, images), so after an
+    import each of those can exist twice: the file's own and the library's
+    '.001' copy. Merge every such pair into ONE datablock.
+      prefer_new=False (same engine version, something was missing): keep the
+        file's own; the library copy is dropped.
+      prefer_new=True (UPDATE from an older engine): the library's NEW assets
+        replace the old ones (new tile pools, new materials), so an update
+        really looks like the new engine - but only datablocks that came from
+        the library before; anything of the user's that merely shares a name
+        is kept.
+    Whatever only the dropped collection holds (objects or collections the
+    user added, or new pieces of a pack) moves into the kept one.
+    The two AssetLibrary roots are never remapped onto each other (both are
+    children of the scene collection - remapping one onto the other never
+    returns); the dropped root is simply deleted. Each pair is one remap and
+    everything dropped goes in ONE batch_remove: per-ID remove() on a big file
+    took hours (v2.36 fix)."""
+    old_root = bpy.data.collections.get(LIBRARY_COLLECTION)
+    if old_root is not None and old_root.name_full not in before["collections"]:
+        old_root = None
+    old_assets = {o.name_full for o in old_root.all_objects} if old_root is not None else set()
+    pairs = []                                  # (kind, keep, drop, lib_name, rename)
     for kind in DEDUPE_KINDS:
         coll = getattr(bpy.data, kind)
-        for d in [d for d in coll if d.name_full not in before[kind]]:
-            wr = d.library_weak_reference
-            lib_name = wr.id_name[2:] if wr is not None else re.sub(r"\.\d{3}$", "", d.name)
-            keep = coll.get(lib_name)
-            if keep is None or keep == d or keep.name_full not in before[kind]:
+        for d in [d for d in coll if d.name_full not in before[kind] and d.library is None]:
+            if kind == "node_groups" and _is_engine_group(d):
                 continue
-            d.user_remap(keep)
-            coll.remove(d)
-            n += 1
-    return n
+            lib_name = _lib_name(d)
+            old = coll.get(lib_name)
+            if old is None or old == d or old.name_full not in before[kind]:
+                continue
+            wr_o, wr_n = old.library_weak_reference, d.library_weak_reference
+            from_lib = ((wr_o is not None and wr_n is not None and wr_o.id_name == wr_n.id_name)
+                        or (kind == "objects" and old.name_full in old_assets)
+                        or (kind == "collections" and lib_name == LIBRARY_COLLECTION))
+            if prefer_new and from_lib:
+                pairs.append((kind, d, old, lib_name, True))
+            else:
+                pairs.append((kind, old, d, lib_name, False))
+    if not pairs:
+        return 0
+    dropped = {dr.as_pointer() for _k, _kp, dr, _n, _r in pairs}
+
+    def gone(x):
+        return x.as_pointer() in dropped
+    for kind, keep, drop, lib_name, _r in pairs:
+        if kind != "collections":
+            continue
+        for o in list(drop.objects):
+            if not gone(o) and keep.objects.get(o.name) is None:
+                keep.objects.link(o)
+        for c in list(drop.children):
+            if not gone(c) and c != keep and keep.children.get(c.name) is None:
+                keep.children.link(c)
+    for kind, keep, drop, lib_name, _r in pairs:
+        if not (kind == "collections" and lib_name == LIBRARY_COLLECTION):
+            drop.user_remap(keep)
+    bpy.data.batch_remove([drop for _k, _kp, drop, _n, _r in pairs])
+    for kind, keep, _d, lib_name, rename in pairs:
+        if rename and keep.name != lib_name:
+            keep.name = lib_name
+    return len(pairs)
 
 
 def _tidy_engine_parts():
@@ -557,8 +731,12 @@ def import_engine(path, report):
     before = {k: {d.name_full for d in getattr(bpy.data, k)} for k in DEDUPE_KINDS}
     with bpy.data.libraries.load(path, link=False) as (src, dst):
         dst.node_groups = [g for g in missing + outdated if g in src.node_groups]
-        dst.collections = [LIBRARY_COLLECTION] if want_cols and LIBRARY_COLLECTION in src.collections else []
+        # an update brings the whole pack tree too, so every pool is the new engine's
+        dst.collections = [LIBRARY_COLLECTION] if ((want_cols or outdated)
+                                                   and LIBRARY_COLLECTION in src.collections) else []
         dst.materials = [m for m in want_mats if m in src.materials]
+    got_root = any(c is not None for c in dst.collections)
+    new_ids = {}                                # group base -> sockets this update adds
     for ng in dst.node_groups:
         if ng is None:
             continue
@@ -567,6 +745,7 @@ def import_engine(path, report):
         base = group_base(ng)
         old = resolve_group(base) if base in outdated else None
         if old is not None and old != ng:
+            new_ids[base] = _input_ids(ng) - _input_ids(old)
             old_v = group_version(old)
             old_name = old.name
             old.user_remap(ng)
@@ -578,16 +757,22 @@ def import_engine(path, report):
             ng.name = base
             report.append(f"imported {base} {group_version(ng)}")
     _tidy_engine_parts()
-    for col in dst.collections:
-        if col is None:
-            continue
+    mat_names = [_lib_name(m) for m in dst.materials if m is not None]    # names after the merge
+    n_merged = _merge_appended(before, prefer_new=bool(outdated))
+    col = bpy.data.collections.get(LIBRARY_COLLECTION)
+    if got_root and col is not None:
         scene = bpy.context.scene
-        if col.name not in scene.collection.children:
+        if scene.collection.children.get(col.name) is None:
             scene.collection.children.link(col)
         _exclude_from_view_layers(col)
-        report.append(f"imported the asset pack ({len(col.children_recursive)} collections)")
-    _dedupe_appended(before)
-    mats = [m for m in dst.materials if m is not None]
+        report.append(("updated" if outdated else "imported")
+                      + f" the asset pack ({len(col.children_recursive)} collections)")
+    if outdated and n_merged:
+        report.append(f"{n_merged} asset datablocks replaced by the library's")
+    n_slots = fill_new_slots(new_ids)
+    if n_slots:
+        report.append(f"{n_slots} new default slot(s) filled (e.g. roof battens / rafters)")
+    mats = [bpy.data.materials[n] for n in mat_names if bpy.data.materials.get(n) is not None]
     for mat in mats:
         mat.use_fake_user = True
     if mats:
@@ -646,11 +831,39 @@ class VM_OT_import_engine(bpy.types.Operator):
         for g in VM_GROUPS:
             if resolve_group(g) is not None:
                 sync_version_labels(resolve_group(g))
+        if report:                      # nothing imported: no need to re-evaluate every house
+            for ob in context.scene.objects:
+                if vm_modifiers(ob):
+                    ob.update_tag()
+        self.report({'INFO'}, ("; ".join(report) if report else "Engine already up to date")
+                    + f" (engine {file_engine_version()})")
+        return {'FINISHED'}
+
+
+class VM_OT_import_examples(bpy.types.Operator):
+    bl_idname = "vm.import_examples"
+    bl_label = "Add Example Assets"
+    bl_description = ("Add the optional example doors, windows and yard props / plants "
+                      "(VM_ExampleAssets.blend) to this file's asset collections, so dressed "
+                      "houses get openings and a yard. Your own objects there stay")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        path = example_library_path(context)
+        if not path:
+            self.report({'WARNING'}, "VM_ExampleAssets.blend not found - tick 'Include example "
+                                     "assets' under Updates and download it, or put it next to "
+                                     "VM_Assets.blend")
+            return {'CANCELLED'}
+        try:
+            report = import_examples(path, [], context)
+        except Exception as e:
+            self.report({'ERROR'}, f"Example assets not added: {e}")
+            return {'CANCELLED'}
         for ob in context.scene.objects:
             if vm_modifiers(ob):
                 ob.update_tag()
-        self.report({'INFO'}, ("; ".join(report) if report else "Engine already up to date")
-                    + f" (engine {file_engine_version()})")
+        self.report({'INFO'}, "; ".join(report))
         return {'FINISHED'}
 
 
@@ -980,8 +1193,478 @@ class VM_OT_load_preset(bpy.types.Operator):
         return {'FINISHED'}
 
 
+# ------------------------------------------------------------------ v2.36 updates
+# 'Check for Updates' in the VM panel: the latest GitHub Release of the update
+# repo carries VM_Tools_Addon.py and VM_Assets.blend, tagged with the engine
+# version ('v2.37'). Downloads run in a background thread (Blender stays
+# usable), every file is checked (size, sha256 when GitHub gives one, the
+# version inside it) before it replaces anything, and the replaced files are
+# kept as *_previous. Nothing touches the network unless Blender's 'Allow
+# Online Access' is on.
+ADDON_VERSION = "v2.36"                      # the engine version this add-on ships with
+UPDATE_REPO = "Ker102/vm-scene-detailer"    # default 'owner/repo' whose Releases carry the files
+ADDON_ASSET, LIBRARY_ASSET = "VM_Tools_Addon.py", "VM_Assets.blend"
+UPDATE_DIR = os.path.expanduser(os.path.join("~", ".config", "vm_engine"))
+CHECK_EVERY = 24 * 3600                      # automatic check at most once a day
+_UPD = dict(status="idle", latest="", notes="", html_url="", assets={}, error="", checked=0.0,
+            done=0, total=0, cancel=False, restart=False, message="", examples_sha="")
+_KEEP = ("latest", "notes", "html_url", "assets", "checked", "examples_sha")   # update_state.json
+_JOB = dict(thread=None, result=None)
+
+
+def update_dir():
+    return os.environ.get("VM_UPDATE_DIR") or UPDATE_DIR      # VM_UPDATE_DIR: tests
+
+
+def managed_library():
+    return os.path.join(update_dir(), "library", LIBRARY_ASSET)
+
+
+def managed_examples():
+    return os.path.join(update_dir(), "library", EXAMPLES_ASSET)
+
+
+def _state_file():
+    return os.path.join(update_dir(), "update_state.json")
+
+
+def _load_update_state():
+    try:
+        with open(_state_file()) as f:
+            d = json.load(f)
+        for k in _KEEP:
+            if k in d:
+                _UPD[k] = d[k]
+    except Exception:
+        pass
+
+
+def _save_update_state():
+    try:
+        os.makedirs(update_dir(), exist_ok=True)
+        with open(_state_file(), "w") as f:
+            json.dump({k: _UPD[k] for k in _KEEP}, f)
+    except Exception as e:
+        print(f"VM: cannot save the update state: {e}")
+
+
+def ver_tuple(v):
+    return tuple(int(n) for n in re.findall(r"\d+", v or "")[:3]) or (0,)
+
+
+def _update_settings(context=None):
+    prefs = _addon_prefs(context)
+    repo = (getattr(prefs, "update_repo", "") or UPDATE_REPO).strip().strip("/")
+    return repo, (getattr(prefs, "update_token", "") or "").strip()
+
+
+def online_allowed():
+    return bool(getattr(bpy.app, "online_access", True))
+
+
+def _http(url, token="", accept="application/vnd.github+json", timeout=30):
+    """GET with the GitHub headers; a token is sent to GitHub only, never to the
+    storage host a download redirects to."""
+    import urllib.request
+    import urllib.parse
+
+    class _Redirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            new = super().redirect_request(req, fp, code, msg, headers, newurl)
+            if new is not None and (urllib.parse.urlsplit(newurl).netloc
+                                    != urllib.parse.urlsplit(req.full_url).netloc):
+                new.remove_header("Authorization")
+            return new
+    req = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "VM-Engine-Updater",
+                                               "X-GitHub-Api-Version": "2022-11-28"})
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    return urllib.request.build_opener(_Redirect).open(req, timeout=timeout)
+
+
+def fetch_latest_release(repo, token=""):
+    """{latest, notes, html_url, assets: {name: {url, size, digest}}} of the repo's
+    latest release (no bpy calls: safe in a thread)."""
+    api = os.environ.get("VM_UPDATE_API", "https://api.github.com").rstrip("/")   # VM_UPDATE_API: tests
+    with _http(f"{api}/repos/{repo}/releases/latest", token, timeout=15) as r:
+        rel = json.loads(r.read().decode("utf-8"))
+    assets = {a["name"]: dict(url=a["url"], size=int(a.get("size") or 0), digest=a.get("digest") or "")
+              for a in rel.get("assets", [])}
+    return dict(latest=rel.get("tag_name", ""), notes=rel.get("body") or "",
+                html_url=rel.get("html_url", ""), assets=assets)
+
+
+def installed_versions(context=None):
+    path = library_path(context)
+    return ADDON_VERSION, (library_info(path).get("engine_version", "") if path else "")
+
+
+def examples_wanted(context=None):
+    """The 'Include example assets' preference (tests without registered
+    preferences set _UPD['include_examples_test'])."""
+    prefs = _addon_prefs(context)
+    if prefs is not None:
+        return bool(getattr(prefs, "include_examples", False))
+    return bool(_UPD.get("include_examples_test"))
+
+
+def wanted_assets(context=None):
+    """The release files this machine needs: the add-on if it is older than the
+    release, the library if it is older or missing, and - only when 'Include
+    example assets' is ticked - the example set if it is missing or the release
+    carries a different one (compared with the sha256 recorded when it was
+    installed; releases re-use the same example file until the examples change)."""
+    latest = _UPD.get("latest", "")
+    if not latest:
+        return []
+    addon_v, lib_v = installed_versions(context)
+    want = []
+    if ver_tuple(latest) > ver_tuple(addon_v):
+        want.append(ADDON_ASSET)
+    if not lib_v or ver_tuple(latest) > ver_tuple(lib_v):
+        want.append(LIBRARY_ASSET)
+    ex = _UPD.get("assets", {}).get(EXAMPLES_ASSET)
+    if ex and examples_wanted(context):
+        rec = _UPD.get("examples_sha") or ""
+        if not example_library_path(context) or (rec and ex.get("digest", "").startswith("sha256:")
+                                                 and ex["digest"][7:].lower() != rec):
+            want.append(EXAMPLES_ASSET)
+    return [a for a in want if a in _UPD.get("assets", {})]
+
+
+def _apply_check(info):
+    _UPD.update(latest=info["latest"], notes=info["notes"], html_url=info["html_url"],
+                assets=info["assets"], checked=time.time(), error="")
+    _save_update_state()
+
+
+def _download(asset, dest, token):
+    """Stream one release file to `dest` (thread), counting into _UPD['done'];
+    the size and the sha256 GitHub publishes must match."""
+    import hashlib
+    h, n = hashlib.sha256(), 0
+    with _http(asset["url"], token, accept="application/octet-stream", timeout=60) as r, open(dest, "wb") as f:
+        while True:
+            if _UPD["cancel"]:
+                raise RuntimeError("cancelled")
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
+            h.update(chunk)
+            n += len(chunk)
+            _UPD["done"] += len(chunk)
+    if asset.get("size") and n != asset["size"]:
+        raise RuntimeError(f"{os.path.basename(dest)}: got {n} bytes, expected {asset['size']}")
+    dg = asset.get("digest", "")
+    if dg.startswith("sha256:") and dg[7:].lower() != h.hexdigest():
+        raise RuntimeError(f"{os.path.basename(dest)}: checksum does not match the release")
+
+
+def _download_job(names, token):
+    """Thread body: download every wanted file into update_dir()/download."""
+    out = {}
+    tmp = os.path.join(update_dir(), "download")
+    os.makedirs(tmp, exist_ok=True)
+    for nm in names:
+        dest = os.path.join(tmp, nm)                   # keeps its extension (.blend loads)
+        _download(_UPD["assets"][nm], dest, token)
+        out[nm] = dest
+    return out
+
+
+def install_downloaded(files, context=None):
+    """Main thread: verify the downloaded files, then put them in place (the
+    replaced ones kept as *_previous). Raises before replacing anything when a
+    file is not the release it claims to be. Returns what was installed."""
+    import shutil
+    latest = _UPD["latest"]
+    done = []
+    lib_dl = files.get(LIBRARY_ASSET)
+    ex_dl = files.get(EXAMPLES_ASSET)
+    if ex_dl and not example_info(ex_dl).get("collections"):
+        raise RuntimeError("the downloaded example file has no VM_ExampleInfo")
+    if lib_dl:
+        _LIB_CACHE.clear()
+        got = library_info(lib_dl).get("engine_version", "")
+        if got != latest:
+            raise RuntimeError(f"the downloaded library says engine '{got or '?'}', the release is {latest}")
+    add_dl = files.get(ADDON_ASSET)
+    if add_dl:
+        with open(add_dl, encoding="utf-8") as f:
+            src = f.read()
+        compile(src, ADDON_ASSET, "exec")
+        m = re.search(r'^ADDON_VERSION\s*=\s*"([^"]+)"', src, re.M)
+        if "bl_info" not in src or not m or m.group(1) != latest:
+            raise RuntimeError(f"the downloaded add-on is not VM Tools {latest}")
+    if lib_dl:
+        dest = managed_library()
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        if os.path.isfile(dest):
+            os.replace(dest, os.path.join(os.path.dirname(dest), "VM_Assets_previous.blend"))
+        shutil.move(lib_dl, dest)
+        prefs = _addon_prefs(context)
+        if prefs is not None:
+            prefs.library_path = dest
+        _LIB_CACHE.clear()
+        done.append(f"library {latest} -> {dest}")
+    if ex_dl:
+        import hashlib
+        h = hashlib.sha256()
+        with open(ex_dl, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        dest = managed_examples()
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        if os.path.isfile(dest):
+            os.replace(dest, os.path.join(os.path.dirname(dest), "VM_ExampleAssets_previous.blend"))
+        shutil.move(ex_dl, dest)
+        _UPD["examples_sha"] = h.hexdigest()
+        _save_update_state()
+        _LIB_CACHE.clear()
+        done.append(f"example assets -> {dest}")
+    if add_dl:
+        me = os.path.abspath(__file__)
+        shutil.copy2(me, os.path.join(update_dir(), "VM_Tools_Addon_previous.py"))
+        shutil.move(add_dl, me)
+        done.append(f"add-on {latest} -> {me} (restart Blender to load it)")
+    return done
+
+
+def _redraw():
+    wm = getattr(bpy.context, "window_manager", None)
+    for win in (wm.windows if wm else []):
+        for area in win.screen.areas:
+            if area.type in ('VIEW_3D', 'PROPERTIES', 'PREFERENCES'):
+                area.tag_redraw()
+
+
+def _start_job(fn, on_done):
+    """Run fn() in a thread; on_done(result, error) runs on the main thread."""
+    import threading
+    _JOB.update(result=None)
+
+    def body():
+        try:
+            _JOB["result"] = (fn(), None)
+        except Exception as e:
+            _JOB["result"] = (None, e)
+    _JOB["thread"] = threading.Thread(target=body, daemon=True)
+    _JOB["thread"].start()
+
+    def poll():
+        _redraw()
+        if _JOB["thread"].is_alive():
+            return 0.25
+        res, err = _JOB["result"] or (None, RuntimeError("no result"))
+        on_done(res, err)
+        _redraw()
+        return None
+    bpy.app.timers.register(poll, first_interval=0.25)
+
+
+def _job_running():
+    return _JOB.get("thread") is not None and _JOB["thread"].is_alive()
+
+
+def _check_done(info, err, repo, quiet):
+    if err is not None:
+        _UPD.update(status="idle" if quiet else "error", error=f"could not check {repo}: {err}")
+        return
+    _apply_check(info)
+    _UPD["status"] = "available" if wanted_assets() else "uptodate"
+
+
+def start_check(context=None, quiet=False):
+    if not online_allowed() or _job_running():
+        return False
+    repo, token = _update_settings(context)
+    _UPD.update(status="checking", error="")
+    _start_job(lambda: fetch_latest_release(repo, token),
+               lambda info, err: _check_done(info, err, repo, quiet))
+    return True
+
+
+def _auto_check():
+    """Startup timer: a quiet check at most once a day, only with online access."""
+    try:
+        if _job_running() or _UPD.get("status") != "idle":    # the user is already at it
+            return None
+        prefs = _addon_prefs()
+        if prefs is not None and getattr(prefs, "auto_check_updates", True) \
+                and time.time() - float(_UPD.get("checked") or 0) > CHECK_EVERY:
+            start_check(quiet=True)
+        elif _UPD.get("latest") and wanted_assets():
+            _UPD["status"] = "available"
+    except Exception as e:
+        print(f"VM: update check skipped: {e}")
+    return None
+
+
+class VM_OT_check_updates(bpy.types.Operator):
+    bl_idname = "vm.check_updates"
+    bl_label = "Check for Updates"
+    bl_description = ("Look for a newer VM engine (add-on + asset library) on the release page. "
+                      "Needs Blender's 'Allow Online Access' (Preferences > System > Network)")
+
+    def execute(self, context):
+        if not online_allowed():
+            self.report({'WARNING'}, "Online access is off - turn on Preferences > System > "
+                                     "Network > Allow Online Access to check for updates")
+            return {'CANCELLED'}
+        if not start_check(context):
+            self.report({'INFO'}, "Already busy - wait for the current check or download")
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class VM_OT_update_notes(bpy.types.Operator):
+    bl_idname = "vm.update_notes"
+    bl_label = "What's New"
+    bl_description = "Show the release notes of the newest VM engine"
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_popup(self, width=520)
+
+    def draw(self, context):
+        import textwrap
+        col = self.layout.column(align=True)
+        col.label(text=f"VM engine {_UPD.get('latest', '')}", icon='INFO')
+        lines = []
+        for ln in (_UPD.get("notes") or "No release notes.").splitlines():
+            lines += textwrap.wrap(ln, 86) or [""]
+        for ln in lines[:30]:
+            col.label(text=ln)
+        if len(lines) > 30:
+            col.label(text="...")
+        if _UPD.get("html_url"):
+            self.layout.operator("wm.url_open", text="Open the release page",
+                                 icon='URL').url = _UPD["html_url"]
+
+    def execute(self, context):
+        return {'FINISHED'}
+
+
+class VM_OT_install_update(bpy.types.Operator):
+    bl_idname = "vm.install_update"
+    bl_label = "Download & Install"
+    bl_description = ("Download the newer add-on and/or asset library and install them (the old "
+                      "ones are kept as *_previous). Then use 'Update Engine' in each file")
+
+    def invoke(self, context, event):
+        names = wanted_assets(context)
+        mb = sum(_UPD["assets"][n]["size"] for n in names) / 1e6
+        return context.window_manager.invoke_confirm(
+            self, event, title=f"Install VM engine {_UPD.get('latest', '')}?",
+            message=f"Downloads {', '.join(names)} ({mb:.0f} MB). Blender stays usable meanwhile.",
+            confirm_text="Download & Install")
+
+    def execute(self, context):
+        if not online_allowed():
+            self.report({'WARNING'}, "Online access is off (Preferences > System > Network)")
+            return {'CANCELLED'}
+        names = wanted_assets(context)
+        if not names or _job_running():
+            self.report({'INFO'}, "Nothing to install" if not names else "Already busy")
+            return {'CANCELLED'}
+        _, token = _update_settings(context)
+        _UPD.update(status="downloading", error="", done=0, cancel=False, message="",
+                    total=sum(_UPD["assets"][n]["size"] for n in names))
+        _start_job(lambda: _download_job(names, token), _install_done)
+        return {'FINISHED'}
+
+
+def _install_done(files, err):
+    if err is not None:
+        _UPD.update(status="error", error=f"download failed: {err}")
+        return
+    try:
+        msg = install_downloaded(files)
+    except Exception as e:
+        _UPD.update(status="error", error=f"not installed: {e}")
+        return
+    _UPD.update(status="installed", restart=ADDON_ASSET in files, message="; ".join(msg),
+                installed=sorted(files))
+    print("VM: installed", msg)
+
+
+class VM_OT_cancel_update(bpy.types.Operator):
+    bl_idname = "vm.cancel_update"
+    bl_label = "Cancel Download"
+    bl_description = "Stop the download (nothing is replaced)"
+
+    def execute(self, context):
+        _UPD["cancel"] = True
+        return {'FINISHED'}
+
+
+def _draw_examples_opt_in(layout, context):
+    prefs = _addon_prefs(context)
+    if prefs is not None and EXAMPLES_ASSET in _UPD.get("assets", {}):
+        layout.prop(prefs, "include_examples")
+
+
+def _draw_updates(layout, context, opt_in=True):
+    st = _UPD.get("status", "idle")
+    want = wanted_assets(context) if st not in ("checking", "downloading") else []
+    if st in ("idle", "uptodate") and not want:     # nothing to do: one quiet line
+        layout.operator(VM_OT_check_updates.bl_idname,
+                        text=(f"{ADDON_VERSION} is up to date - check again" if st == "uptodate"
+                              else f"Check for Updates ({ADDON_VERSION})"),
+                        icon='CHECKMARK' if st == "uptodate" else 'FILE_REFRESH')
+        if opt_in:
+            _draw_examples_opt_in(layout, context)
+        return
+    box = layout.box()
+    box.label(text="Updates", icon='URL')
+    if not online_allowed():
+        box.label(text="Online access is off", icon='ERROR')
+        box.operator("screen.userpref_show", text="Turn it on: Preferences > System",
+                     icon='PREFERENCES').section = 'SYSTEM'
+        return
+    if st == "checking":
+        box.label(text="Checking for updates...", icon='SORTTIME')
+        return
+    if st == "downloading":
+        tot = max(_UPD.get("total") or 1, 1)
+        box.progress(factor=min(_UPD.get("done", 0) / tot, 1.0), type='BAR',
+                     text=f"Downloading {_UPD['latest']}: {_UPD['done'] / 1e6:.0f} / {tot / 1e6:.0f} MB")
+        box.operator(VM_OT_cancel_update.bl_idname, icon='CANCEL')
+        return
+    if st == "installed":
+        if _UPD.get("installed") == [EXAMPLES_ASSET]:
+            box.label(text="Example assets installed", icon='CHECKMARK')
+            box.label(text="'Add Example Assets' in a file.", icon='INFO')
+            return
+        box.label(text=f"VM engine {_UPD['latest']} installed", icon='CHECKMARK')
+        if _UPD.get("restart"):
+            box.label(text="Restart Blender, then", icon='INFO')
+            box.label(text="'Update Engine' in each file.", icon='BLANK1')
+        else:
+            box.label(text="Now 'Update Engine' in each file.", icon='INFO')
+        return
+    if want:
+        col = box.column(align=True)
+        col.alert = True
+        col.label(text=("Example assets ready to download" if want == [EXAMPLES_ASSET]
+                        else f"VM engine {_UPD['latest']} is available"), icon='ERROR')
+        mb = sum(_UPD["assets"][n]["size"] for n in want) / 1e6
+        col = box.column(align=True)
+        col.scale_y = 1.3
+        col.operator(VM_OT_install_update.bl_idname, text=f"Download & Install ({mb:.0f} MB)", icon='IMPORT')
+        box.operator(VM_OT_update_notes.bl_idname, icon='INFO')
+        if opt_in:
+            _draw_examples_opt_in(box, context)
+    if st == "error":
+        err = _UPD.get("error", "")
+        for k in range(0, min(len(err), 240), 60):
+            box.label(text=err[k:k + 60], icon='ERROR' if k == 0 else 'BLANK1')
+    box.operator(VM_OT_check_updates.bl_idname, icon='FILE_REFRESH')
+
+
 # ------------------------------------------------------------------ UI
 def _draw_buttons(layout, context):
+    _draw_updates(layout, context)
     path = library_path(context)
     lib_v = library_info(path).get("engine_version", "") if path else ""
     file_v = file_engine_version()
@@ -995,6 +1678,9 @@ def _draw_buttons(layout, context):
                      text="Import Engine" if not file_v else f"Update Engine to {lib_v}", icon='IMPORT')
     else:
         box.operator(VM_OT_import_engine.bl_idname, text="Engine up to date (re-check)", icon='CHECKMARK')
+    ex = example_library_path(context) if path else ""
+    if ex and examples_missing(ex):
+        box.operator(VM_OT_import_examples.bl_idname, icon='ASSET_MANAGER')
 
     box = layout.box()
     box.label(text="Presets", icon='PRESET')
@@ -1046,17 +1732,45 @@ class VM_AddonPreferences(bpy.types.AddonPreferences):
     library_path: StringProperty(
         name="VM_Assets.blend", subtype='FILE_PATH', default="",
         description="The engine library: node groups, asset pack collections and base presets")
+    auto_check_updates: BoolProperty(
+        name="Check for updates automatically", default=True,
+        description="Once a day, quietly look for a newer VM engine when Blender starts "
+                    "(only when Preferences > System > Network > Allow Online Access is on)")
+    update_repo: StringProperty(
+        name="Update source", default=UPDATE_REPO,
+        description="GitHub 'owner/repo' whose Releases carry VM_Tools_Addon.py and VM_Assets.blend")
+    include_examples: BoolProperty(
+        name="Include example assets", default=False,
+        description="Also download the optional example doors, windows and yard props / plants "
+                    "(VM_ExampleAssets.blend, about 140 MB; Sketchfab CC-BY and Poly Haven CC0 - the "
+                    "credits are in its VM_ExampleInfo text). Without them, put your own objects in "
+                    "VM_Doors, VM_Windows and VM_Yard_*")
+    update_token: StringProperty(
+        name="Access token", subtype='PASSWORD', default="",
+        description="Only for a PRIVATE update source: a GitHub token with read access to it "
+                    "(stored in your Blender preferences)")
 
     def draw(self, context):
         self.layout.prop(self, "library_path")
         found = library_path(context)
         self.layout.label(text=f"Using: {found}" if found else "Not found yet",
                           icon='CHECKMARK' if found else 'ERROR')
+        box = self.layout.box()
+        box.label(text="Updates", icon='URL')
+        box.prop(self, "auto_check_updates")
+        box.prop(self, "include_examples")
+        box.prop(self, "update_repo")
+        box.prop(self, "update_token")
+        _draw_updates(box, context, opt_in=False)      # the checkbox is drawn above
+        ex = example_library_path(context)
+        self.layout.label(text=f"Example assets: {ex}" if ex else "Example assets: not installed (optional)",
+                          icon='CHECKMARK' if ex else 'INFO')
 
 
 classes = (VM_AddonPreferences, VM_OT_toggle_all_modifiers, VM_OT_dress_object,
            VM_OT_copy_engine_setup, VM_OT_paste_engine_setup, VM_OT_save_preset,
-           VM_OT_load_preset, VM_OT_import_engine, VM_OT_apply_preset, VM_OT_add_damage_zone,
+           VM_OT_load_preset, VM_OT_import_engine, VM_OT_import_examples, VM_OT_apply_preset, VM_OT_add_damage_zone,
+           VM_OT_check_updates, VM_OT_update_notes, VM_OT_install_update, VM_OT_cancel_update,
            VM_PT_panel_modifiers, VM_PT_panel_view3d)
 
 
@@ -1074,6 +1788,9 @@ def register():
         bpy.types.Scene.vm_preset_choice = EnumProperty(
             name="Preset", items=preset_items,
             description="Clean base presets from the library, then your saved presets")
+    _load_update_state()
+    if not bpy.app.background and not bpy.app.timers.is_registered(_auto_check):
+        bpy.app.timers.register(_auto_check, first_interval=8.0, persistent=True)
 
 
 def unregister():

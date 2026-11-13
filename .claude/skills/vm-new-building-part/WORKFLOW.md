@@ -108,5 +108,11 @@ boxes), `has_open`, `gap_at`, `open_cut_at`, `is_fit`, `g_join`.
 cp -f build/stage/*.blend build/stage/*.json build/stage/*.txt build/stage/*.py build/stage/*.png ~/Downloads/blender-engine/
 cp -f build/stage/VM_Tools_Addon.py "$APPDATA/Blender Foundation/Blender/5.2/scripts/addons/VM_Tools_Addon.py"
 ```
+Since v2.36 the build's delivery step runs `split_library.py` on the full library
+(`build/VM_Assets.blend`, which the checks use) and delivers the CORE
+`VM_Assets.blend` (empty door / window / yard collections) plus the optional
+`VM_ExampleAssets.blend`. Never copy `build/VM_Assets.blend` over the delivered
+one: that ships the BlenderKit lamps and books, which may not be redistributed.
+To re-split by hand: `blender -b --factory-startup build/VM_Assets.blend --python split_library.py -- <out_dir>`.
 Then commit locally (`vX.YY: <what the user sees>`, no attribution) and ask
 before pushing.

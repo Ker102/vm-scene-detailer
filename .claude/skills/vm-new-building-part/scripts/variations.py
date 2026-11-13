@@ -2,7 +2,10 @@
 Eight houses that differ in shape, size, unapplied object scale, roof style,
 porch / balcony, damage and yard, each dressed the way a user would (Dress
 Object + a library preset + a few sockets), rendered one by one.
-  blender -b --factory-startup --python .claude/skills/vm-new-building-part/scripts/variations.py -- [samples:N] [cpu] [only:a,b] [render:a,b] [save:PATH] [norender]
+  blender -b --factory-startup --python .claude/skills/vm-new-building-part/scripts/variations.py -- [samples:N] [cpu] [only:a,b] [render:a,b] [save:PATH] [lib:PATH] [norender]
+lib:PATH uses that VM_Assets.blend instead of build/stage (e.g. the delivered one, so the
+saved file's assets point at the library the add-on updates from). A core library gets the
+example doors / windows / yard added (VM_ExampleAssets.blend found by the add-on, or examples:PATH).
 Writes build/var_<case>.png + build/var_sheet.png; save:PATH also saves the
 dressed scene (camera per case as markers) for manual testing."""
 import bpy, bmesh, sys, os, math, time, importlib.util, mathutils
@@ -19,8 +22,14 @@ T0 = time.time()
 spec = importlib.util.spec_from_file_location("VM_Tools_Addon", os.path.join(HERE, "VM_Tools_Addon.py"))
 vmt = importlib.util.module_from_spec(spec); sys.modules["VM_Tools_Addon"] = vmt; spec.loader.exec_module(vmt)
 bpy.ops.wm.read_factory_settings(use_empty=True)
-vmt.register(); vmt.LIBRARY_PATH_OVERRIDE = os.path.join(HERE, "build", "stage", "VM_Assets.blend")
+LIB = next((a[4:] for a in ARGS if a.startswith("lib:")), os.path.join(HERE, "build", "stage", "VM_Assets.blend"))
+vmt.register(); vmt.LIBRARY_PATH_OVERRIDE = LIB
 vmt.import_engine(vmt.LIBRARY_PATH_OVERRIDE, [])
+# a CORE library (v2.36 split) has empty door / window / yard collections: add the example set
+# (VM_ExampleAssets.blend next to it, or examples:PATH) so the kit looks like the demo builds
+_EX = next((a[9:] for a in ARGS if a.startswith("examples:")), "") or vmt.example_library_path()
+if _EX and vmt.examples_missing(_EX):
+    print("examples:", vmt.import_examples(_EX, []))
 sc = bpy.context.scene
 W, P, S, R = "VM_SceneDetailer_Windows", "VM_SceneDetailer_Planks", "VM_SceneDetailer_Shingles", "VM_RoofCap"
 
@@ -53,11 +62,16 @@ CASES = [
      "whole", True, 25, {}),
     ("kept_flat", [(0, 0, 0, 8, 6, 3)], (1, 1, 1), "Base - Flat roof", {},
      None, False, 0, {}),
+    # v2.32-v2.36 roof damage: a torn hole in the asphalt roof (sides facing the hole,
+    # shards on the roof below, granule loss); the zone sits ON the roof (raycast after evaluation)
+    ("asphalt_hole", [(0, 0, 0, 8, 6, 3)], (1, 1, 1), "Base - Weathered asphalt", {},
+     "roofhole", False, 0, {}),
 ]
 if ONLY:
     CASES = [c for c in CASES if c[0] in ONLY]
 
 built = []
+roof_zones = []          # "roofhole" cases: zone added once the roof exists
 for k, (name, boxes, oscale, preset, roof, dmg, yard, vines, extra) in enumerate(CASES):
     me = bpy.data.meshes.new(name); bm = bmesh.new()
     for cx, cy, z0, sx, sy, sz in boxes:
@@ -77,10 +91,13 @@ for k, (name, boxes, oscale, preset, roof, dmg, yard, vines, extra) in enumerate
     setv(ob, W, "Yard", yard); setv(ob, W, "Yard Seed", 5 + k)
     if dmg:
         for mn in (P, S, W):
-            setv(ob, mn, "Damage", True); setv(ob, mn, "Damage Seed", 21 + k)
+            setv(ob, mn, "Damage", True); setv(ob, mn, "Damage Seed", 7 if dmg == "roofhole" else 21 + k)
             if dmg == "whole":
                 setv(ob, mn, "Damage Radius", 0.0); setv(ob, mn, "Damage Amount", 0.42)
-        if dmg != "light":
+        if dmg == "roofhole":
+            setv(ob, S, "Roof Holes", 1.0)
+            roof_zones.append(ob)
+        elif dmg != "light":
             setv(ob, P, "Missing Share", 0.3); setv(ob, P, "Broken Share", 0.35)
         if dmg == "zone":
             sy_ = boxes[0][4] * oscale[1]
@@ -114,6 +131,20 @@ for inst in dg.object_instances:
         n_ = inst.parent.original.name
         counts[n_] = counts.get(n_, 0) + 1
 print("EVALUATED", f"{time.time() - t_ev:.0f}s", counts)
+close_cams = []
+for ob in roof_zones:
+    hit, loc, *_r = sc.ray_cast(dg, ob.location + Vector((0.5, -1.5, 40.0)), Vector((0, 0, -1)))
+    if not hit:
+        print("ROOF NOT HIT", ob.name); continue
+    vmt.add_damage_zone(ob, loc, sc.collection, radius=2.2, amount=0.9)
+    cd_ = bpy.data.cameras.new("CamClose"); cd_.lens = 35
+    cc = bpy.data.objects.new("Cam_" + ob.name + "_close", cd_); sc.collection.objects.link(cc)
+    cc.location = loc + Vector((0.0, -4.2, 3.4))
+    cc.rotation_euler = (loc - cc.location).to_track_quat("-Z", "Y").to_euler()
+    close_cams.append((ob.name + "_close", cc))
+    print("ROOF ZONE", ob.name, tuple(round(c, 2) for c in loc))
+if roof_zones:
+    dg.update()
 
 sun = bpy.data.objects.new("Sun", bpy.data.lights.new("Sun", "SUN")); sc.collection.objects.link(sun)
 sun.rotation_euler = (math.radians(52), 0, math.radians(-35)); sun.data.energy = 3.5; sun.data.angle = math.radians(3)
@@ -175,8 +206,10 @@ for _n, o2, _e, _c in built:
     o2.hide_render = False
 for k, c_k in enumerate(cams):        # manual test: frame k+1 = this case's camera (bound AFTER the renders)
     mk = sc.timeline_markers.new(built[k][0], frame=k + 1); mk.camera = c_k
+for j, (n_, c_k) in enumerate(close_cams):   # close-ups of the roof holes after the case frames
+    mk = sc.timeline_markers.new(n_, frame=len(cams) + j + 1); mk.camera = c_k
 sc.camera = cams[0]
-sc.frame_start, sc.frame_end = 1, len(cams)
+sc.frame_start, sc.frame_end = 1, len(cams) + len(close_cams)
 
 if shots:
     import numpy as np

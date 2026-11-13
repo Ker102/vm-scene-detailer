@@ -21,6 +21,11 @@ lawn or rocks.
     `Yard Wall / Clutter / Plant / Shrub Props`.
   - The collection sockets are wired in `AUTO_COLLECTIONS` to `VM_Yard_Wall` / `_Clutter` /
     `_Plants` / `_Shrubs`.
+  - v2.36: in the shipped core library these four are EMPTY (yard on, nothing
+    placed). The Poly Haven CC0 set is the EXAMPLE yard in the optional
+    `VM_ExampleAssets.blend`. A new yard set: CC0 / own models only, recorded in
+    `SOURCE.txt` per asset; add it to `split_library.py` (`EXAMPLE_COLS`,
+    `CREDITS`) and `CREDITS.md`, or ship it as the user's own collections.
 - Points come from the footprint: the boundary edges of the bottom faces. One
   `yd_set(...)` call per set, **in this order** (what goes first claims the room):
   Wall, then Clutter, then Shrubs, then Plants (close band), then Plants (outer band).

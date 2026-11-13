@@ -12,11 +12,18 @@ A Geometry Nodes "semantic architectural application" engine:
 Files in this folder:
   VM_SceneDetailer.blend / VM_Starter.blend - engine + demo scenes
   VM_RoofCap.blend - same engine, kept as a dedicated roof-generator file
-  VM_Assets.blend (v2.31) - THE ENGINE LIBRARY: both node groups (also marked
-    as Blender assets), the whole AssetLibrary pack tree, the default
-    materials and the clean BASE PRESETS. The add-on imports from it into any
-    file (see 'THE VM ENGINE ADD-ON' below)
-  VM_Tools_Addon.py (v2.31) - the engine's interface across files: Import /
+  VM_Assets.blend (v2.36) - THE ENGINE LIBRARY: both node groups (also marked
+    as Blender assets), the AssetLibrary tree with the engine's own pools, the
+    default materials and the clean BASE PRESETS. The add-on imports from it
+    into any file (see 'THE VM ENGINE ADD-ON' below). Its door, window and yard
+    collections are EMPTY (bring your own; see EXAMPLE ASSETS in v2.36)
+  VM_ExampleAssets.blend (v2.36, optional) - the example doors, windows and
+    yard props / plants of the demo builds (Sketchfab CC-BY + Poly Haven CC0;
+    credits in its VM_ExampleInfo text and in CREDITS.md). Add them to a file
+    with the add-on's 'Add Example Assets'
+  split_library.py - makes the two files above from the full built library
+    (build/stage/VM_Assets.blend); build_engine.py runs it at delivery
+  VM_Tools_Addon.py (v2.36) - the engine's interface across files: Import /
     Update Engine, Apply Preset (clean base presets + your own), Dress Object,
     Copy/Paste Setup, Save Mine, Toggle All Modifiers, Add Damage Zone
   build_engine.py - deterministic generator (rebuilds everything from scratch)
@@ -31,10 +38,221 @@ Files in this folder:
     user's duplicate-and-extrude action), preview_default_path.png (the
     untouched Add-Modifier default path), preview_addon_pair/source/pasted.png
     (Dress Object + Copy/Paste identity proof))
-  verification_v2.json - numeric proof log (276 checks: the original 197 kept
-    green + 79 v2.7-v2.30 additions - see 'THE VERIFICATION SUITE' near the bottom)
+  verification_v2.json - numeric proof log (286 checks: the original 197 kept
+    green + 89 v2.7-v2.36 additions - see 'THE VERIFICATION SUITE' near the bottom)
   VM_SceneDetailer.blend1 - Blender's automatic backup of the previous save
   (the r*.png / starter_preview.png files are leftovers from the v1 build)
+
+v2.36 (2026-11-07) - NO LONE TILES IN A ROOF HOLE; SIDES FACE THE HOLE;
+                     GRANULE LOSS, NOT BLOBS
+-------------------------------------------------------------------------------
+* The tiles along a hole's LEFT and RIGHT edges break off on the side that
+  faces the hole (a shake split along the grain, a tab with a chunk of
+  that side gone) instead of being torn at the bottom with the damage
+  pointing down the roof. Only a tile with the hole under its whole butt -
+  the top edge of the hole - is torn at the butt; a tile with the hole
+  under one half of it (the courses are staggered, so that is every
+  other tile along a side edge) or next to it in its course takes the
+  side-broken piece, also when the damage had broken it already.
+* A roof hole is clean down to the frame: a whole shake or asphalt tab left
+  with another whole tile on fewer than two of its sides goes with them, and
+  so does a broken piece with no whole tile round it at all (a piece hanging
+  in the middle of the hole kept its factory head and sides, so it read as a
+  whole tab lying on the battens). The torn rim round the hole stays: every
+  rim piece keeps the tile it hangs from. The pass runs again on the final
+  damage, after the rim, head and side tears are decided.
+* The roof is cut open under the tiles that pass clears, and under a
+  missing tile whose course below is missing too or torn off at the head -
+  nothing lapped under those, so the bare grey roof face showed through.
+  (A few small bare notches can remain at a hole's lower edge.)
+* A tile with the hole both below and above it is torn at the head (facing
+  the hole above) instead of at the butt.
+* Shards on the roof lie on a tile that stays: inside a remaining tile's
+  outline, not on one that falls into the hole.
+* Worn asphalt loses its granules as speckle, not as solid black blobs: the
+  mesh carries a smooth chance of granule loss (broad patches plus streaks
+  running down the roof) and the material drops single 1-2 mm granules with
+  that chance, clustered in clumps, so heavy wear thins to bald spots. Bare
+  bitumen is a little smoother and glossier and sits lower than the
+  granules. Solid black only along a fresh break, where every granule is
+  knocked off.
+* ADD-ON: 'Import / Update Engine' on a file with an OLDER engine (tested on
+  the v2.30 manual-test scene, nine dressed houses) takes about half a minute
+  (24 s measured; the houses then re-evaluate) instead of hanging for hours -
+  remapping the file's AssetLibrary onto the library's copy never returned -
+  and the update is complete:
+  - the library's NEW pack assets replace the old ones (the new roof pools,
+    battens, rafters, shards, asphalt and the new materials), so an updated
+    house looks like a house dressed fresh on the new engine - measured: all
+    nine houses evaluate to the same instances as freshly dressed ones;
+  - every modifier keeps the values it had; a socket the old engine did not
+    have gets its default collection / material (e.g. Batten Props), a slot
+    that already existed keeps your choice, empty included;
+  - objects or collections you added to a pack collection stay in it, and a
+    material or object of yours that only shares a name with a library one
+    is kept;
+  - one AssetLibrary tree, no '.001' copies; clicking it again does nothing.
+  Note: edits you made to the library's own materials or asset objects are
+  replaced by the new engine's versions on an update.
+* ADD-ON: CHECK FOR UPDATES from inside Blender. The top of the VM panel
+  (3D Viewport N-panel > VM, and Properties > Modifiers) has a 'Check for
+  Updates (v2.36)' button; the add-on preferences have the same box.
+  - When a newer VM engine is published it shows in red: 'VM engine v2.37 is
+    available' with 'Download & Install (35 MB)' and 'What's New' (the
+    release notes). Install asks once, then downloads in the background -
+    Blender stays usable, a progress bar and 'Cancel Download' show meanwhile.
+  - Every file is checked before it replaces anything: its size, its sha256
+    from the release page and the version inside it. The new library goes to
+    ~/.config/vm_engine/library/VM_Assets.blend (the add-on switches to it),
+    the new add-on replaces the installed one; the old ones are kept as
+    VM_Assets_previous.blend and VM_Tools_Addon_previous.py.
+  - Then: restart Blender (only when the add-on itself changed) and click
+    'Update Engine' in each file you open.
+  - It only goes online when Preferences > System > Network > 'Allow Online
+    Access' is on. With it on, the add-on also checks quietly once a day
+    when Blender starts (switch off: add-on preferences > 'Check for updates
+    automatically').
+  - The update source is GitHub Releases of the repo set in the add-on
+    preferences ('Update source', default Ker102/vm-scene-detailer - the
+    public engine repo); a release offers itself when its tag is newer and it
+    carries VM_Tools_Addon.py and/or VM_Assets.blend. The 'Access token'
+    field is only for a private source.
+  - 'Include example assets' (off by default; next to the button and in the
+    add-on preferences): also download VM_ExampleAssets.blend (about 140 MB)
+    when it is missing, or when a release carries different examples (a
+    release re-uses the same example file while the examples do not change,
+    so it is not offered again). It goes to ~/.config/vm_engine/library/.
+* EXAMPLE ASSETS ARE OPTIONAL. The doors, windows and yard props / plants the
+  engine was built and tested with are example assets, not part of the
+  engine: VM_Assets.blend is now the CORE library (35 MB instead of 253 MB):
+  the node groups, presets, materials and the engine's own tile, damage,
+  sheathing, stud, batten, rafter, shard and debris pools. Its VM_Doors,
+  VM_DoorHandles, VM_Windows and VM_Yard_Wall / _Clutter / _Plants / _Shrubs
+  collections are there but EMPTY:
+  - with nothing in them a dressed house has closed walls (no openings cut),
+    no door handles and an empty yard; everything else is unchanged;
+  - put your own objects in them (same contract as before: see
+    'vm-asset-openings' / 'vm-asset-yard', or pack_ingest.py for a pack), or
+  - click 'Add Example Assets' in the VM panel (Engine box; shown when
+    VM_ExampleAssets.blend is found next to the library, in the delivery
+    folder or where 'Check for Updates' put it and this file does not have
+    them yet). It adds the 88 example objects into those same collections -
+    measured: the same instances, per collection, and the same cut walls as
+    the old all-in-one library. Your own objects there stay; a second click
+    does nothing. Example objects carry the custom property vm_example = 1.
+  - Files made with the old all-in-one library keep their doors, windows and
+    yard when they 'Update Engine' (tested on the v2.30 kit: v2.30 -> v2.36 in
+    11 s, every house the same as before).
+  - Left out of both files: the BlenderKit lamps and books (VM_Props_Library,
+    not redistributable), the unused Poly Haven furniture (VM_Props_Primary),
+    the legacy tile pools and the pack-ingest working collections. The full
+    library is still built to build/stage/VM_Assets.blend and the build's
+    checks run on it.
+
+v2.35 (2026-11-06) - DAMAGE ON EVERY SIDE OF A HOLE; REAL BROKEN ASPHALT
+-------------------------------------------------------------------------------
+* The tiles BESIDE a roof hole are broken off on the side that faces it:
+  a shake splits along the grain (a strip of its side gone up to about where
+  the course above covers it, a splintered tear at the top of the split), an
+  asphalt tab loses a chunk of that side. Before, they were broken short at
+  the bottom and framed the hole with a whole, straight side. Worn tiles in
+  the Wear band whose nearest damage lies to their side take the same
+  side-broken pieces, so the damage reads in every direction round a hole.
+* Asphalt breaks like a brittle sheet, not like a cut: every torn tab's
+  tear, broken corner, bite and side break is a fracture of a few angled
+  facets, rough at every scale, with chips and often a crack running on into
+  the tab. The splits up from a tab's butt are wandering cracks, not straight
+  slits. Along a fresh break the granules are knocked off in a ragged 2-8 mm
+  band (the black bitumen shows) and the felt is torn open at the very edge.
+  The asphalt shards on the roof are fractured fragments too.
+* A torn tab's tear is drawn at its real size (it used to be drawn on the
+  1 m piece and squashed flat by the scale), and its granules are no longer
+  squashed into smears: the asphalt material reads real-metre UVs. A tab
+  torn at the top creases up off the roof a few mm at its torn edge.
+* Pools: worn shakes and worn asphalt tabs come in FOUR sets in name order -
+  _NN damaged at the butt, _LNN / _RNN broken on their -X / +X side, _UNN
+  damaged from above (80 objects each). A custom tall-tile worn set must
+  follow the same layout (see the vm-asset-cladding skill).
+
+v2.34 (2026-11-06) - THE DAMAGE FACES THE HOLE; NO 'PLASTICINE' TILES
+-------------------------------------------------------------------------------
+* The tiles just BELOW a roof hole are torn off at the TOP now - the side
+  that faces the hole - instead of keeping a straight top and showing their
+  tear at the bottom, pointing away from the damage. Worn tiles below the
+  damage are broken where the course above lies on them (chunks out of the
+  sides, splits running down from under that course); worn tiles above and
+  beside it keep their damage at the butt.
+* No more tiles 'stuffed into each other': a curl, cup or lift of a shake or
+  tab is only in the part you can see. Under the course above every tile lies
+  flat - before, a curled or cupped tile pushed up through the shakes over
+  it by up to 8 mm, so the courses looked merged and morphed. A loose tile
+  now lifts about the line where the course above covers it.
+* Crisp wood: a torn shake breaks along the grain in splintered bundles
+  with the odd long splinter (no rounded, chewed edges), and a broken piece
+  keeps its grain and gouges at their real size (they used to be squashed
+  into blobs when the piece was scaled down). Fewer and smaller chipped
+  corners on the intact shakes (the roof of soft hexagons).
+* Pools: broken shakes and torn asphalt tabs come in groups of four (_L, _R
+  torn at the butt; _UL, _UR torn at the top), worn shakes and tabs in two
+  sets (_NN damaged at the butt, _UNN damaged from above). A custom tall-tile
+  set must follow the same layout (see the vm-asset-cladding skill).
+
+v2.33 (2026-11-06) - TORN, VARIED ROOF TILES (NO MORE 'MUDDY' SHAKES)
+-------------------------------------------------------------------------------
+* The damaged shakes and asphalt tabs lose their SHAPE now, not only their
+  colour: with severity the butt is torn off in a ragged, slanting line, a
+  big corner breaks away, splits gape up from the butt and bites come out
+  of the sides - all in the part of the tile you can see.
+* The tiles round a hole's upper edge are TORN (broken pieces hanging short
+  over the hole) instead of whole tiles framing it, and a broken shake or
+  tab loses 30-90 % of its visible part (it used to lose 2 cm and look whole).
+* The pale beige blobs on the shakes are gone: old gouges run along the
+  grain at the edges and are weathered grey; raw wood shows only at a fresh
+  break. Intact shakes have a split-wood surface with crisp edges.
+* Asphalt: a wider patchwork of tab tones and dirt streaks running down
+  the roof, different on every tab.
+* No scrap of roof left standing inside a hole (the small grey slabs).
+* More variants: 20 worn and 12 broken shakes, 20 worn and 10 torn asphalt
+  tabs.
+
+v2.32 (2026-11-06) - ROOF DAMAGE LIKE THE WALLS, AND ASPHALT SHINGLES
+-------------------------------------------------------------------------------
+* A damage zone on the roof now tears a real hole, like the walls:
+  - under the hole lies the roof frame: battens across the rafters, every
+    0.6 m along the eaves (world metres, also on a scaled house);
+  - the battens are snapped: splintered raw-wood stubs nailed to the
+    rafters, some hanging down into the hole, some gone;
+  - a roof tile that has nothing left to hold it falls away, so no tile
+    floats over the hole;
+  - shards of shakes (or asphalt) lie on the roof round the hole, mostly
+    below it, never over the hole.
+  New settings on the Windows layer, Damage panel:
+  - Frame Breakage (0.75): how broken the frame under a hole is
+    (0 = every batten whole);
+  - Batten Spacing (0.25 m): the distance between battens;
+  - Roof Debris (0.5): how many shards lie round a hole;
+  - Batten Props / Rafter Props / Roof Debris Props: the pools (Dress fills
+    them: VM_Tiles_Batten, VM_Tiles_Rafter, VM_Tiles_ShakeShard).
+* ASPHALT SHINGLES, a new roof covering (the user's reference roof):
+  - 25 x 33 cm tabs in 13 cm courses, half-tab stagger, a procedural
+    granule material (no CC0 asphalt texture exists);
+  - torn tabs and worn tabs (granule loss, cracks, curled corners) in the
+    damage, like the shakes;
+  - under an asphalt roof the hole shows a board deck (14 cm boards) on the
+    rafters, snapped and hanging, and asphalt shards round it.
+  New presets: 'Base - Asphalt roof' and 'Base - Weathered asphalt'.
+  New pools: VM_Tiles_Shingle_Asphalt / _AsphaltBroken / _AsphaltWorn,
+  VM_Tiles_RoofDeck, VM_Tiles_AsphaltShard.
+* To put asphalt on another house: set the Shingles layer's Primary /
+  Broken / Worn Props to the asphalt pools, Row Height 0.13, Row Overlap
+  0.606, Slot Width 0.635, Stagger 0.5; on the Windows layer set Batten
+  Props to VM_Tiles_RoofDeck, Batten Spacing 0.15 and Roof Debris Props to
+  VM_Tiles_AsphaltShard (or just apply one of the asphalt presets).
+* Fix of v2.31 (never delivered): the faster build joined three Join
+  Geometry nodes in another order than v2.30, which moved the random picks
+  that follow them - fewer ivy leaves on some houses, a few planks and shakes
+  different. The build now keeps the v2.30 order: with Roof Holes 0 a house
+  comes out exactly as in v2.30 (checked node by node and house by house).
 
 v2.31 (2026-11-06) - THE ENGINE BUILDS IN MINUTES, NOT AN HOUR
 -------------------------------------------------------------------------------
@@ -1484,8 +1702,40 @@ in-memory:
   * v2.30(world-space): on a house whose (1.6, 1.0, 1.3) scale is not
     applied, the yard props, sheathing boards and studs are not stretched
     (under 1 % between their axes) and the studs stand every 0.4 world m
-    along the stretched wall.
-Total for this release: 276 checks, 276 passed (verification_v2.json).
+    along the stretched wall;
+  * v2.32(roof damage): a damage zone on a shake roof leaves whole,
+    snapped and hanging battens over rafters, all inside the roof, no tile
+    with nothing under it, shards on the roof and none over the hole;
+    Frame Breakage 0 = every batten whole; Roof Holes 0 = no frame, no shards;
+  * v2.32(asphalt): 'Base - Weathered asphalt' lays intact, torn and worn
+    asphalt tabs (no shakes), the board deck snapped under a hole, asphalt
+    shards round it, no loose tile;
+  * v2.32(world-space): on a house whose (1.4, 1.0, 1.2) scale is not
+    applied, the rafters under a hole stand every 0.6 world m, the frame
+    stays inside the roof and no tile or shard floats.
+  * v2.33(torn rim): on the shake and the asphalt roof, the tiles whose
+    butts hang over a hole are torn pieces - at most 1 in 5 keeps its whole
+    outline.
+  * v2.34(damage faces the hole): on both roofs, at least 3 in 4 of the
+    tiles just below a hole are torn off at the top.
+  * v2.34(no push-through): the intact and worn shakes and the worn asphalt
+    tabs lie flat (within 2.5 mm of their taper) where the course above
+    covers them.
+  * v2.35(damage on every side): on both roofs, at least 3 in 4 of the
+    unbroken tiles beside a hole are broken off on the side facing it.
+  * v2.35(brittle asphalt): along the breaks of the torn and worn asphalt
+    tabs and the shards, at most 20 % of the break length runs straight for
+    2 cm or more and the typical longest straight run is under 3 cm (v2.34:
+    80-86 % and 5.5 cm); the worn asphalt pool has its four sets.
+  * v2.36(no lone tiles): on both roofs, every intact or worn tile keeps
+    another whole tile on at least two of its four sides and every broken
+    piece on at least one (the top course: the ridge holds it) - none lies
+    alone in a hole (v2.35: 11 shake and 13 asphalt pieces did).
+  * v2.36(sides face the hole): on both roofs, at most 1 in 5 of the tiles
+    with the hole under one half of their butt (a hole's left / right edge)
+    is torn at the butt; the rest are broken off on that side (or, at a
+    corner, torn at the head) - v2.35: 19 of 24 torn at the butt.
+Total for this release: 286 checks, 286 passed (verification_v2.json).
 The starter's door/window layout uses deterministic JOINT seed search
 (measured rates: the cube's no-intersection window contract passes ~1 seed in
 500; the compound's ground-wall contract ~8 in 10 of those): the delivered

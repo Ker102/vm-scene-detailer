@@ -217,7 +217,7 @@ os.makedirs(ROOT, exist_ok=True)
 BLEND_PATH = os.path.join(ROOT, "VM_SceneDetailer.blend")
 STARTER_PATH = os.path.join(ROOT, "VM_Starter.blend")
 ROOFCAP_PATH = os.path.join(ROOT, "VM_RoofCap.blend")
-ENGINE_VERSION = "v2.31"   # the ONE version label: About sockets, descriptions, checks, add-on
+ENGINE_VERSION = "v2.36"   # the ONE version label: About sockets, descriptions, checks, add-on
 # v2.23 doors set INTO the wall (world m): the leaf front this far behind the
 # wall face, a gap round the leaf in its hole, and the casing boards round it
 DOOR_RECESS, DOOR_GAP = 0.03, 0.01
@@ -884,21 +884,39 @@ def make_shake_variants(col, name, n, mat, length=0.42, butt=0.024, tip=0.004, s
     import random
     rng = random.Random(seed)
     out = []
+    L = length / 2
+
+    def front(x, z):
+        return -0.004 + tip + (butt - tip) * (L - z) / length
     for i in range(n):
         w = rng.uniform(0.165, 0.235)
-        cup = rng.uniform(0.003, 0.008)
-        chip = rng.choice([0.0, 0.0, 0.03, 0.05]) * rng.choice([-1, 1])
-        lean = rng.uniform(-0.004, 0.004)
+        cup = rng.uniform(0.002, 0.006)
+        # v2.34 (the user's 'morphed / plasticine' roof): the v2.11 butt
+        # corners were chamfered on half the shakes (3-5 cm) - a roof of soft
+        # hexagons. Now the odd shake has a small, irregular broken corner
+        chip = (rng.uniform(0.012, 0.03) if rng.random() < 0.2 else 0.0) * rng.choice([-1, 1])
+        h = w / 2
+        # v2.33 (the user's 'muddy / smooth' roof): split along the grain - a
+        # real grooved, slightly ragged surface like the worn shakes, lightly
+        # weathered, instead of the smooth bevelled v2.11 slab
+        if chip:
+            c_ = abs(chip)
+            k_ = rng.uniform(0.3, 0.7)
+            ol = ([(-h, -L), (h - c_, -L), (h - c_ * k_, -L + c_ * rng.uniform(0.2, 0.5)), (h, -L + c_ * 1.3)]
+                  if chip > 0 else
+                  [(-h, -L + c_ * 1.3), (-h + c_ * k_, -L + c_ * rng.uniform(0.2, 0.5)), (-h + c_, -L), (h, -L)])
+        else:
+            ol = [(-h, -L), (h, -L)]
+        ol += [(h, L), (-h, L)]
+        disp, fray = _weathering(rng, rng.uniform(0.05, 0.22), False, -L, L, h, ends=(-L,), bleach=0.25,
+                                 edge=0.3, crisp=True)   # (split edges stay crisp: rounded read as pillows)
 
-        def shape(v, w=w, cup=cup, chip=chip, lean=lean):
-            sx = v.co.x / (w / 2)
-            v.co.y += cup * sx * sx * (0.5 - v.co.z / length)
-            v.co.x += lean * (0.5 - v.co.z / length)
-            if chip and v.co.z < -length / 2 + 0.001 and sx * (1 if chip > 0 else -1) > 0.55:
-                v.co.z += abs(chip) * (abs(sx) - 0.55) / 0.45
-
-        me = _tile_mesh(f"{name}_{i + 1:02d}", w, length, butt, tip, -0.004, 0.0015,
-                        3, 4, shape, "Z")
+        def warp(x, z, cup=cup, h=h):
+            # v2.34 cupped only where it shows: the part under the course
+            # above stays flat, or it pushes up through that course's shakes
+            return cup * (x / h) ** 2 * _expo(z, L, SHAKE_EXPOSED)
+        me = _rough_tile(f"{name}_{i + 1:02d}", ol, front, -0.004, "Z", -h, w, disp, warp, step=(0.03, 0.01),
+                         seed=seed * 100 + i, fray=fray)
         me.materials.append(mat)
         ob = bpy.data.objects.new(f"{name}_{i + 1:02d}", me)
         col.objects.link(ob)
@@ -957,7 +975,7 @@ def _fray(loop, depth_fn):
 
 
 def _rough_tile(name, outline, front_y, back, uv_grain, lo, span, disp=None, warp=None, holes=(),
-                step=(0.03, 0.009), min_t=0.0015, seed=0, fray=None, hole_side=False):
+                step=(0.03, 0.009), min_t=0.0015, seed=0, fray=None, hole_side=False, uvs=1.0):
     """v2.28 damaged tile with a REAL weathered surface (the user's 'the planks
     around the damage look perfectly intact - perfectly smooth'): the outline
     (plus any through-holes) is resampled, frayed ragged (`fray(x, z)` = how far
@@ -1073,10 +1091,12 @@ def _rough_tile(name, outline, front_y, back, uv_grain, lo, span, disp=None, war
         f.smooth = all(v in front_set for v in f.verts)
         for lp in f.loops:
             x, z = lp.vert.co.x, lp.vert.co.z
+            # (v2.34 `uvs`: a piece made longer than it shows keeps the wood
+            # grain at its real size once the engine scales it down)
             if gx:
-                lp[uvl].uv = (x, min(max((z - lo) / span, 0.0), 1.0))
+                lp[uvl].uv = (x * uvs, min(max((z - lo) / span, 0.0), 1.0))
             else:
-                lp[uvl].uv = (z, min(max((x - lo) / span, 0.0), 1.0))
+                lp[uvl].uv = (z * uvs, min(max((x - lo) / span, 0.0), 1.0))
     if warp:
         for v in bm.verts:
             v.co.y += warp(v.co.x, v.co.z)
@@ -1086,25 +1106,51 @@ def _rough_tile(name, outline, front_y, back, uv_grain, lo, span, disp=None, war
     return me
 
 
-def _weathering(rng, sev, gx, a_lo, a_hi, c_half, ends=(), brk=None, bleach=1.0):
+def _weathering(rng, sev, gx, a_lo, a_hi, c_half, ends=(), brk=None, bleach=1.0, edge=1.0, crisp=False, zs=1.0):
     """v2.28 the weathered surface of a damaged tile (severity `sev` 0..1, the
     grain along X when `gx`, else Z; `a_lo..a_hi` the along-grain extent,
     `c_half` the half width across it): ridged grain grooves and deep checks,
     end grain rotted soft near the free `ends` (torn fibres at a break `brk`),
     edges worn round, and gouges / lost chunks - mostly at an edge. Returns
-    (disp, fray) for _rough_tile."""
+    (disp, fray) for _rough_tile.
+    v2.34 `crisp`: wood (shakes) keeps sharp torn ends - no extra rounding at
+    an end or a break (rounded tears read as plasticine). `zs`: the tile is
+    made `1/zs` times as long as it shows (a broken piece made 1 m long and
+    scaled to what remains): along the grain everything (grain, gouges, the
+    rotted ends) is laid out in REAL metres, so the scale does not squash it
+    into blobs. a_lo / a_hi / ends / brk are given in the tile's own units."""
     from mathutils import noise
+    if not gx and zs != 1.0:
+        a_lo, a_hi = a_lo * zs, a_hi * zs
+        ends = tuple(e_ * zs for e_ in ends)
+        brk = None if brk is None else brk * zs
     off = Vector((rng.uniform(-90, 90), rng.uniform(-90, 90), rng.uniform(-90, 90)))
-    g_amp = 0.0005 + 0.0014 * sev
-    ero_r, ero = 0.005 + 0.014 * sev, 0.3 + 0.5 * sev
+    g_amp = (0.0005 + 0.0014 * sev) * (1.0 if gx else 1.8)    # (v2.33 shakes: deeper split-grain ridges)
+    ero_r, ero = 0.005 + 0.014 * sev, (0.3 + 0.5 * sev) * edge     # (edge: v2.33 crisp intact shakes)
     span_a = a_hi - a_lo
     gouges = []
-    for _ in range(int(round(sev * rng.uniform(2.0, 7.0)))):
+    # (v2.34 on a SHAKE the gouges scale with the real length: a short torn
+    # piece got a 42 cm shake's gouges - stacked, through the wood, the
+    # surface collapsed into flaps)
+    n_g = sev * rng.uniform(2.0, 7.0) * (1.0 if gx else min(span_a / 0.42, 1.0))
+    # (and a short crisp piece - a torn shake - has none: on its few cm of
+    # front grid a gouge only shaded as dark slits across the grain)
+    for _ in range(0 if (crisp and zs < 0.5) else int(round(n_g))):
         ga = rng.uniform(a_lo, a_hi)
-        gc = rng.choice((-1.0, 1.0)) * rng.uniform(0.45, 1.05) * c_half
+        # (v2.34 crisp wood loses chunks AT the edge - a pit mid-face on the
+        # coarse front grid shaded as dark wedges)
+        gc = rng.choice((-1.0, 1.0)) * rng.uniform(0.85 if crisp else 0.45, 1.05) * c_half
         ra = rng.uniform(0.04, 0.16) * max(span_a, 0.3)
         rc = rng.uniform(0.3, 0.75) * c_half
-        gouges.append((ga, gc, ra, rc, rng.uniform(0.45, 0.95)))
+        if not gx:
+            # v2.33 a SHAKE (grain along Z, short): the v2.28 sizes made round
+            # blobs on a 42 cm tile - pale beige 'paint spots', the user's
+            # 'muddy / not realistic'. Wood loses chunks ALONG the grain: a
+            # narrow sliver at the edge, 3-6x as long as it is wide
+            rc *= 0.45
+            ra = max(ra, rc * (3.0 + 3.0 * (ra / max(span_a, 0.3) - 0.04) / 0.12))
+            ra = min(ra, 0.3 * span_a)
+        gouges.append((ga, gc, ra, rc, rng.uniform(0.15, 0.4) if crisp else rng.uniform(0.45, 0.95)))
 
     def endf_at(a):
         e = 0.0
@@ -1112,37 +1158,52 @@ def _weathering(rng, sev, gx, a_lo, a_hi, c_half, ends=(), brk=None, bleach=1.0)
             e = max(e, 1.0 - min(abs(a - e_) / 0.14, 1.0))
         return e
 
+    # (v2.34 a shake's break zone is 5 cm of REAL wood: with zs the v2.28
+    # 0.15 covered a whole short piece - deep creases and raw wood all over)
+    brk_w = 0.15 if gx else 0.05
+
     def brkf_at(a):
-        return 0.0 if brk is None else 1.0 - min(abs(a - brk) / 0.15, 1.0)
+        return 0.0 if brk is None else 1.0 - min(abs(a - brk) / brk_w, 1.0)
 
     def disp(x, z, t, db):
-        a, c = (x, z) if gx else (z, x)
+        a, c = (x, z) if gx else (z * zs, x)
         # (frequencies the grid resolves: ~3 samples per groove across the grain)
         n1 = noise.noise(Vector((a * 2.5, c * 32.0, 0.0)) + off)
         n2 = noise.noise(Vector((a * 6.0, c * 48.0, 3.0)) + off)
         endf, brkf = endf_at(a), brkf_at(a)
-        dy = -g_amp * (abs(n1) + 0.35 * abs(n2)) * (1.0 + 2.0 * max(endf, brkf))
+        dy = -g_amp * (abs(n1) + 0.35 * abs(n2)) * (1.0 + (1.0 if crisp else 2.0) * max(endf, brkf))
         cut = 0.0
-        r_ = ero_r * (1.0 + endf + brkf)
+        r_ = ero_r * (1.0 if crisp else 1.0 + endf + brkf)
         if db < r_:                                            # edges worn round
-            dy -= t * ero * (1.0 - db / r_) ** 1.6
+            dy -= t * ero * (1.0 - db / r_) ** 1.6 * ((1.0 - brkf) if crisp else 1.0)
+        g_dy = 0.0                                             # (the deepest gouge, not their sum)
         for ga, gc, ra, rc, dep in gouges:                    # gouges, lost chunks
             q = ((a - ga) / ra) ** 2 + ((c - gc) / rc) ** 2
             if q < 1.6:
-                q += 0.3 * noise.noise(Vector((a * 8.0, c * 14.0, 11.0)) + off)
+                # (v2.34 crisp: a clean chunk - the noisy rim broke a shake's
+                # gouge into a row of dark slivers across the grain)
+                q += (0.08 if crisp else 0.3) * noise.noise(Vector((a * 8.0, c * 14.0, 11.0)) + off)
                 if q < 1.0:
-                    k_ = min((1.0 - q) / 0.35, 1.0)
-                    dy -= t * dep * k_
-                    cut = max(cut, k_)
+                    # (v2.33 a shake's chunk breaks off with steep walls: the
+                    # soft v2.28 ramp read as melted rubber on a short tile)
+                    k_ = min((1.0 - q) / (0.35 if gx else (0.3 if crisp else 0.1)), 1.0)
+                    g_dy = max(g_dy, t * dep * k_) if crisp else g_dy + t * dep * k_
+                    # (a shake's old gouge has weathered grey too: only its deep
+                    # middle shows a little fresher wood)
+                    cut = max(cut, k_ if gx else 0.45 * k_ * k_)
+        dy -= g_dy
         wear = min((0.05 + 0.75 * sev * sev + 0.3 * endf + 0.08 * (n1 + 1.0)) * bleach, 1.0)
         return dy, wear, min(max(cut, brkf * brkf), 1.0)
 
     def fray(x, z):
-        a, c = (x, z) if gx else (z, x)
+        a, c = (x, z) if gx else (z * zs, x)
         n_ = abs(noise.noise(Vector((a * 9.0, c * 9.0, 21.0)) + off))
         n4 = abs(noise.noise(Vector((a * 31.0, c * 31.0, 29.0)) + off))
         # (not along a break: its jag and splinters are torn already)
-        return (0.0006 + 0.0035 * sev * n_ + 0.002 * sev * n4) * (1.0 + 0.8 * endf_at(a)) * (1.0 - brkf_at(a))
+        f_ = (0.0006 + 0.0035 * sev * n_ + 0.002 * sev * n4) * (1.0 + 0.8 * endf_at(a)) * (1.0 - brkf_at(a))
+        # (v2.34 crisp wood: split edges are straight-ish - a chewed outline
+        # read as clay)
+        return f_ * 0.4 if crisp else f_
     return disp, fray
 
 
@@ -1179,6 +1240,408 @@ def _jag(rng, a, b, n, depth, spike=0.0, spike_w=(0.008, 0.02)):
         pts += [(depth * 0.3, t0), (spike, t0 + w * 0.4), (spike * 0.8, t0 + w), (0.0, t0 + w * 1.3)]
     pts.append((rng.uniform(-depth, depth * 0.4), b))
     return sorted(pts, key=lambda q: q[1] * (1 if b > a else -1))
+
+
+SHAKE_EXPOSED = 1.0 - 0.69     # v2.34 the shown part of a shake (the Dress default Row Overlap 0.69)
+
+
+def _expo(z, L, exposed, margin=0.9):
+    """v2.34 how far a point of a tall tile (z from -L at the butt to +L) is
+    into the part that SHOWS: 1 at the butt, 0 at (`margin` of) the line where
+    the course above covers it, and above. Every lift of a tile (curl, cup,
+    warp) is scaled by it: the hidden part of a tile lies a few mm under the
+    course above (the courses share one plane, the butts are thicker than the
+    heads), so a lift there pushed through that course - the user's 'tiles
+    stuffed into each other, morphed, like plasticine'."""
+    return max(0.0, 1.0 - (z + L) / (2.0 * L * exposed * margin))
+
+
+def _wood_tear(rng, a, b, depth, splinter=0.15, spl_len=(0.02, 0.06)):
+    """v2.34 a WOOD tear across the grain from t=a to t=b (`depth`, splinter
+    lengths in real metres): the fibres break in bundles 6-28 mm wide at
+    different lengths - a staircase whose risers run ALONG the grain - with
+    the odd long thin splinter. The v2.13 _jag zigzag is a random line that,
+    worn round, read as torn clay. Returns [(reach, t)] like _jag (+ = longer)."""
+    sg = 1.0 if b > a else -1.0
+    off = rng.uniform(-depth, depth * 0.3)
+    pts = [(off, a)]
+    t = a
+    while sg * (b - t) > 1e-6:
+        wd = min(rng.uniform(0.006, 0.028), sg * (b - t))
+        if wd > 0.008 and rng.random() < splinter:          # a long thin splinter sticks out
+            ln_ = rng.uniform(*spl_len)
+            pts += [(off + ln_ * 0.35, t + sg * wd * 0.3), (off + ln_, t + sg * wd * rng.uniform(0.45, 0.6)),
+                    (off + ln_ * 0.25, t + sg * wd * 0.8)]
+        t2 = t + sg * wd
+        # (v2.34 a bundle's end is torn at a slant or to a point, not square:
+        # square steps read as battlements)
+        end_ = off + rng.uniform(-0.6, 0.6) * max(wd, depth * 0.5)
+        if rng.random() < 0.45:
+            pts.append((max(off, end_) + rng.uniform(0.15, 0.6) * wd, t + sg * wd * rng.uniform(0.3, 0.7)))
+        pts.append((end_, t2 - sg * min(rng.uniform(0.0, 0.002), wd * 0.3)))
+        off = min(max(end_ + rng.gauss(0.0, depth * 0.5), -depth), depth * 0.5)
+        pts.append((off, t2))
+        t = t2
+    return pts
+
+
+def _seg_cross(a, b, c, d):
+    """v2.35 segments ab and cd cross (a proper crossing, not a shared end)."""
+    def o_(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    return o_(c, d, a) * o_(c, d, b) < 0.0 and o_(a, b, c) * o_(a, b, d) < 0.0
+
+
+def _poly_ok(poly, clr=0.0008, cell=0.01, only=None):
+    """v2.35 a closed outline is simple (no edge crosses another) and no two
+    edges more than 3 apart come closer than `clr` (a sliver the fray and the
+    triangulation would tear). `only=(i0, i1)`: test just the pairs with an
+    edge i0 <= i < i1 (the edges just added - a flaw elsewhere in the outline
+    must not veto every change)."""
+    n = len(poly)
+    grid = {}
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        for cx in range(int(math.floor((min(a[0], b[0]) - clr) / cell)), int(math.floor((max(a[0], b[0]) + clr) / cell)) + 1):
+            for cz in range(int(math.floor((min(a[1], b[1]) - clr) / cell)),
+                            int(math.floor((max(a[1], b[1]) + clr) / cell)) + 1):
+                grid.setdefault((cx, cz), []).append(i)
+    seen = set()
+    for segs in grid.values():
+        for ii in range(len(segs)):
+            for jj in range(ii + 1, len(segs)):
+                i, j = segs[ii], segs[jj]
+                if only is not None and not (only[0] <= i < only[1] or only[0] <= j < only[1]):
+                    continue
+                gap = min((i - j) % n, (j - i) % n)
+                if gap < 2 or (min(i, j), max(i, j)) in seen:
+                    continue
+                seen.add((min(i, j), max(i, j)))
+                a, b, c, d = poly[i], poly[(i + 1) % n], poly[j], poly[(j + 1) % n]
+                if _seg_cross(a, b, c, d):
+                    return False
+                if gap > 3 and min(_seg_d(a[0], a[1], c, d), _seg_d(b[0], b[1], c, d),
+                                   _seg_d(c[0], c[1], a, b), _seg_d(d[0], d[1], a, b)) < clr:
+                    return False
+    return True
+
+
+def _frac_path(rng, p0, p1, rough=0.14, min_seg=0.003, kinks=(1, 3), kink_amp=0.1, chips=0, chip_d=(0.002, 0.006)):
+    """v2.35 a BRITTLE fracture from p0 to p1 (real metres; the points in
+    between, the ends left out) - the user's 'if you throw a piece on the
+    ground and it breaks, it's not a perfectly straight cut'. A brittle sheet
+    (asphalt, slate) cracks in a few straight-ish facets at angles to each
+    other (`kinks`, up to `kink_amp` of the length off the chord), every facet
+    rough at every scale down to `min_seg` (midpoint displacement, `rough` of
+    each piece's length), with the odd chip bitten out (`chips`, inwards = to
+    the left of p0 -> p1: the inside of a counter-clockwise outline)."""
+    (x0, z0), (x1, z1) = p0, p1
+    ln = math.hypot(x1 - x0, z1 - z0)
+    if ln < 2.0 * min_seg:
+        return []
+    ux, uz = (x1 - x0) / ln, (z1 - z0) / ln
+    ctrl = [(0.0, 0.0)]
+    nk = rng.randint(*kinks) if ln > 0.02 else 0
+    for t in sorted(rng.uniform(0.15, 0.85) for _ in range(nk)):
+        ctrl.append((t * ln, rng.uniform(-1.0, 1.0) * kink_amp * ln))
+    ctrl.append((ln, 0.0))
+    out = []
+
+    def sub(a, b):
+        l_ = math.hypot(b[0] - a[0], b[1] - a[1])
+        if l_ < 2.0 * min_seg:
+            return
+        # (calmer below ~3 cm: a brittle break is angular facets with a fine
+        # roughness, not a saw - full roughness at every scale read as torn paper)
+        r_ = rough * min(1.0, l_ / 0.03) ** 0.6
+        d = max(min(rng.gauss(0.0, r_ * l_), 0.3 * l_), -0.3 * l_)
+        m = ((a[0] + b[0]) / 2.0 - (b[1] - a[1]) / l_ * d, (a[1] + b[1]) / 2.0 + (b[0] - a[0]) / l_ * d)
+        sub(a, m)
+        out.append(m)
+        sub(m, b)
+    for k in range(len(ctrl) - 1):
+        if k:
+            out.append(ctrl[k])
+        sub(ctrl[k], ctrl[k + 1])
+    for _ in range(chips if len(out) > 4 else 0):
+        k = rng.randrange(1, len(out) - 1)
+        out[k] = (out[k][0], out[k][1] + rng.uniform(*chip_d))
+    return [(x0 + ux * s - uz * o, z0 + uz * s + ux * o) for s, o in out]
+
+
+def _is_orig(w, zs_=()):
+    """v2.35 the 'original edge' test for _fracture_outline: both ends on the
+    same side x = +-w, or both on one of the lines z in `zs_`."""
+    def f(p, q):
+        if abs(abs(p[0]) - w) < 1e-6 and abs(abs(q[0]) - w) < 1e-6 and p[0] * q[0] > 0.0:
+            return True
+        return any(abs(p[1] - z_) < 1e-6 and abs(q[1] - z_) < 1e-6 for z_ in zs_)
+    return f
+
+
+def _fracture_outline(rng, ol, orig, min_len=0.006, rough=0.14, kinks=(0, 2), kink_amp=0.08, chips_p=0.25,
+                      min_seg=0.003):
+    """v2.35 every BREAK edge of an outline (an edge `orig(p, q)` says is not
+    one of the tile's own sawn / cut edges) becomes a brittle fracture
+    (_frac_path) - the corners, bites and tears of the v2.33 damage were
+    straight lines between a few points. An edge whose fracture would cross
+    the outline is retried calmer, then left straight."""
+    n = len(ol)
+    res = []
+    for k in range(n):
+        p, q = ol[k], ol[(k + 1) % n]
+        res.append(p)
+        if orig(p, q) or math.hypot(q[0] - p[0], q[1] - p[1]) < min_len:
+            continue
+        for f_ in (1.0, 0.5, 0.25):
+            mid = _frac_path(rng, p, q, rough=rough * f_, min_seg=min_seg, kinks=kinks, kink_amp=kink_amp * f_,
+                             chips=1 if rng.random() < chips_p else 0)
+            if _poly_ok(res + mid + ol[k + 1:], only=(len(res) - 1, len(res) + len(mid))):
+                res += mid
+                break
+    return res
+
+
+def _edge_crack(rng, ol, orig, length=(0.015, 0.05), gap=(0.001, 0.003), pick=None):
+    """v2.35 a crack running IN from a break edge (a tapering slit, wandering
+    about a straight course): a brittle sheet cracks on from where it broke.
+    `pick(p, q)` chooses other edges to start from (an asphalt tab's splits
+    start at its butt). Returns the new outline (or the old one when the
+    crack would cross it)."""
+    n = len(ol)
+    pick = pick or (lambda p_, q_: not orig(p_, q_))
+    cand = [k for k in range(n) if pick(ol[k], ol[(k + 1) % n])
+            and math.hypot(ol[(k + 1) % n][0] - ol[k][0], ol[(k + 1) % n][1] - ol[k][1]) > 0.004]
+    for _ in range(4):
+        if not cand:
+            return ol
+        k = rng.choice(cand)
+        p, q = ol[k], ol[(k + 1) % n]
+        sl = math.hypot(q[0] - p[0], q[1] - p[1])
+        ux, uz = (q[0] - p[0]) / sl, (q[1] - p[1]) / sl
+        g = rng.uniform(*gap)
+        if sl < g * 2.0:
+            continue
+        t_ = rng.uniform(0.3, 0.7)
+        P = (p[0] + (q[0] - p[0]) * t_, p[1] + (q[1] - p[1]) * t_)
+        a0 = math.atan2(ux, -uz) + rng.uniform(-0.5, 0.5)     # inwards (the left normal), give or take
+        ln = rng.uniform(*length)
+        ns = max(3, int(ln / 0.004))
+        cx, cz, cs, dev = P[0], P[1], [], 0.0
+        for s in range(1, ns + 1):
+            dev = 0.75 * dev + rng.gauss(0.0, 0.3)            # (wiggles about a straight course)
+            a = a0 + dev
+            cx, cz = cx + math.cos(a) * ln / ns, cz + math.sin(a) * ln / ns
+            cs.append((cx, cz, a))
+        side_a, side_b = [], []
+        for s, (x_, z_, a_) in enumerate(cs[:-1], 1):
+            h_ = g / 2.0 * (1.0 - s / ns) ** 0.7
+            px_, pz_ = -math.sin(a_), math.cos(a_)              # left of the crack = the p side
+            side_a.append((x_ + px_ * h_, z_ + pz_ * h_))
+            side_b.append((x_ - px_ * h_, z_ - pz_ * h_))
+        tip = cs[-1][:2]
+        new = ([(P[0] - ux * g / 2.0, P[1] - uz * g / 2.0)] + side_a + [tip] + list(reversed(side_b))
+               + [(P[0] + ux * g / 2.0, P[1] + uz * g / 2.0)])
+        out = ol[:k + 1] + new + ol[k + 1:]
+        if _poly_ok(out, clr=0.0004, only=(k, k + len(new) + 1)):
+            return out
+    return ol
+
+
+def _break_field(ol, orig, cap=0.02, cell=0.02):
+    """v2.35 distance (real metres) to the nearest BREAK edge of an outline -
+    for the band of lost granules and torn felt along a fresh break."""
+    n = len(ol)
+    grid = {}
+    for k in range(n):
+        a_, b_ = ol[k], ol[(k + 1) % n]
+        if orig(a_, b_):
+            continue
+        for cx in range(int(math.floor((min(a_[0], b_[0]) - cap) / cell)), int(math.floor((max(a_[0], b_[0]) + cap) / cell)) + 1):
+            for cz in range(int(math.floor((min(a_[1], b_[1]) - cap) / cell)),
+                            int(math.floor((max(a_[1], b_[1]) + cap) / cell)) + 1):
+                grid.setdefault((cx, cz), []).append((a_, b_))
+
+    def f(x, z):
+        segs = grid.get((int(math.floor(x / cell)), int(math.floor(z / cell))), ())
+        return min((_seg_d(x, z, a_, b_) for a_, b_ in segs), default=cap)
+    return f
+
+
+def _asphalt_tear(rng, a, b, depth):
+    """v2.35 an ASPHALT tear across a tab from t=a to t=b (the _jag / _wood_tear
+    signature, real metres): two to four straight-ish brittle facets at angles,
+    not a zigzag - _fracture_outline roughens them afterwards."""
+    k = rng.randint(1, 3)
+    ts = sorted(rng.uniform(0.15, 0.85) for _ in range(k))
+    return ([(rng.uniform(-depth, depth * 0.4), a)]
+            + [(rng.uniform(-depth, depth * 0.6), a + (b - a) * t) for t in ts]
+            + [(rng.uniform(-depth, depth * 0.4), b)])
+
+
+def _side_damage(rng, w, L, sev, exposed, wood=False):
+    """v2.35 the outline of a tall tile torn on its +X SIDE (the hole beside
+    it - the user's 'the damage geometry in every direction around the hole,
+    not just above and below'): from its butt, a strip / chunk of the +X side
+    is gone up to about the line the course above covers (above that it lies
+    under the course above and stays whole). Wood splits ALONG the grain (a
+    near-straight split stepping between grain lines, a cross-grain tear at
+    its top); asphalt breaks in a few angled brittle facets (fractured later).
+    Counter-clockwise; mirror it (_mirror_x) for the -X side."""
+    length = 2.0 * L
+    z_e = -L + exposed * length
+    d0 = min(2.0 * w * (0.14 + 0.42 * sev) * rng.uniform(0.8, 1.2), 1.4 * w)
+    z_top = min(z_e + rng.uniform(-0.3, 0.1) * exposed * length, L - 0.02)
+    pts = []
+    if wood:
+        x_ = w - d0
+        z_ = -L
+        drift = rng.uniform(-0.3, 0.3) * d0 / (z_top + L)
+        while z_ < z_top - 0.015:
+            z_ = min(z_ + rng.uniform(0.01, 0.045), z_top - 0.012)
+            x_ += drift * (z_ - pts[-1][1] if pts else z_ + L) + rng.gauss(0.0, 0.0012)
+            if rng.random() < 0.18:                         # the split jumps a grain line
+                x_ += rng.uniform(-0.005, 0.005)
+            x_ = min(max(x_, -w + 0.02), w - 0.01)
+            pts.append((x_, z_))
+        x_t = pts[-1][0] if pts else w - d0
+        # across the grain at the top: a short splintered tear to the side
+        tr_ = _wood_tear(rng, x_t, w, rng.uniform(0.004, 0.01), splinter=0.1, spl_len=(0.01, 0.03))
+        top = [(t, z_top - off) for off, t in tr_]          # (+ reach: sticks down into the gap)
+        top = [(min(max(x__, x_t), w), min(max(z__, z_top - 0.03), L - 0.005)) for x__, z__ in top]
+        pts = [(w - d0, -L)] + pts + top[1:-1] + [(w, top[-1][1])]
+    else:
+        # brittle: from the butt UP the side (a chunk, not a corner), then
+        # out to the edge at about the covered line - angled facets
+        h_ = z_top + L
+        pts = [(w - d0, -L),
+               (w - d0 * rng.uniform(0.65, 1.05), -L + h_ * rng.uniform(0.35, 0.6)),
+               (w - d0 * rng.uniform(0.25, 0.55), -L + h_ * rng.uniform(0.75, 0.92)),
+               (w, z_top)]
+        pts = [(min(max(x__, -w + 0.02), w - 0.004 if i_ < len(pts) - 1 else w), z__) for i_, (x__, z__) in enumerate(pts)]
+    bot = [(-w, -L)]
+    if rng.random() < 0.25 * sev:                         # a small chip off the other butt corner
+        c_ = rng.uniform(0.008, 0.02)
+        bot = [(-w, -L + c_), (-w + c_ * rng.uniform(0.6, 1.2), -L)]
+    return bot + pts + [(w, L), (-w, L)]
+
+
+def _tall_damage(rng, w, L, sev, tear_max=0.3, exposed=0.45, tear=None, splits=True):
+    """v2.33 the outline of a DAMAGED tall tile (a shake or an asphalt tab: X
+    across, Z up the roof, the butt at z = -L) - the user's 'the shape of the
+    tiles remains perfectly intact'. With severity: the butt torn off in a
+    ragged, slanting line (up to tear_max of the length), a big corner broken
+    off, bites out of the sides and splits gaping up from the butt. Only the
+    exposed bottom part (`exposed` of the length) is damaged - the rest lies
+    under the course above. Counter-clockwise, as _rough_tile wants it."""
+    length = 2.0 * L
+    z_exp = -L + exposed * length
+    bot, torn = [], rng.random() < 0.1 + 0.8 * sev ** 1.5
+    if torn:                                              # the butt torn off, ragged
+        base = rng.uniform(0.3, 1.0) * tear_max * length * (0.4 + 0.6 * sev)
+        slant = rng.uniform(-0.8, 0.8) * base
+        if tear is not None:                              # (v2.34 wood: a splintered grain tear)
+            jag = tear(rng, -w, w, rng.uniform(0.006, 0.012 + 0.025 * sev))
+        else:
+            jag = _jag(rng, -w, w, rng.randint(5, 9), rng.uniform(0.006, 0.012 + 0.03 * sev),
+                       spike=rng.choice([0.0, 0.0, rng.uniform(0.01, 0.03)]), spike_w=(0.01, 0.025))
+        for off, t in jag:
+            d_ = min(max(base + slant * t / w - off, 0.0), 0.75 * length)
+            bot.append((t, -L + d_))
+    else:
+        bot = [(-w, -L)]
+        if rng.random() < 0.25 + 0.5 * sev:               # a corner broken off - big when heavy
+            c1 = rng.uniform(0.02, 0.06) + 0.3 * length * sev * rng.uniform(0.2, 1.0)
+            c2 = min(rng.uniform(0.3, 1.0) * w * (0.4 + 1.0 * sev), 1.4 * w)
+            m_ = rng.uniform(0.35, 0.65)
+            bot = [(-w, -L + c1), (-w + c2 * m_ + rng.uniform(-0.01, 0.01), -L + c1 * (1 - m_) * rng.uniform(0.6, 1.3)),
+                   (-w + c2, -L)]
+        for _ in range(1 + int(2 * sev)):                 # splits gaping up from the butt
+            if splits and rng.random() < 0.35 + 0.4 * sev:
+                x0 = rng.uniform(-w * 0.5, w * 0.6)
+                if x0 - 0.02 <= bot[-1][0] or x0 + 0.02 >= w * 0.85:
+                    continue
+                sl = rng.uniform(0.03, 0.1) + 0.25 * length * sev * rng.random()
+                g = rng.uniform(0.002, 0.004) + 0.012 * sev * rng.random()
+                bot += [(x0 - g / 2, -L), (x0 + rng.uniform(-0.01, 0.01), -L + sl), (x0 + g / 2, -L)]
+        if rng.random() < 0.2 + 0.5 * sev:                # the other corner
+            c1 = rng.uniform(0.015, 0.05) + 0.15 * length * sev * rng.random()
+            c2 = min(rng.uniform(0.02, 0.06) + 0.5 * w * sev * rng.random(), w - bot[-1][0] - 0.01)
+            bot += [(w - c2, -L), (w, -L + c1)]
+        else:
+            bot += [(w, -L)]
+    z_r, z_l = bot[-1][1], bot[0][1]
+
+    def bite(z_lo):                                       # a bite out of a side, above z_lo
+        if rng.random() > 0.15 + 0.55 * sev or z_exp - z_lo < 0.05:
+            return None
+        h_ = rng.uniform(0.02, 0.05) + 0.06 * sev * rng.random()
+        z0 = rng.uniform(z_lo + h_ / 2 + 0.01, max(z_exp - h_ / 2, z_lo + h_ / 2 + 0.011))
+        d_ = rng.uniform(0.01, 0.03) + 0.4 * w * sev * rng.random()
+        return z0, h_, d_
+    right = []
+    b_ = bite(z_r)
+    if b_:
+        z0, h_, d_ = b_
+        right = [(w, z0 - h_ / 2), (w - d_, z0 - h_ * rng.uniform(0.0, 0.3)), (w - d_ * rng.uniform(0.5, 0.9), z0 + h_ * 0.2),
+                 (w, z0 + h_ / 2)]
+    left = []
+    b_ = bite(z_l)
+    if b_:
+        z0, h_, d_ = b_
+        left = [(-w, z0 + h_ / 2), (-w + d_ * rng.uniform(0.5, 0.9), z0 + h_ * 0.2), (-w + d_, z0 - h_ * rng.uniform(0.0, 0.3)),
+                (-w, z0 - h_ / 2)]
+    return bot + right + [(w, L), (-w, L)] + left
+
+
+def _tall_damage_head(rng, w, L, sev, exposed=0.45):
+    """v2.34 the outline (+ crack holes) of a tall tile damaged from ABOVE -
+    the user's 'the damage faces the undamaged roof, not the damage'. A worn
+    tile BELOW the damage keeps its butt nearly whole; it is broken where the
+    course above lies on it: chunks out of its sides reaching up under that
+    course, a corner gone at the covered line, and splits running down the
+    grain from under the course above (gaping, longer when heavy). Returns
+    (outline counter-clockwise, holes)."""
+    length = 2.0 * L
+    z_e = -L + exposed * length                            # where the course above covers it
+    bot = [(-w, -L)]
+    if rng.random() < 0.15 + 0.2 * sev:                   # a small chip off the butt
+        c_ = rng.uniform(0.008, 0.02)
+        bot = [(-w, -L + c_), (-w + c_ * rng.uniform(0.6, 1.2), -L)]
+    bot.append((w, -L))
+    right, left = [(w, -L)], []
+
+    def notch(sign):                                      # a chunk out of a side at the covered line
+        d_ = min(rng.uniform(0.015, 0.03) + 0.4 * w * sev * rng.random(), 0.55 * w)    # (clear of the splits)
+        lo_ = z_e - rng.uniform(0.015, 0.03) - 0.35 * exposed * length * sev * rng.random()
+        hi_ = z_e + rng.uniform(0.02, 0.06)
+        m_ = rng.uniform(0.3, 0.7)
+        pts = [(sign * w, lo_), (sign * (w - d_ * rng.uniform(0.3, 0.6)), lo_ + (hi_ - lo_) * 0.2),
+               (sign * (w - d_), lo_ + (hi_ - lo_) * m_), (sign * (w - d_ * rng.uniform(0.2, 0.5)), hi_ - 0.005),
+               (sign * w, hi_)]
+        return pts if sign > 0 else list(reversed(pts))
+    n_right = rng.random() < 0.3 + 0.6 * sev
+    n_left = rng.random() < 0.15 + 0.5 * sev or not n_right
+    if n_right:
+        right += notch(1.0)
+    right.append((w, L))
+    if n_left:
+        left = notch(-1.0)
+    holes = []
+    for _ in range(1 + int(2.5 * sev)):                   # splits from under the course above
+        if rng.random() > 0.3 + 0.55 * sev:
+            continue
+        x0 = rng.uniform(-0.35 * w, 0.35 * w)
+        if any(abs(x0 - h_[0][0]) < 0.02 for h_ in holes):
+            continue
+        sl = rng.uniform(0.02, 0.05) + 0.7 * exposed * length * sev * rng.random()
+        g = rng.uniform(0.0015, 0.003) + 0.006 * sev * rng.random()
+        z_t = z_e + rng.uniform(0.02, 0.05)
+        xb = x0 + rng.uniform(-0.006, 0.006)
+        holes.append([(x0, z_t), (x0 - g / 2, z_t - sl * 0.15), (xb - g * 0.3, z_t - sl * 0.6), (xb, z_t - sl),
+                      (xb + g * 0.3, z_t - sl * 0.6), (x0 + g / 2, z_t - sl * 0.15)])
+    holes = [list(reversed(h_)) for h_ in holes]          # (clockwise)
+    return bot + right[1:] + [(-w, L)] + left, holes
 
 
 def _mirror_x(outline):
@@ -1235,34 +1698,62 @@ def make_broken_siding(col, name, n, mat, width=0.2, butt=0.022, top=0.006, seed
             col.objects.link(bpy.data.objects.new(nm, me))
 
 
-def make_broken_shakes(col, name, n, mat, width=0.2, butt=0.016, tip=0.004, seed=17):
+def make_broken_shakes(col, name, n, mat, width=0.2, butt=0.024, tip=0.004, seed=17):
     """v2.13 BROKEN shakes: the nailed top edge at the origin, 1 m down -Z
     (scaled to what remains), the butt broken off in a jagged line - often split
     up the grain. _L / _R are mirrored break patterns.
     v2.28: weathered and torn like the broken boards (deep grain, raw wood at
-    the break, a curl)."""
+    the break, a curl).
+    v2.34 (the user's 'the damage faces the undamaged roof'): every group is
+    FOUR pieces - _L / _R torn off at the butt (a shake whose butt hung over a
+    hole or inside the damage) and _UL / _UR torn off at the HEAD: the butt at
+    the origin, 1 m UP +Z (scaled to what remains), the top torn away - the
+    shake just BELOW a hole, whose covered part went with the shakes above.
+    The tears are splintered grain breaks (_wood_tear), laid out in real
+    metres (zs) so the engine's scale does not squash them, with crisp edges;
+    the butt-torn piece curls only at its very end (its upper part lies under
+    the course above - a curl there pushed through it)."""
     import random
     rng = random.Random(seed)
     w = width / 2
+    zs_b, zs_h = 0.34, 0.17           # (what a piece shows, real m: d_frac 0.72-0.91 / 0.22-0.6 of 42 cm)
 
-    def front(x, z):
-        return -0.004 + tip + (butt - tip) * (-z)
+    def front_b(x, z):
+        return -0.004 + tip + (0.85 * butt - tip) * (-z)
+
+    def front_h(x, z):
+        return -0.004 + butt - (butt - tip) * 0.4 * z
     for i in range(n):
-        jag = _jag(rng, w, -w, rng.randint(3, 6), rng.uniform(0.08, 0.22),
-                   spike=rng.choice([0.0, rng.uniform(0.1, 0.3)]), spike_w=(0.015, 0.03))
-        ol = [(-w, 0.0), (w, 0.0)] + [(t, -1.0 - off) for off, t in jag]
-        ol = list(reversed(ol))
         sev = rng.uniform(0.55, 1.0)
-        disp, fray = _weathering(rng, sev, False, -1.0, 0.0, w, brk=-1.0, bleach=0.6)
-        curl = rng.uniform(0.004, 0.016) * sev
+        slant = rng.uniform(-0.03, 0.03)
+        tear = _wood_tear(rng, w, -w, rng.uniform(0.012, 0.03) + 0.02 * sev, splinter=0.2, spl_len=(0.02, 0.07))
+        ol = [(-w, 0.0), (w, 0.0)] + [(t, -1.0 - (off + slant * t / w) / zs_b) for off, t in tear]
+        ol = list(reversed(ol))
+        disp, fray = _weathering(rng, sev, False, -1.0, 0.0, w, brk=-1.0, bleach=0.6, edge=0.25, crisp=True,
+                                 zs=zs_b)
+        curl = rng.uniform(0.002, 0.006) * sev
 
         def warp(x, z, curl=curl):
-            return curl * min(max(-z - 0.3, 0.0) / 0.7, 1.0) ** 2
-        for side, o, d_, w_, f_ in (("L", ol, disp, warp, fray),
-                                    ("R", _mirror_x(ol), _mirror_fn(disp), _mirror_fn(warp), _mirror_fn(fray))):
+            return curl * min(max(-z - 0.9, 0.0) / 0.1, 1.0) ** 2      # (splinters past -1: no more)
+        sev_h = rng.uniform(0.5, 1.0)
+        slant_h = rng.uniform(-0.04, 0.04)
+        tear_h = _wood_tear(rng, w, -w, rng.uniform(0.012, 0.035) + 0.02 * sev_h, splinter=0.22,
+                            spl_len=(0.02, 0.06))
+        ol_h = [(-w, 0.0), (w, 0.0)] + [(t, 1.0 + (off + slant_h * t / w) / zs_h) for off, t in tear_h]
+        disp_h, fray_h = _weathering(rng, sev_h, False, 0.0, 1.0, w, ends=(0.0,), brk=1.0, bleach=0.6, edge=0.25,
+                                     crisp=True, zs=zs_h)
+        lift = rng.uniform(0.0, 0.003) * sev_h
+
+        def warp_h(x, z, lift=lift):
+            return lift * min(max(z - 0.8, 0.0) / 0.2, 1.0) ** 2
+        for side, o, d_, w_, f_, fr_, zz_ in (
+                ("L", ol, disp, warp, fray, front_b, zs_b),
+                ("R", _mirror_x(ol), _mirror_fn(disp), _mirror_fn(warp), _mirror_fn(fray), front_b, zs_b),
+                ("UL", ol_h, disp_h, warp_h, fray_h, front_h, zs_h),
+                ("UR", _mirror_x(ol_h), _mirror_fn(disp_h), _mirror_fn(warp_h), _mirror_fn(fray_h), front_h, zs_h)):
             nm = f"{name}_{i + 1:02d}_{side}"
-            me = _rough_tile(nm, o, front, -0.004, "Z", -w, width, d_, w_, step=(0.04, 0.008),
-                             seed=seed * 100 + i, fray=f_)
+            me = _rough_tile(nm, o, fr_, -0.004, "Z", -w, width, d_, w_, step=(0.007 / zz_, 0.007),
+                             seed=seed * 100 + i, fray=f_, uvs=zz_)
             me.materials.append(mat)
             col.objects.link(bpy.data.objects.new(nm, me))
 
@@ -1354,43 +1845,47 @@ def make_worn_shakes(col, name, n, mat, length=0.42, width=0.2, butt=0.024, tip=
     broken butt corners.
     v2.28: ragged edges, deep weathered grain, a soft rotted butt, gouges and
     the butt curling up off the roof; variants light (_01) to heavy (_NN) like
-    the boards."""
+    the boards.
+    v2.34: TWO sets of `n` - `name`_NN damaged at the butt (for a shake ABOVE
+    the damage: its torn butt faces it) and `name`_UNN damaged from above
+    (_tall_damage_head: for a shake BELOW the damage - the user's 'the damage
+    faces the undamaged roof'). The engine picks the set by where the damage
+    is. Splintered grain tears, crisp edges, and the curl only in the part
+    that shows (a lift under the course above pushed through it).
+    v2.35: FOUR sets - _NN, _LNN / _RNN split off along the grain on their
+    -X / +X side (a shake BESIDE the hole), _UNN."""
     import random
     rng = random.Random(seed)
-    L, w = length / 2, width / 2
+    L = length / 2
 
     def front(x, z):
         return -0.004 + tip + (butt - tip) * (L - z) / length
-    for i in range(n):
-        sev = 0.15 + 0.85 * i / max(n - 1, 1)
-        bot = [(-w, -L)]
-        if rng.random() < 0.3 + 0.3 * sev:
-            c1 = rng.uniform(0.03, 0.08) * (0.7 + 0.6 * sev)
-            bot = [(-w, -L + c1), (-w + c1 * 0.7, -L)]
-        if rng.random() < 0.8:                                # split up from the butt
-            x0, sl = rng.uniform(-w * 0.3, w * 0.3), rng.uniform(0.1, 0.3)
-            g = rng.uniform(0.004, 0.01) * (0.6 + sev)
-            bot += [(x0 - g / 2, -L), (x0, -L + sl), (x0 + g / 2, -L)]
-        if rng.random() < 0.5 + 0.2 * sev:
-            c1 = rng.uniform(0.03, 0.07) * (0.7 + 0.6 * sev)
-            bot += [(w - c1 * 0.8, -L), (w, -L + c1)]
-        else:
-            bot += [(w, -L)]
-        ol = bot + [(w, L), (-w, L)]
-        # (a roof can be mostly worn shakes: bleached less, so it stays one roof)
-        disp, fray = _weathering(rng, sev, False, -L, L, w, ends=(-L,), bleach=0.45)
-        curl = rng.uniform(0.003, 0.016) * (0.3 + sev)
-        lean = rng.uniform(-1.0, 1.0)
+    for set_ in ("", "L", "R", "U"):
+        head = set_ == "U"
+        for i in range(n):
+            sev = 0.15 + 0.85 * i / max(n - 1, 1)
+            w = rng.uniform(0.165, 0.235) / 2                 # (v2.33 the widths of the intact shakes)
+            holes = ()
+            if head:
+                ol, holes = _tall_damage_head(rng, w, L, sev, exposed=SHAKE_EXPOSED)
+            elif set_:
+                ol = _side_damage(rng, w, L, sev, SHAKE_EXPOSED, wood=True)
+                if set_ == "L":
+                    ol = _mirror_x(ol)
+            else:
+                ol = _tall_damage(rng, w, L, sev, tear_max=0.3, exposed=0.4, tear=_wood_tear)
+            # (a roof can be mostly worn shakes: bleached less, so it stays one roof)
+            disp, fray = _weathering(rng, sev, False, -L, L, w, ends=(-L,), bleach=0.45, edge=0.3, crisp=True)
+            curl = rng.uniform(0.003, 0.012) * (0.3 + sev) * (0.5 if head else 1.0)
+            lean = rng.uniform(-1.0, 1.0)
 
-        def warp(x, z, curl=curl, lean=lean):
-            b_ = (L - z) / length                              # 1 at the butt, 0 at the nail line
-            return curl * b_ * b_ * (1.0 + 0.4 * lean * x / w)
-        nm = f"{name}_{i + 1:02d}"
-        me = _rough_tile(nm, ol, front, -0.004, "Z", -w, width, disp, warp, step=(0.02, 0.008),
-                         seed=seed * 100 + i, fray=fray)
-        me.materials.append(mat)
-        col.objects.link(bpy.data.objects.new(nm, me))
-
+            def warp(x, z, curl=curl, lean=lean, w=w):
+                return curl * _expo(z, L, SHAKE_EXPOSED) ** 2 * (1.0 + 0.4 * lean * x / w)
+            nm = f"{name}_{set_}{i + 1:02d}"
+            me = _rough_tile(nm, ol, front, -0.004, "Z", -w, 2.0 * w, disp, warp, holes, step=(0.02, 0.008),
+                             seed=seed * 100 + i + {"": 0, "L": 25, "R": 75, "U": 50}[set_], fray=fray)
+            me.materials.append(mat)
+            col.objects.link(bpy.data.objects.new(nm, me))
 
 
 SHEATH_STUD = 0.4        # v2.29 stud spacing behind the sheathing (world m)
@@ -1476,6 +1971,516 @@ def make_studs(col, name, n, mat, seed=31):
                          step=(0.05, 0.019), seed=seed * 100 + i)
         me.materials.append(mat)
         col.objects.link(bpy.data.objects.new(nm, me))
+
+
+# ---- v2.32 THE ROOF UNDER THE HOLES (the user's reference: a roof torn open,
+# battens snapped with splintered raw ends, some hanging into the hole, shards
+# lying round it) and an ASPHALT SHINGLE roof covering.
+ROOF_RAFTER = 0.6        # v2.32 rafter spacing along the eaves (world m)
+ASPHALT_OVERLAP = 1.0 - 0.13 / 0.33   # v2.32 a 33 cm asphalt tab in 13 cm courses
+RAFTER_SEG = 0.5         # v2.32 a rafter piece's nominal length (scaled to whole batten rows)
+
+
+def make_battens(col, name, n, mat, width=0.06, thick=0.025, length=ROOF_RAFTER, seed=41):
+    """v2.32 BATTENS: one bay of batten from rafter to rafter. Frame: X along
+    the batten (centred, `length` = one rafter bay), Z up the roof across it
+    (centred, `width`), +Y out of the roof - the top face at y = 0, the back at
+    -`thick`. `n` whole pieces (`name`A_NN) and `n` broken ones (`name`B_NN:
+    the nailed end at -X, snapped 12-42 % along with a jagged end and a
+    splinter - two stubs from both rafters never meet). Rough-sawn weathered
+    wood with vm_wear / vm_cut (raw wood at the break) for the board material.
+    Wider and thinner, the same pieces are the asphalt roof's DECK BOARDS."""
+    import random
+    rng = random.Random(seed)
+    L, h = length / 2, width / 2
+    narrow = width < 0.1
+
+    def front(x, z):
+        return 0.0
+    for kind in ("A", "B"):
+        for i in range(n):
+            if kind == "A":
+                sev = 0.1 + 0.35 * i / max(n - 1, 1)
+                ol = [(-L, -h), (L, -h), (L, h), (-L, h)]
+                if rng.random() < 0.3:                      # a chipped end corner
+                    c1 = rng.uniform(0.008, 0.02)
+                    ol = [(-L, -h), (L - c1, -h), (L, -h + c1), (L, h), (-L, h)]
+                disp, fray = _weathering(rng, sev, True, -L, L, h, ends=(-L, L), bleach=0.15)
+                holes = () if narrow else _knot_holes(rng, sev, -L + 0.06, L - 0.06, -h, h, 0.012, 1)
+            else:
+                sev = rng.uniform(0.3, 0.75)
+                x_b = -L + length * rng.uniform(0.2, 0.44)
+                depth = rng.uniform(0.012, 0.04) if narrow else rng.uniform(0.02, 0.06)
+                spike = min(rng.choice([rng.uniform(0.02, 0.06), rng.uniform(0.05, 0.12), rng.uniform(0.1, 0.2)]),
+                            -x_b - 0.012)
+                jag = _jag(rng, h, -h, rng.randint(3, 5) if narrow else rng.randint(5, 8), depth, spike=spike,
+                           spike_w=(0.004, 0.01) if narrow else (0.008, 0.02))
+                ol = [(-L, -h), (-L, h)] + [(x_b + off, t) for off, t in jag]
+                disp, fray = _weathering(rng, sev, True, -L, x_b, h, ends=(-L,), brk=x_b, bleach=0.15)
+                holes = ()
+            bow = rng.uniform(0.0, 0.003)
+
+            def warp(x, z, bow=bow):
+                return bow * (1.0 - (x / L) ** 2)
+            nm = f"{name}{kind}_{i + 1:02d}"
+            me = _rough_tile(nm, ol, front, -thick, "X", -h, width, disp, warp, holes,
+                             step=(0.035, 0.01 if narrow else 0.014), seed=seed * 100 + i + (50 if kind == "B" else 0),
+                             fray=fray)
+            me.materials.append(mat)
+            col.objects.link(bpy.data.objects.new(nm, me))
+
+
+def make_rafters(col, name, n, mat, width=0.05, depth=0.11, length=RAFTER_SEG, seed=43):
+    """v2.32 RAFTERS: a length of rafter (the engine joins them end to end under
+    a batten, scaled to whole batten rows). Frame: X across (centred, `width`),
+    Z along it up the roof (centred, `length`), +Y out of the roof - the top at
+    y = 0, the bottom at -`depth`. Rough-sawn, lightly weathered; the cut ends
+    are left square (the joints hide under the battens)."""
+    import random
+    rng = random.Random(seed)
+    w, L = width / 2, length / 2
+    for i in range(n):
+        sev = rng.uniform(0.08, 0.3)
+        disp0, _fray = _weathering(rng, sev, False, -L, L, w, bleach=0.3)
+
+        def disp(x, z, t, db, disp0=disp0):
+            return disp0(x, z, t, 1.0)                   # no worn-round ends at the joints
+        cup = rng.uniform(0.0, 0.0008)
+
+        def face(x, z, cup=cup):
+            return -cup * (x / w) ** 2
+        nm = f"{name}_{i + 1:02d}"
+        me = _rough_tile(nm, [(-w, -L), (w, -L), (w, L), (-w, L)], face, -depth, "Z", -w, width, disp, None, (),
+                         step=(0.05, 0.016), seed=seed * 100 + i)
+        me.materials.append(mat)
+        col.objects.link(bpy.data.objects.new(nm, me))
+
+
+def _asphalt_wear(rng, sev, a_lo, a_hi, c_half, brk=None, zs=1.0, brk_up=False, brk_d=None):
+    """v2.32 the aged surface of an asphalt shingle (grain-free: X across, Z up
+    the roof): a fine granular bumpiness, patches where the granules are gone
+    (vm_wear - the black bitumen shows), hairline cracks and the felt torn
+    open at a tear (vm_cut). Returns (disp, fray) for _rough_tile.
+    v2.35 `brk_d(x, z)`: the distance (real metres, z already times `zs`) to
+    the nearest BREAK edge (_break_field) - along a fresh break the granules
+    are knocked off in a ragged 2-8 mm band (the bitumen shows), the felt is
+    torn open at the very edge and the edge crumbles thinner."""
+    from mathutils import noise
+    off = Vector((rng.uniform(-90, 90), rng.uniform(-90, 90), rng.uniform(-90, 90)))
+    cracks = []
+    for _ in range(int(round(sev * rng.uniform(1.0, 4.0)))):
+        x, z = rng.uniform(-c_half * 0.8, c_half * 0.8), rng.uniform(a_lo, a_hi) * zs
+        a = rng.uniform(-0.6, 0.6) + (math.pi / 2 if rng.random() < 0.6 else 0.0)
+        pts = [(x, z)]
+        for _k in range(rng.randint(3, 7)):
+            a += rng.uniform(-0.5, 0.5)
+            x, z = x + 0.025 * math.cos(a), z + 0.025 * math.sin(a)
+            pts.append((x, z))
+        cracks.append(pts)
+    # (v2.36 the user's 'the large dark patches ... look blobby': v2.32-v2.35
+    # thresholded 13/m noise into solid black blobs. Now vm_wear is a smooth
+    # LIKELIHOOD of granule loss - broad patches plus streaks running down the
+    # roof (water) - and the material drops single 1-2 mm granules with that
+    # probability, so wear reads as speckle thinning to bald spots; solid
+    # black only along a fresh break, where every granule is knocked off)
+    w_top = min(sev * 1.05, 0.8)
+
+    def disp(x, z, t, db):
+        zb = z
+        z = z * zs                       # (a torn piece is made 1 m long, then scaled down)
+        g = noise.noise(Vector((x * 95.0, z * 95.0, 1.0)) + off)
+        dy = -0.00018 * abs(g)
+        pb_ = noise.noise(Vector((x * 8.0, z * 8.0, 5.0)) + off)                 # broad patches
+        ps_ = noise.noise(Vector((x * 38.0, z * 4.5, 9.0)) + off)                # streaks down the roof
+        wear = w_top * min(max(0.45 + 0.75 * pb_ + 0.45 * ps_, 0.0), 1.0)
+        dy -= 0.00025 * wear
+        cut = 0.0
+        for pts in cracks:
+            d = min(_seg_d(x, z, pts[k], pts[k + 1]) for k in range(len(pts) - 1))
+            if d < 0.0016:
+                cut = max(cut, 1.0 - d / 0.0016)
+                dy -= t * 0.45 * (1.0 - d / 0.0016)
+        if brk is not None and (zb > brk - 0.45 if brk_up else zb < brk + 0.45):   # the felt torn open along the tear
+            cut = max(cut, 1.0 - min(db / 0.004, 1.0))
+        if db < 0.0025:                                      # brittle edges, worn
+            dy -= t * 0.25 * (1.0 - db / 0.0025)
+        if brk_d is not None:
+            d_ = brk_d(x, z)
+            if d_ < 0.01:
+                bw_ = 0.002 + 0.006 * abs(noise.noise(Vector((x * 70.0, z * 70.0, 33.0)) + off))
+                lost = min(max((bw_ - d_) / 0.0012, 0.0), 1.0)
+                wear = max(wear, lost)
+                dy -= 0.00025 * lost
+                if d_ < 0.0015:
+                    cut = max(cut, 1.0 - d_ / 0.0015)
+                    dy -= t * 0.3 * (1.0 - d_ / 0.0015)
+        return dy, wear, min(cut, 1.0)
+
+    def fray(x, z):
+        n_ = abs(noise.noise(Vector((x * 40.0, z * 40.0, 21.0)) + off))
+        return 0.0003 + 0.0012 * sev * n_
+    return disp, fray
+
+
+def make_asphalt_tabs(col, name, n, mat, width=0.25, length=0.33, butt=0.005, tip=-0.001, seed=51):
+    """v2.32 ASPHALT SHINGLE tabs (the user's reference roof): a 25 x 33 cm tab
+    (three-tab strips laid as single tabs: the course stagger lines the joints
+    up like the slots of a strip), a thin tapered body - the butt stands proud
+    of the course below by a few mm (the shadow line) - slightly cupped and
+    sagging. Same frame as the shakes: X across, Z up the roof, origin at the
+    centre, the back plane at y = -0.004; U = metres up the tab."""
+    import random
+    rng = random.Random(seed)
+    out = []
+    for i in range(n):
+        w = rng.uniform(0.243, 0.25)
+        cup = rng.uniform(0.0, 0.0012)
+        sag = rng.uniform(-0.0008, 0.0012)
+
+        def shape(v, w=w, cup=cup, sag=sag):
+            sx = v.co.x / (w / 2)
+            b_ = 0.5 - v.co.z / length                         # 1 at the butt
+            v.co.y += cup * sx * sx * b_ + sag * b_ * b_
+        me = _tile_mesh(f"{name}_{i + 1:02d}", w, length, butt, tip, -0.004, 0.0007, 3, 4, shape, "Z")
+        _uv_metres(me)                                         # (v2.35 the material reads metre UVs)
+        me.materials.append(mat)
+        ob = bpy.data.objects.new(f"{name}_{i + 1:02d}", me)
+        col.objects.link(ob)
+        out.append(ob)
+    return out
+
+
+def _uv_metres(me, zs=1.0):
+    """v2.35 an asphalt mesh's UVs in REAL metres (U across, V up the roof:
+    x, z * `zs`) - the asphalt material reads its granules from them. It read
+    object space: on a torn piece made 1 m long and scaled down 4-7x the
+    granules came out squashed into smears."""
+    uv = me.uv_layers.active or me.uv_layers.new(name="UVMap")
+    for lp in me.loops:
+        co = me.vertices[lp.vertex_index].co
+        uv.data[lp.index].uv = (co.x, co.z * zs)
+
+
+def make_torn_asphalt(col, name, n, mat, width=0.25, butt=0.005, tip=-0.001, seed=53):
+    """v2.32 TORN asphalt tabs (Broken Props): the nailed top edge at the origin,
+    1 m down -Z (scaled to what remains), torn off in a ragged, often slanting
+    line - the felt torn open along it (vm_cut) - and curling up off the roof
+    towards the tear. _L / _R mirrored.
+    v2.34: groups of FOUR like the broken shakes - _UL / _UR torn off at the
+    HEAD (the butt at the origin, 1 m UP +Z) for the tab just below a hole;
+    the butt-torn tab curls only at its very end (the part under the course
+    above stays flat).
+    v2.35 (the user's 'not quite true broken asphalt - a piece that breaks is
+    not a perfectly straight cut'): each tear is made in REAL metres and then
+    stretched to the 1 m piece (the v2.32 zigzag was drawn on the 1 m piece
+    and squashed flat by the engine's scale): a few angled brittle facets,
+    rough at every scale, chips, often a crack running on into the tab, the
+    granules knocked off along the break; the head piece's torn flap creases
+    up off the roof."""
+    import random
+    rng = random.Random(seed)
+    w = width / 2
+    zs_b, zs_h = 0.25, 0.15            # the real length each piece is drawn at
+    orig_ = _is_orig(w, (0.0,))
+
+    def front(x, z):
+        return -0.004 + (tip + 0.004) + (butt - tip) * (-z)
+
+    def front_h(x, z):
+        return -0.004 + butt - (butt - tip) * 0.4 * z
+    for i in range(n):
+        sev = rng.uniform(0.4, 1.0)
+        sl_ = rng.uniform(-0.05, 0.05)
+        tr_ = _asphalt_tear(rng, -w, w, rng.uniform(0.008, 0.03))
+        ol = [(-w, 0.0)] + [(t, -zs_b - off - sl_ * t / w) for off, t in tr_] + [(w, 0.0)]
+        ol = _fracture_outline(rng, ol, orig_, kinks=(0, 1), kink_amp=0.06)
+        if rng.random() < 0.3 + 0.4 * sev:
+            ol = _edge_crack(rng, ol, orig_, length=(0.015, 0.06))
+        disp, fray = _asphalt_wear(rng, sev, -1.2, 0.0, w, zs=zs_b, brk_d=_break_field(ol, orig_))
+        ol = [(x, z / zs_b) for x, z in ol]
+        curl = rng.uniform(0.002, 0.007) * sev
+
+        def warp(x, z, curl=curl):
+            return curl * min(max(-z - 0.88, 0.0) / 0.12, 1.0) ** 2
+        # the head-torn tab: shows 0.22-0.6 of 33 cm -> drawn ~0.15 m, made 1 m
+        sev_h = rng.uniform(0.4, 1.0)
+        sl_h = rng.uniform(-0.03, 0.03)
+        tr_h = _asphalt_tear(rng, w, -w, rng.uniform(0.006, 0.02))
+        ol_h = [(-w, 0.0), (w, 0.0)] + [(t, zs_h + off + sl_h * t / w) for off, t in tr_h]
+        ol_h = _fracture_outline(rng, ol_h, orig_, kinks=(0, 1), kink_amp=0.06)
+        if rng.random() < 0.3 + 0.4 * sev_h:
+            ol_h = _edge_crack(rng, ol_h, orig_, length=(0.012, 0.04))
+        disp_h, fray_h = _asphalt_wear(rng, sev_h, -0.1, 1.2, w, zs=zs_h, brk_d=_break_field(ol_h, orig_))
+        ol_h = [(x, z / zs_h) for x, z in ol_h]
+        flap, z_c, lean = rng.uniform(0.001, 0.005) * sev_h, rng.uniform(0.45, 0.8), rng.uniform(-1.0, 1.0)
+
+        def warp_h(x, z, flap=flap, z_c=z_c, lean=lean):
+            return flap * max(z - z_c, 0.0) / (1.0 - z_c) * (1.0 + 0.5 * lean * x / w)
+        for side, o, d_, w_, f_, fr_, zz_ in (("L", ol, disp, warp, fray, front, zs_b),
+                                              ("R", _mirror_x(ol), _mirror_fn(disp), _mirror_fn(warp),
+                                               _mirror_fn(fray), front, zs_b),
+                                              ("UL", ol_h, disp_h, warp_h, fray_h, front_h, zs_h),
+                                              ("UR", _mirror_x(ol_h), _mirror_fn(disp_h), _mirror_fn(warp_h),
+                                               _mirror_fn(fray_h), front_h, zs_h)):
+            nm = f"{name}_{i + 1:02d}_{side}"
+            me = _rough_tile(nm, o, fr_, -0.004, "Z", -w, width, d_, w_, step=(0.04, 0.012),
+                             min_t=0.0012, seed=seed * 100 + i, fray=f_)
+            _uv_metres(me, zz_)
+            me.materials.append(mat)
+            col.objects.link(bpy.data.objects.new(nm, me))
+
+
+def make_worn_asphalt(col, name, n, mat, length=0.33, width=0.25, butt=0.005, tip=-0.001, seed=57):
+    """v2.32 WORN asphalt tabs: full size, light (_01) to heavy (_NN) - the
+    granules washed off in patches, hairline cracks, a torn-off corner or a
+    split up from the butt, the butt and corners curling up off the roof.
+    v2.34: a second set `name`_UNN damaged from above (for a tab BELOW the
+    damage), and the curl / cup only in the part that shows.
+    v2.35: FOUR sets of `n` - `name`_NN damaged at the butt, _LNN / _RNN
+    broken off on their -X / +X SIDE (a tab BESIDE the hole: the user's
+    'damage in every direction around the hole'), _UNN from above - and every
+    break is a brittle fracture (_fracture_outline: the corners and bites were
+    straight cuts), often with a crack running on, the granules knocked off
+    along it."""
+    import random
+    rng = random.Random(seed)
+    L, w = length / 2, width / 2
+    ex_ = 1.0 - ASPHALT_OVERLAP
+    orig_ = _is_orig(w, (-L, L))
+
+    def front(x, z):
+        return tip + (butt - tip) * (L - z) / length
+    for set_ in ("", "L", "R", "U"):
+        for i in range(n):
+            sev = 0.15 + 0.85 * i / max(n - 1, 1)
+            holes = ()
+            if set_ == "U":
+                ol, holes = _tall_damage_head(rng, w, L, sev, exposed=ex_)
+            elif set_:
+                ol = _side_damage(rng, w, L, sev, ex_)
+                if set_ == "L":
+                    ol = _mirror_x(ol)
+            else:
+                ol = _tall_damage(rng, w, L, sev, tear_max=0.4, exposed=0.5, tear=_asphalt_tear, splits=False)
+            ol = _fracture_outline(rng, ol, orig_)
+            if rng.random() < 0.15 + 0.5 * sev:
+                ol = _edge_crack(rng, ol, orig_)
+            if set_ != "U":
+                # (the v2.33 splits up from the butt were straight slits: now
+                # cracks wandering up from the butt, gaping, longer when heavy)
+                for _ in range(1 + int(2 * sev)):
+                    if rng.random() < 0.3 + 0.4 * sev:
+                        ol = _edge_crack(rng, ol, orig_, length=(0.03, 0.04 + 0.12 * sev),
+                                         gap=(0.002, 0.003 + 0.008 * sev),
+                                         pick=lambda p_, q_: abs(p_[1] + L) < 1e-6 and abs(q_[1] + L) < 1e-6)
+            # (a crack hole the fracture brought too near the outline is dropped)
+            holes = [h_ for h_ in holes if all(_in_poly(x_, z_, ol) for x_, z_ in h_)
+                     and min(_seg_d(x_, z_, ol[k_], ol[(k_ + 1) % len(ol)]) for x_, z_ in h_
+                             for k_ in range(len(ol))) > 0.002]
+            disp, fray = _asphalt_wear(rng, sev, -L, L, w, brk_d=_break_field(ol, orig_))
+            curl = rng.uniform(0.002, 0.01) * (0.3 + sev) * (0.5 if set_ == "U" else 1.0)
+            cup = rng.uniform(0.0, 0.005) * sev
+            # (a side-broken tab lifts at its broken side a little)
+            tw_ = {"L": -1.0, "R": 1.0}.get(set_, 0.0) * rng.uniform(0.001, 0.004) * sev
+
+            def warp(x, z, curl=curl, cup=cup, tw_=tw_):
+                e_ = _expo(z, L, ex_)
+                return curl * e_ * e_ + cup * (x / w) ** 2 * e_ + max(tw_ * x / w, 0.0) * e_
+            nm = f"{name}_{set_}{i + 1:02d}"
+            me = _rough_tile(nm, ol, front, -0.004, "Z", -w, width, disp, warp, holes, step=(0.03, 0.012),
+                             min_t=0.0012, seed=seed * 1000 + i + {"": 0, "L": 250, "R": 500, "U": 750}[set_], fray=fray)
+            _uv_metres(me)
+            me.materials.append(mat)
+            col.objects.link(bpy.data.objects.new(nm, me))
+
+
+def make_roof_shards(col, name, n, mat, asphalt=False, seed=47):
+    """v2.32 DEBRIS for round a roof hole: shards of the covering and (wood)
+    splinters lying on the roof. Frame: lying flat - X / Z the roof plane (Z
+    along the grain), +Y up off the roof, the back on y = 0, origin at the
+    middle of the back. Raw broken edges (vm_cut)."""
+    import random
+    rng = random.Random(seed)
+    for i in range(n):
+        splinter = (not asphalt) and i % 3 == 2
+        if splinter:
+            hl, hw = rng.uniform(0.06, 0.15), rng.uniform(0.006, 0.014)
+            ol = [(-hw * rng.uniform(0.3, 1.0), -hl), (hw, -hl * rng.uniform(0.7, 0.95)), (hw * 0.8, 0.0),
+                  (hw * rng.uniform(0.2, 0.7), hl), (-hw, hl * rng.uniform(0.6, 0.9)), (-hw * 0.9, 0.0)]
+            th = rng.uniform(0.004, 0.009)
+        else:
+            k = rng.randint(5, 8)
+            hl = rng.uniform(0.03, 0.09) if not asphalt else rng.uniform(0.03, 0.08)
+            hw = hl * (rng.uniform(0.35, 0.7) if not asphalt else rng.uniform(0.6, 1.0))
+            ol = []
+            for j in range(k):
+                a = 2.0 * math.pi * (j + rng.uniform(-0.3, 0.3)) / k
+                r = rng.uniform(0.65, 1.0)
+                ol.append((hw * r * math.cos(a), hl * r * math.sin(a)))
+            th = rng.uniform(0.005, 0.013) if not asphalt else rng.uniform(0.003, 0.005)
+        sev = rng.uniform(0.4, 0.9)
+        if asphalt:
+            # (v2.35 a brittle fragment: fractured edges, the granules
+            # knocked off along them - not a smooth polygon)
+            ol = _fracture_outline(rng, ol, lambda p_, q_: False, rough=0.12, kinks=(0, 1), kink_amp=0.05,
+                                   min_seg=0.002)
+            disp0, fray = _asphalt_wear(rng, sev, -hl, hl, hw, brk_d=_break_field(ol, lambda p_, q_: False))
+        else:
+            disp0, fray = _weathering(rng, sev, False, -hl, hl, hw, bleach=0.6)
+
+        def disp(x, z, t, db, disp0=disp0):
+            dy, w_, c_ = disp0(x, z, t, db)
+            return dy, w_, max(c_, 1.0 - min(db / 0.003, 1.0))      # broken edges all round
+        tilt = rng.uniform(-0.3, 0.3)
+
+        def front(x, z, th=th, tilt=tilt, hl=hl):
+            return th * (1.0 + tilt * z / hl)
+        warp_k = rng.uniform(0.0, 0.004)
+
+        def warp(x, z, warp_k=warp_k, hl=hl):
+            return warp_k * (z / hl) ** 2
+        nm = f"{name}_{i + 1:02d}"
+        me = _rough_tile(nm, ol, front, 0.0, "Z", -hw, 2.0 * hw, disp, warp, step=(0.012, 0.005),
+                         min_t=0.0012, seed=seed * 100 + i, fray=fray)
+        if asphalt:
+            _uv_metres(me)
+        me.materials.append(mat)
+        col.objects.link(bpy.data.objects.new(nm, me))
+
+
+def make_asphalt_material(name):
+    """v2.32 asphalt shingle surface (procedural - no CC0 shingle scan exists):
+    fine mineral granules (light and dark specks) over a per-tab grey tone (the
+    mottled tabs of an old roof), the black bitumen where the granules are gone
+    (vm_wear) and the brown-black felt at a tear or crack (vm_cut). Coordinates
+    are each tab's own (object space) plus a per-tab random offset, so no two
+    tabs repeat."""
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = nt.nodes["Principled BSDF"]
+
+    def node(t, loc, **kw):
+        n_ = nt.nodes.new(t)
+        n_.location = loc
+        for k, v in kw.items():
+            setattr(n_, k, v)
+        return n_
+
+    def mth(op, a, b=None, loc=(0, 0)):
+        n_ = node("ShaderNodeMath", loc, operation=op)
+        for i_, x in enumerate((a, b)):
+            if x is None:
+                continue
+            if isinstance(x, (int, float)):
+                n_.inputs[i_].default_value = x
+            else:
+                nt.links.new(x, n_.inputs[i_])
+        return n_.outputs["Value"]
+
+    def mix(fac, a_, b_, loc):
+        n_ = node("ShaderNodeMix", loc, data_type="RGBA")
+        if isinstance(fac, float):
+            n_.inputs["Factor"].default_value = fac
+        else:
+            nt.links.new(fac, n_.inputs["Factor"])
+        ins_ = {s_.identifier: s_ for s_ in n_.inputs}
+        for key_, v_ in (("A_Color", a_), ("B_Color", b_)):
+            if isinstance(v_, tuple):
+                ins_[key_].default_value = v_
+            else:
+                nt.links.new(v_, ins_[key_])
+        return next(s_ for s_ in n_.outputs if s_.identifier == "Result_Color")
+    tc = node("ShaderNodeTexCoord", (-1600, 0))
+    oi = node("ShaderNodeObjectInfo", (-1600, -300))
+    offv = node("ShaderNodeVectorMath", (-1400, -300), operation="SCALE")
+    nt.links.new(oi.outputs["Random"], offv.inputs["Scale"])
+    offv.inputs[0].default_value = (37.1, 51.3, 13.7)
+    # (v2.35 the coordinates are the metre UVs (_uv_metres): U across, V up
+    # the roof -> (U, 0, V). Object space squashed the granules on a torn
+    # piece scaled down to what remains)
+    uvs_ = node("ShaderNodeSeparateXYZ", (-1450, 100))
+    nt.links.new(tc.outputs["UV"], uvs_.inputs["Vector"])
+    uvc_ = node("ShaderNodeCombineXYZ", (-1350, 100))
+    nt.links.new(uvs_.outputs["X"], uvc_.inputs["X"])
+    nt.links.new(uvs_.outputs["Y"], uvc_.inputs["Z"])
+    co = node("ShaderNodeVectorMath", (-1250, 0), operation="ADD")
+    nt.links.new(uvc_.outputs["Vector"], co.inputs[0])
+    nt.links.new(offv.outputs["Vector"], co.inputs[1])
+    vor = node("ShaderNodeTexVoronoi", (-1000, 200))
+    vor.inputs["Scale"].default_value = 620.0
+    nt.links.new(co.outputs["Vector"], vor.inputs["Vector"])
+    gsep = node("ShaderNodeSeparateColor", (-800, 200))
+    nt.links.new(vor.outputs["Color"], gsep.inputs["Color"])
+    # granule value: most mid grey, some dark, a few light specks
+    gval = node("ShaderNodeValToRGB", (-600, 200))
+    cr = gval.color_ramp
+    cr.elements[0].position, cr.elements[0].color = 0.0, (0.25, 0.25, 0.25, 1.0)
+    cr.elements[1].position, cr.elements[1].color = 0.9, (1.0, 1.0, 1.0, 1.0)
+    e_ = cr.elements.new(0.35)
+    e_.color = (0.62, 0.62, 0.62, 1.0)
+    e_ = cr.elements.new(0.75)
+    e_.color = (0.78, 0.78, 0.78, 1.0)
+    nt.links.new(gsep.outputs["Red"], gval.inputs["Fac"])
+    # per-tab tone: grey, warm grey, dark, light
+    tone = node("ShaderNodeValToRGB", (-1000, -300))
+    tr = tone.color_ramp
+    tr.interpolation = "CONSTANT"
+    # (v2.33 a wider spread - the user's 'not much variation': an old roof
+    # is a patchwork of replaced and sun-faded tabs)
+    tr.elements[0].position, tr.elements[0].color = 0.0, (0.14, 0.14, 0.145, 1.0)
+    tr.elements[1].position, tr.elements[1].color = 0.85, (0.22, 0.212, 0.2, 1.0)
+    for pos_, col_ in ((0.2, (0.105, 0.107, 0.11, 1.0)), (0.4, (0.172, 0.165, 0.155, 1.0)),
+                       (0.6, (0.125, 0.128, 0.122, 1.0)), (0.72, (0.19, 0.19, 0.195, 1.0))):
+        e_ = tr.elements.new(pos_)
+        e_.color = col_
+    nt.links.new(mth("FRACT", mth("MULTIPLY", oi.outputs["Random"], 5.73, (-1250, -400)), None, (-1100, -400)),
+                 tone.inputs["Fac"])
+    # a soft mottling: dirt and algae streaks RUNNING DOWN the roof (stretched
+    # along Z), from each tab's own offset coordinates (v2.33: v2.32 used the
+    # plain object coordinates - every tab had the same stains)
+    stretch = node("ShaderNodeVectorMath", (-1150, -600), operation="MULTIPLY")
+    nt.links.new(co.outputs["Vector"], stretch.inputs[0])
+    stretch.inputs[1].default_value = (1.0, 1.0, 0.25)
+    mot = node("ShaderNodeTexNoise", (-1000, -600))
+    mot.inputs["Scale"].default_value = 11.0
+    mot.inputs["Detail"].default_value = 4.0
+    nt.links.new(stretch.outputs["Vector"], mot.inputs["Vector"])
+    base_m = node("ShaderNodeMix", (-300, -100), data_type="RGBA", blend_type="MULTIPLY")
+    base_m.inputs["Factor"].default_value = 1.0
+    bins = {s_.identifier: s_ for s_ in base_m.inputs}
+    nt.links.new(tone.outputs["Color"], bins["A_Color"])
+    nt.links.new(gval.outputs["Color"], bins["B_Color"])
+    c0 = next(s_ for s_ in base_m.outputs if s_.identifier == "Result_Color")
+    mot_f = mth("MULTIPLY", mth("MAXIMUM", mth("SUBTRACT", mot.outputs["Fac"], 0.42, (-300, -450)), 0.0, (-200, -450)),
+                1.6, (-150, -400))
+    c1 = mix(mot_f, c0, (0.05, 0.056, 0.045, 1.0), (0, -100))
+    at_w = node("ShaderNodeAttribute", (0, 500), attribute_name="vm_wear")
+    at_c = node("ShaderNodeAttribute", (0, 700), attribute_name="vm_cut")
+    # v2.36 granule loss: vm_wear is the chance a granule is gone; each 1-2 mm
+    # granule (a Voronoi cell, its own random Green) drops out when its random
+    # value is under the local chance, clustered by a fine noise (granules come
+    # off in clumps) - speckle thinning to bald spots, not a solid blob
+    clu_ = node("ShaderNodeTexNoise", (-1000, 800))
+    clu_.inputs["Scale"].default_value = 55.0
+    clu_.inputs["Detail"].default_value = 3.0
+    nt.links.new(co.outputs["Vector"], clu_.inputs["Vector"])
+    ch_ = mth("MULTIPLY", at_w.outputs["Fac"],
+              mth("ADD", mth("MULTIPLY", clu_.outputs["Fac"], 2.2, (50, 800)), -0.45, (100, 800)), (200, 800))
+    ch_ = mth("MAXIMUM", ch_, mth("MULTIPLY", mth("SUBTRACT", at_w.outputs["Fac"], 0.85, (250, 950)), 6.67, (300, 950)), (350, 900))
+    loss_ = mth("LESS_THAN", gsep.outputs["Green"], mth("MINIMUM", ch_, 1.0, (400, 850)), (450, 850))
+    c2 = mix(loss_, c1, (0.05, 0.048, 0.045, 1.0), (300, 200))
+    c3 = mix(at_c.outputs["Fac"], c2, (0.045, 0.034, 0.026, 1.0), (500, 300))
+    nt.links.new(c3, bsdf.inputs["Base Color"])
+    # (the bare bitumen is smoother and a little glossy)
+    nt.links.new(mth("SUBTRACT", 0.9, mth("MULTIPLY", loss_, 0.25, (500, 650)), (550, 650)), bsdf.inputs["Roughness"])
+    bump = node("ShaderNodeBump", (500, -300))
+    bump.inputs["Distance"].default_value = 0.0015
+    # (a granule standing on the mat; where it is gone, a low flat pit)
+    nt.links.new(mth("MULTIPLY", mth("ADD", mth("MULTIPLY", vor.outputs["Distance"], 0.6, (200, -450)), 0.4, (300, -450)),
+                     mth("SUBTRACT", 1.0, loss_, (300, -550)), (400, -500)), bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    return mat
 
 
 # v2.29 YARD props (the user's 'objects around the building - barrels, bushes
@@ -1766,6 +2771,14 @@ class _LLink:
 # ".<group> NN" and wires the cross-chunk links through their interfaces at the
 # end. Flattened, the result is node-for-node and link-for-link the flat graph
 # (verified against a VM_CHUNK=0 build with a canonical graph dump, 2026-11-05).
+# v2.32: the dump compared links as a SET - but the ORDER of the links into a
+# multi-input socket (Join Geometry) is the join order, and it sets the
+# element indices that Index-keyed randoms read. Blender gives a new link the
+# sort id "links on the socket now", so the flat build's removes and re-adds
+# left ties the chunked build (fresh links only) did not: v2.31 joined three
+# Join Geometry nodes in another order (ivy, a few planks and shakes moved).
+# _flat_join_order() replays each socket's history; checked equal to the v2.30
+# flat tree link by link and house by house (build/flat_vs_chunk).
 # Rules for builder code: link with b.L, remove links with b.unlink(pred), use
 # b.last for the node just made - never touch b.ng.links / b.ng.nodes directly.
 CHUNK_NODES = int(os.environ.get("VM_CHUNK", "100"))   # 0 = the old flat build
@@ -1805,6 +2818,7 @@ class NGBuilder:
         self._out_port, self._in_port = {}, {}
         self._deferred = []
         self._into = {}            # single input socket ptr -> its live _LLink
+        self._mi_ev = {}           # multi-input socket ptr -> [("add" | "rm", _LLink)] in build order
         if self.mode == "final":
             # the subgroups get their group nodes in the main tree only in
             # finish_links(): while nothing uses a subgroup, an edit inside it
@@ -1881,6 +2895,8 @@ class NGBuilder:
                     old.real.id_data.links.remove(old.real)
                     old.real = None
             self._into[b.as_pointer()] = ll
+        else:
+            self._mi_ev.setdefault(b.as_pointer(), []).append(("add", ll))
         self.links.append(ll)
         ta, tb = a.id_data, b.id_data
         if self.mode == "final" and (ta != tb or b.is_multi_input):
@@ -1900,6 +2916,8 @@ class NGBuilder:
         for ll in self.links:
             if ll.alive and pred(ll):
                 ll.alive = False
+                if ll.to_socket.is_multi_input:
+                    self._mi_ev.setdefault(ll.to_socket.as_pointer(), []).append(("rm", ll))
                 if ll.real is not None:
                     ll.real.id_data.links.remove(ll.real)
                     ll.real = None
@@ -1932,6 +2950,37 @@ class NGBuilder:
             self._out_port[key] = ident
         return ("c", k, ident)
 
+    def _flat_join_order(self, live):
+        """Reorder the links into each multi-input socket so that creating them
+        fresh gives the order the flat build had (v2.32 fix: the v2.31 chunked
+        build joined three Join Geometry nodes in another order, which moved
+        Index-keyed randoms - ivy, a few planks and shakes)."""
+        want = {}
+        for key, evs in self._mi_ev.items():
+            cur, seq = [], 0                       # [ll, sort id, seq]
+            for ev, ll in evs:
+                if ev == "add":
+                    cur = [e for e in cur if e[0].from_socket.as_pointer() != ll.from_socket.as_pointer()]
+                    cur.append([ll, len(cur), seq])
+                    seq += 1
+                else:
+                    cur = [e for e in cur if e[0] is not ll]
+            # Blender lists a socket's links by sort id, high first, ties oldest
+            # first; links made fresh list newest first -> create in reverse
+            want[key] = [e[0] for e in sorted(cur, key=lambda e: (e[1], -e[2]))]
+        nxt, out = {}, []
+        for ll in live:
+            if not ll.to_socket.is_multi_input:
+                out.append(ll)
+                continue
+            key = ll.to_socket.as_pointer()
+            k = nxt.get(key, 0)
+            seqs = want.get(key, [])
+            if k < len(seqs):
+                out.append(seqs[k])
+                nxt[key] = k + 1
+        return out
+
     def _main_sock(self, key):
         if key[0] == "m":
             return self._sock(self.ng.nodes[key[1]].outputs, key[2])
@@ -1943,7 +2992,7 @@ class NGBuilder:
         2) the chunks' group nodes in the main tree, 3) the main-tree links."""
         if self.mode != "final" or self._gnodes:
             return
-        live = [ll for ll in self._deferred if ll.alive]
+        live = self._flat_join_order([ll for ll in self._deferred if ll.alive])
         self._deferred = []
         main_final = []
         for ll in live:
@@ -6034,6 +7083,75 @@ def _build_node_group():
         return st_.outputs["Geometry"]
     d_chain = iso_pass(iso_pass(d_chain))
 
+    # v2.36 NO LONE TILES IN A ROOF HOLE (the user's v2.35 look: whole asphalt
+    # tabs lying on the deck inside the hole, their straight factory edges
+    # showing): a tall tile (shake, tab) in the damage - intact, worn or
+    # loose - that keeps fewer than two of its four neighbours (the course
+    # above, the course below - either stagger point -, the tile at either
+    # side) is gone with them. Run twice: a pair that only held each other
+    # goes as well
+    def tall_iso(chain_, an_="vm_dcat0", brk_=False):
+        cf_ = dnamed(an_, "FLOAT")
+        # (a neighbour that holds: intact or worn - a loose one slides and
+        # tilts, it holds nothing - and the loose ones go too when alone)
+        hold_ = tand(bnot(d_long), bor(is_c(cf_, 0), is_c(cf_, 4)))
+        pres_ = bor(hold_, tand(bnot(d_long), is_c(cf_, 3)))
+        elo_, ehi_ = dnamed("vm_elo", "FLOAT_VECTOR"), dnamed("vm_ehi", "FLOAT_VECTOR")
+        p_ = b.N("GeometryNodeInstancesToPoints", random_loc())
+        b.L(chain_, p_.inputs["Instances"])
+        b.L(hold_, p_.inputs["Selection"])
+        du_ = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
+        b.L(p_.outputs["Points"], du_.inputs["Geometry"])
+        du_.inputs["Amount"].default_value = 9
+        sp_ = b.N("GeometryNodeSetPosition", random_loc())
+        b.L(du_.outputs["Geometry"], sp_.inputs["Geometry"])
+        b.L(vmath("ADD", elo_, vmath("SCALE", vmath("SUBTRACT", ehi_, elo_),
+                                     em("DIVIDE", du_.outputs["Duplicate Index"], 8.0))), sp_.inputs["Position"])
+        ds_ = b.N("GeometryNodeAttributeDomainSize", random_loc())
+        ds_.component = "POINTCLOUD"
+        b.L(p_.outputs["Points"], ds_.inputs["Geometry"])
+        ok_ = tcmp("GREATER_THAN", ds_.outputs["Point Count"], 0.5)
+        n_ = None
+        for pts_ in (((-0.5, 1.0), (0.5, 1.0)), ((-0.5, -1.0), (0.5, -1.0)), ((-1.6, 0.0),), ((1.6, 0.0),)):
+            side_ = None
+            for fx_, dn_ in pts_:
+                at_ = vmath("ADD", vmath("ADD", d_pos.outputs["Position"],
+                                         d_rotv(v3(em("MULTIPLY", em("MULTIPLY", bb_mx.outputs["X"], fx_),
+                                                      i_scs.outputs["X"]), 0.0, 0.0), i_rot)),
+                            vmath("SCALE", d_upv, em("MULTIPLY", d_pitch, dn_)))
+                px_ = b.N("GeometryNodeProximity", random_loc())
+                px_.target_element = "POINTS"
+                b.L(sp_.outputs["Geometry"], px_.inputs["Geometry"])
+                b.L(at_, px_.inputs["Sample Position"])
+                x_ = tand(ok_, tcmp("LESS_THAN", px_.outputs["Distance"], em("MULTIPLY", d_pitch, 0.3)))
+                side_ = x_ if side_ is None else bor(side_, x_)
+            v_ = tsw(side_, 0.0, 1.0)
+            n_ = v_ if n_ is None else em("ADD", n_, v_)
+        iso_ = tand(tand(d_live, pres_), tand(tcmp("GREATER_THAN", d_mask, 0.001), tcmp("LESS_THAN", n_, 1.5)))
+        if brk_:
+            # (and a BROKEN piece with no whole tile on any side - in the middle
+            # of the hole, hanging on a batten with its factory head and sides
+            # straight, it read as a whole tab; the torn rim keeps one each)
+            iso_ = bor(iso_, tand(tand(d_live, tand(bnot(d_long), is_c(cf_, 2))),
+                                  tand(tcmp("GREATER_THAN", d_mask, 0.001), tcmp("LESS_THAN", n_, 0.5))))
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+        b.L(chain_, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = an_
+        b.L(tsw(iso_, cf_, 1.0), st_.inputs["Value"])
+        # (vm_diso: cleared by the FIRST pass - the roof is cut under it like
+        # under a missing tile deep in the damage, or the bare roof face
+        # showed. Not the final pass: the tears round it are decided by then,
+        # and a cut there opened a hole over tiles torn at the butt; the
+        # heads lapped under it hide the roof, `rf_unc` cuts where none are)
+        if brk_:
+            return st_.outputs["Geometry"]
+        sf_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+        b.L(st_.outputs["Geometry"], sf_.inputs["Geometry"])
+        sf_.inputs["Name"].default_value = "vm_diso"
+        b.L(tsw(iso_, dnamed("vm_diso", "FLOAT"), 1.0), sf_.inputs["Value"])
+        return sf_.outputs["Geometry"]
+    d_chain = tall_iso(tall_iso(d_chain))
+
     # pass 2: SUPPORT + HOLE EDGES. Tiles on one face share their X direction, so
     # a tile's min-X end meets its row neighbour's max-X end: each end is tested
     # against the OPPOSITE ends of the other tiles (never its own).
@@ -6136,6 +7254,105 @@ def _build_node_group():
     bared = bor(near_any(miss_c, top_pt(-0.6), 0.16),
                 bor(near_any(miss_c, top_pt(0.0), 0.16), near_any(miss_c, top_pt(0.6), 0.16)))
     d_bare = tand(is_c(cat0, 0), tsw(d_long, near_any(miss_c, d_pos.outputs["Position"], 0.3), bared))
+    # v2.33 the hole's UPPER RIM (the user's 'the shape of the tiles remains
+    # perfectly intact'): an intact tall tile (shake, asphalt tab) whose butt
+    # hangs over a missing tile was only worn - its whole outline framed the
+    # hole. It breaks: torn off short over the hole (a broken piece). The
+    # tile whose exposed part lies under this butt is the one a course pitch
+    # down (its centre; the stagger puts two of them under the butt, so test
+    # at +-half the half-width). Tiles lap three deep, so the centres of other
+    # courses sit a pitch away - the radius stays well under it
+    # (v2.33 also the SIDES: a tile whose neighbour in its own course is
+    # missing - +-1.6 half-widths, inside that neighbour - frames the hole's
+    # side with a straight edge and its butt hangs over the cut)
+    # (v2.36 under the butt: a missing OR a broken tile - a tile broken short in
+    # the damage keeps its head, so its exposed part under this butt is gone
+    # too; v2.33-v2.35 tested only missing ones, and once v2.36 cleared the
+    # lone tiles from the holes, worn tiles framed the hole over broken stubs)
+    brk_c = span_cloud(bor(is_c(cat0, 1), tand(bnot(d_long), is_c(cat0, 2))))
+    side_t, blw_ = {}, {}
+    for fx_, dn_ in ((-0.5, 1.0), (0.5, 1.0), (-1.6, 0.0), (1.6, 0.0)):
+        at_ = vmath("SUBTRACT", vmath("ADD", d_pos.outputs["Position"],
+                                      d_rotv(v3(em("MULTIPLY", em("MULTIPLY", bb_mx.outputs["X"], fx_),
+                                                   i_scs.outputs["X"]), 0.0, 0.0), i_rot)),
+                    vmath("SCALE", d_upv, em("MULTIPLY", d_pitch, dn_)))
+        for cl_ in ((miss_c, brk_c) if dn_ > 0.5 else (miss_c,)):
+            px_ = b.N("GeometryNodeProximity", random_loc())
+            px_.target_element = "POINTS"
+            b.L(cl_[0], px_.inputs["Geometry"])
+            b.L(at_, px_.inputs["Sample Position"])
+            x_ = tand(cl_[1], tcmp("LESS_THAN", px_.outputs["Distance"], em("MULTIPLY", d_pitch, 0.3)))
+            if dn_ < 0.5:
+                side_t[fx_ > 0.0] = x_                        # (v2.35 the neighbour at -X / +X gone)
+            else:                                             # (the butt over the hole: per stagger half)
+                k_ = fx_ > 0.0                                # (missing or broken under it)
+                blw_[k_] = x_ if k_ not in blw_ else bor(blw_[k_], x_)
+    # v2.34 WHICH WAY THE DAMAGE FACES (the user's 'the damage faces the
+    # undamaged part of the roof instead of the damage'): a tall tile whose
+    # course-above neighbour is missing (+1 pitch, the same two stagger
+    # points) shows its covered part - the shakes above took it with them: it
+    # is torn off at the HEAD (head_exp). A worn tile whose nearest damage
+    # lies above it is damaged from above (dmg_up); the butt-damaged
+    # variants stay for the tiles above and beside the damage
+    head_exp = None
+    for fx_ in (-0.5, 0.5):
+        at_ = vmath("ADD", vmath("ADD", d_pos.outputs["Position"],
+                                 d_rotv(v3(em("MULTIPLY", em("MULTIPLY", bb_mx.outputs["X"], fx_), i_scs.outputs["X"]),
+                                           0.0, 0.0), i_rot)),
+                    vmath("SCALE", d_upv, d_pitch))
+        px_ = b.N("GeometryNodeProximity", random_loc())
+        px_.target_element = "POINTS"
+        b.L(miss_c[0], px_.inputs["Geometry"])
+        b.L(at_, px_.inputs["Sample Position"])
+        x_ = tand(miss_c[1], tcmp("LESS_THAN", px_.outputs["Distance"], em("MULTIPLY", d_pitch, 0.3)))
+        head_exp = x_ if head_exp is None else bor(head_exp, x_)
+    # (a missing or broken tile under the butt tears it there only when the
+    # course above is still on: with the hole above too - the v2.36 cuts
+    # under cleared and uncovered tiles open it there - the head tear faces
+    # it, v2.34)
+    # v2.36 THE HOLE'S SIDES (the user's marked render: 'on the left and the
+    # right sides of the hole the damage should face the hole, not
+    # downwards'): at a side edge of a hole only ONE stagger half of a tile's
+    # butt hangs over it - that tile was torn at the butt like the top rim,
+    # so the whole side edge showed its damage pointing down the roof. The
+    # butt tear is for a tile with the hole under BOTH halves; one half (or
+    # its neighbour in the course gone) breaks it off on THAT side
+    rim_full = tand(blw_[False], blw_[True])
+    blw_l = tand(blw_[False], bnot(blw_[True]))
+    blw_r = tand(blw_[True], bnot(blw_[False]))
+    rim_dn = tand(rim_full, bnot(head_exp))
+    head_exp = tand(tand(bnot(d_long), bnot(rim_dn)), head_exp)
+    px_ = b.N("GeometryNodeProximity", random_loc())
+    px_.target_element = "POINTS"
+    b.L(gap_c[0], px_.inputs["Geometry"])
+    b.L(d_pos.outputs["Position"], px_.inputs["Sample Position"])
+    up_v = vmath("SUBTRACT", px_.outputs["Position"], d_pos.outputs["Position"])
+    dmg_up = tand(gap_c[1], tcmp("GREATER_THAN", vmath("DOT_PRODUCT", up_v, d_upv, out="Value"),
+                                 em("MULTIPLY", vmath("LENGTH", up_v, None, out="Value"), 0.3)))
+    d_head = tsw(head_exp, tsw(tand(tand(bnot(d_long), bnot(rim_dn)), dmg_up), 0.0, 1.0), 2.0)
+    # v2.35 THE SIDES (the user's 'the damage geometry in every direction
+    # around the hole, not just above and below'): a tall tile whose
+    # neighbour in its own course is gone (beside the hole) was broken short
+    # at its butt - its whole straight side framed the hole. It now keeps its
+    # length and is broken off on THAT side (the worn pools' _L / _R sets);
+    # a worn tile in the Wear band whose nearest damage lies to its side
+    # (within ~40 deg of across the roof) takes the same sets. vm_dsid: 0
+    # none, 1 / 2 the damage at -X / +X (Wear band), 3 / 4 beside the hole
+    d_xv = d_rotv(v3(1.0, 0.0, 0.0), i_rot)
+    lat_s = vmath("DOT_PRODUCT", up_v, d_xv, out="Value")
+    lat_ = tand(gap_c[1], tcmp("GREATER_THAN", em("ABSOLUTE", lat_s),
+                               em("MULTIPLY", vmath("LENGTH", up_v, None, out="Value"), 0.75)))
+    sd_l = bor(side_t[False], blw_l)
+    sd_r = bor(side_t[True], blw_r)
+    beside = tand(tand(bnot(d_long), bnot(rim_dn)), tand(bnot(head_exp), bor(sd_l, sd_r)))
+    d_sid = tsw(beside, tsw(tand(bnot(d_long), lat_), 0.0, tsw(tcmp("GREATER_THAN", lat_s, 0.0), 1.0, 2.0)),
+                tsw(sd_r, 3.0, 4.0))
+    # (intact OR worn: the Wear band has made every tile round the damage
+    # worn already - an intact-only rule fired on a few rim tiles)
+    d_rim = tand(tand(bnot(d_long), bor(holds, is_c(cat0, 3))), bor(rim_dn, head_exp))   # (loose ones: the worn pool)
+    # (v2.36 and a tile the damage broke: at the hole's side it is broken
+    # off facing the hole too, not torn at the butt)
+    d_beside = tand(tand(bnot(d_long), bor(bor(holds, is_c(cat0, 3)), is_c(cat0, 2))), beside)
     d_side = tsw(d_long, side_r, tsw(d_edge, side_h, tsw(cov_hi, 0.0, 1.0)))
     # v2.21 a swinging board hangs from a nail under the course above: with
     # that course gone over its kept end (and no calm wall there - the top
@@ -6158,17 +7375,31 @@ def _build_node_group():
         sw_tuck = x_ if sw_tuck is None else bor(sw_tuck, x_)
     d_fall = bor(bor(tand(d_hang, bnot(bor(sup_lo, sup_hi))), d_lone),
                  tand(tand(d_long, is_c(cat0, 3)), bnot(sw_tuck)))
-    d_cat2 = tsw(d_fall, tsw(d_edge, tsw(d_bare, cat0, 4.0), 2.0), 1.0)
+    d_cat2 = tsw(d_fall, tsw(d_edge, tsw(d_rim, tsw(d_beside, tsw(d_bare, cat0, 4.0), 4.0), 2.0), 2.0), 1.0)
     # remaining length of a broken tile: a hole-edge break loses only its end
     # (70-95 %), a broken tile in the damage anything from a stub to most of it
     d_frac = tsw(d_edge, tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.7, 0.15),
                  tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.25, 0.7))
-    for nm_, val_ in (("vm_dcat", d_cat2), ("vm_dside", d_side), ("vm_dfrac", d_frac)):
+    # v2.33 a broken TALL tile (shake, tab) shows only its exposed bottom
+    # (1 - Row Overlap of its length): 70-95 % of the length left it looking
+    # whole (a 2 cm nick). It loses 30-90 % of the exposed part
+    d_frac = tsw(d_long, em("SUBTRACT", 1.0, em("MULTIPLY", em("SUBTRACT", 1.0, gi.outputs["Row Overlap"]),
+                                               tm("MULTIPLY_ADD", dr_s.outputs["X"], 0.6, 0.3))), d_frac)
+    # v2.34 a tile torn off at the head keeps 22-60 % from its butt: the tear
+    # lies in the part the missing course above uncovered (or just under it)
+    d_frac = tsw(tand(head_exp, is_c(d_cat2, 2)),
+                 d_frac, tm("MULTIPLY_ADD", em("FRACT", em("MULTIPLY", dr_s.outputs["X"], 7.31)), 0.38, 0.22))
+    for nm_, val_ in (("vm_dcat", d_cat2), ("vm_dside", d_side), ("vm_dfrac", d_frac), ("vm_dhead", d_head),
+                      ("vm_dsid", d_sid)):
         st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
         b.L(d_chain, st_.inputs["Geometry"])
         st_.inputs["Name"].default_value = nm_
         b.L(val_, st_.inputs["Value"])
         d_chain = st_.outputs["Geometry"]
+    # (v2.36 and once more on the FINAL categories: the torn rim, the head and
+    # side tears turn whole tiles round the hole into broken pieces - a whole
+    # tile left with one whole neighbour among them lay alone in the hole)
+    d_chain = tall_iso(tall_iso(d_chain, "vm_dcat", True), "vm_dcat", True)
     cat = dnamed("vm_dcat", "FLOAT")
     side = dnamed("vm_dside", "FLOAT")
     side_hi = tcmp("GREATER_THAN", side, 0.5)
@@ -6246,11 +7477,40 @@ def _build_node_group():
     rf_out = em("DIVIDE", 0.006, geo_f)
     rf_kb = vmath("ADD", d_pos.outputs["Position"],
                   d_rotv(v3(rf_cx, em("MULTIPLY", bb_mn.outputs["Y"], i_scs.outputs["Y"]), rf_cz), i_rot))
+    # v2.36 a missing tall tile whose course below is missing too - or torn
+    # off at the head (its head lay under this one) - has nothing lapped
+    # under it: the bare roof face showed there (flat grey blocks at the
+    # hole's lower edge) - it is cut like one deep in the damage. So is a
+    # tile the lone-tile pass cleared (vm_diso)
+    fm_c = span_cloud(bor(is_c(cat, 1), tand(is_c(cat, 2), tcmp("GREATER_THAN", dnamed("vm_dhead", "FLOAT"), 1.5))))
+    rf_unc = None
+    for fx_ in (-0.5, 0.5):
+        at_ = vmath("SUBTRACT", vmath("ADD", d_pos.outputs["Position"],
+                                      d_rotv(v3(em("MULTIPLY", em("MULTIPLY", bb_mx.outputs["X"], fx_),
+                                                   i_scs.outputs["X"]), 0.0, 0.0), i_rot)),
+                    vmath("SCALE", d_upv, d_pitch))
+        px_ = b.N("GeometryNodeProximity", random_loc())
+        px_.target_element = "POINTS"
+        b.L(fm_c[0], px_.inputs["Geometry"])
+        b.L(at_, px_.inputs["Sample Position"])
+        x_ = tand(fm_c[1], tcmp("LESS_THAN", px_.outputs["Distance"], em("MULTIPLY", d_pitch, 0.3)))
+        rf_unc = x_ if rf_unc is None else bor(rf_unc, x_)
+    # (only a tile gone BEFORE the final lone-tile pass: the tears round it
+    # were decided knowing it is gone - one that pass cleared would open a
+    # hole over a tile already torn at its butt)
+    rf_unc = bor(tand(tand(bnot(d_long), is_c(dnamed("vm_dcat0", "FLOAT"), 1)), rf_unc),
+                 tcmp("GREATER_THAN", dnamed("vm_diso", "FLOAT"), 0.5))
     rf_sel = tand(tand(tand(d_live, is_c(cat, 1)), tcmp("GREATER_THAN", rh_ph.outputs["Value"], 0.001)),
                   tand(tcmp("GREATER_EQUAL", k_nz.outputs["Z"], 0.5),
-                       tcmp("GREATER_THAN", em("SUBTRACT", tm("MULTIPLY_ADD", d_ns, 0.65, 0.175), d_thr),
-                            em("MULTIPLY", em("SUBTRACT", 1.0, rh_ph.outputs["Value"]), 0.25))))
-    rf_size = v3(em("ADD", em("MULTIPLY", em("SUBTRACT", bb_mx.outputs["X"], bb_mn.outputs["X"]), i_scs.outputs["X"]),
+                       bor(tcmp("GREATER_THAN", em("SUBTRACT", tm("MULTIPLY_ADD", d_ns, 0.65, 0.175), d_thr),
+                                em("MULTIPLY", em("SUBTRACT", 1.0, rh_ph.outputs["Value"]), 0.25)),
+                           rf_unc)))
+    # (v2.33 x1.3 across: the shakes vary in width, so boxes cut to each
+    # shake's own width left thin pillars of roof standing between two
+    # missing shakes - grey slabs in the hole. The extra hides under the
+    # neighbours)
+    rf_size = v3(em("ADD", em("MULTIPLY", em("MULTIPLY", em("SUBTRACT", bb_mx.outputs["X"], bb_mn.outputs["X"]),
+                                             i_scs.outputs["X"]), 1.3),
                     em("DIVIDE", 0.01, geo_f)),
                  em("ADD", rf_out, rf_dep), rf_h)
     rf_chain = d_chain
@@ -6317,7 +7577,14 @@ def _build_node_group():
         b.L(inst_geo, rot_.inputs["Instances"])
         b.L(sel_, rot_.inputs["Selection"])
         b.L(d_eul.outputs["Rotation"], rot_.inputs["Rotation"])
-        b.L(v3(tsw(d_long, 0.0, d_end), 0.0, bb_mx.outputs["Z"]), rot_.inputs["Pivot Point"])
+        # (v2.34 a loose TALL tile lifts about the line where the course above
+        # covers it: turned about its top edge, its covered part rose
+        # through that course - the user's 'tiles stuffed into each other')
+        b.L(v3(tsw(d_long, 0.0, d_end), 0.0,
+               tsw(d_long, em("SUBTRACT", bb_mx.outputs["Z"],
+                              em("MULTIPLY", gi.outputs["Row Overlap"],
+                                 em("SUBTRACT", bb_mx.outputs["Z"], bb_mn.outputs["Z"]))), bb_mx.outputs["Z"])),
+            rot_.inputs["Pivot Point"])
         rot_.inputs["Local Space"].default_value = True
         return rot_.outputs["Instances"]
     b.L(loosen(d_sc.outputs["Instances"], is_c(cat, 3)), join_all.inputs["Geometry"])
@@ -6343,14 +7610,21 @@ def _build_node_group():
     p_pos = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
     p_scs = b.N("ShaderNodeSeparateXYZ", random_loc())
     b.L(dnamed("vm_iscl", "FLOAT_VECTOR"), p_scs.inputs["Vector"])
+    # v2.34 a tall tile torn off at the HEAD (vm_dhead 2: the course above it
+    # is gone) keeps its butt: its piece (_UL / _UR, made upwards from the
+    # butt) is placed at the bottom edge. Tall-tile broken pools come in
+    # groups of four (_L, _R, _UL, _UR); boards keep their pairs
+    br_head = tand(bnot(d_long), tcmp("GREATER_THAN", dnamed("vm_dhead", "FLOAT"), 1.5))
     p_off = b.N("FunctionNodeRotateVector", random_loc())
-    b.L(vsw(d_long, v3(0.0, 0.0, em("MULTIPLY", bb_mx.outputs["Z"], p_scs.outputs["Z"])),
+    b.L(vsw(d_long, v3(0.0, 0.0, em("MULTIPLY", tsw(br_head, bb_mx.outputs["Z"], bb_mn.outputs["Z"]),
+                                     p_scs.outputs["Z"])),
             v3(em("MULTIPLY", d_end, p_scs.outputs["X"]), 0.0, 0.0)), p_off.inputs["Vector"])
     b.L(dnamed("vm_irot", "QUATERNION"), p_off.inputs["Rotation"])
-    br_pairs = em("MAXIMUM", em("FLOOR", em("DIVIDE", br_n, 2.0)), 1.0)
+    br_grp = tsw(d_long, 4.0, 2.0)
+    br_pairs = em("MAXIMUM", em("FLOOR", em("DIVIDE", br_n, br_grp)), 1.0)
     br_k = em("MINIMUM", em("FLOOR", em("MULTIPLY", dr_s.outputs["Z"], br_pairs)), em("SUBTRACT", br_pairs, 1.0))
     br_bit = tsw(d_long, tsw(tcmp("LESS_THAN", dr_s.outputs["Y"], 0.5), 0.0, 1.0), side)
-    b.L(replace(sel_br, br_inst, br_n, tm("MULTIPLY_ADD", br_k, 2.0, br_bit),
+    b.L(replace(sel_br, br_inst, br_n, tm("MULTIPLY_ADD", br_k, br_grp, em("ADD", br_bit, tsw(br_head, 0.0, 2.0))),
                 vmath("ADD", p_pos, p_off.outputs["Vector"]),
                 vsw(d_long, v3(p_scs.outputs["X"], p_scs.outputs["Y"],
                                em("MULTIPLY", em("MULTIPLY", d_f, t_exs.outputs["Z"]), p_scs.outputs["Z"])),
@@ -6360,9 +7634,20 @@ def _build_node_group():
     # v2.28 heavier wear nearer the damage (a loose tile is well worn), with a
     # random spread so every variant turns up
     wo_c = tsw(is_c(cat, 3), dnamed("vm_dwc", "FLOAT"), 0.85)
+    wo_sid = dnamed("vm_dsid", "FLOAT")
     wo_f = em("MINIMUM", em("MAXIMUM", tm("MULTIPLY_ADD", wo_c, 0.75,
-                                          tm("MULTIPLY_ADD", dr_s.outputs["Z"], 0.35, -0.1)), 0.0), 0.999)
-    wo_k = em("MINIMUM", em("FLOOR", em("MULTIPLY", wo_f, wo_n)), em("SUBTRACT", wo_n, 1.0))
+                                          tm("MULTIPLY_ADD", dr_s.outputs["Z"], 0.35, -0.1)),
+                            tsw(tcmp("GREATER_THAN", wo_sid, 2.5), 0.0, 0.55)), 0.999)   # (beside the hole: heavy)
+    # (v2.34 a tall tile's worn pool is two sets: damaged at the butt, then
+    # from above (_UNN) for a tile whose nearest damage is above it;
+    # v2.35 FOUR sets in name order: _NN, _LNN, _RNN, _UNN - the side sets for
+    # a tile with the damage at its -X / +X side, vm_dsid odd / even)
+    wo_m = tsw(d_long, em("MAXIMUM", em("FLOOR", em("DIVIDE", wo_n, 4.0)), 1.0), wo_n)
+    wo_up = tand(bnot(d_long), tcmp("GREATER_THAN", dnamed("vm_dhead", "FLOAT"), 0.5))
+    wo_set = tsw(tcmp("GREATER_THAN", wo_sid, 0.5), tsw(wo_up, 0.0, 3.0),
+                 tsw(tcmp("GREATER_THAN", em("FRACT", em("MULTIPLY", wo_sid, 0.5)), 0.25), 2.0, 1.0))
+    wo_k = tm("MULTIPLY_ADD", wo_set, wo_m,
+              em("MINIMUM", em("FLOOR", em("MULTIPLY", wo_f, wo_m)), em("SUBTRACT", wo_m, 1.0)))
     # worn pieces carry vm_dcat / vm_dside / vm_drnd over, so loose ones hang
     # exactly like the plain tile would
     b.L(loosen(replace(sel_wo, wo_inst, wo_n, wo_k, None, dnamed("vm_iscl", "FLOAT_VECTOR")),
@@ -6505,6 +7790,23 @@ def _build_node_group():
     c_open = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="FACE")
     b.L(c_bool.outputs["Mesh"], c_open.inputs["Geometry"])
     b.L(tcmp("GREATER_THAN", dnamed("vm_cutback", "FLOAT"), 0.5), c_open.inputs["Selection"])
+    # v2.33 a scrap of roof / wall left standing INSIDE a hole (a missing tile
+    # whose marker made no box, ringed by its neighbours' boxes) showed as a
+    # grey slab in the hole. A small island (< 0.3 m2) that a hole box cut
+    # (it has hole faces, vm_cutter 2) is that scrap: it goes. Islands no box
+    # touched (porch posts, small parts) stay
+    ci_isl = b.N("GeometryNodeInputMeshIsland", random_loc()).outputs["Island Index"]
+    ci_area = b.N("GeometryNodeAccumulateField", random_loc(), domain="FACE")
+    b.L(b.N("GeometryNodeInputMeshFaceArea", random_loc()).outputs["Area"], ci_area.inputs["Value"])
+    b.L(ci_isl, ci_area.inputs["Group ID"])
+    ci_hole = b.N("GeometryNodeAccumulateField", random_loc(), domain="FACE")
+    b.L(tsw(tcmp("GREATER_THAN", dnamed("vm_cutter", "FLOAT"), 1.5), 0.0, 1.0), ci_hole.inputs["Value"])
+    b.L(ci_isl, ci_hole.inputs["Group ID"])
+    c_scrap = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="FACE")
+    b.L(c_open.outputs["Geometry"], c_scrap.inputs["Geometry"])
+    b.L(tand(tcmp("GREATER_THAN", ci_hole.outputs["Total"], 0.5),
+             tcmp("LESS_THAN", em("MULTIPLY", ci_area.outputs["Total"], em("MULTIPLY", geo_f, geo_f)), 0.3)),
+        c_scrap.inputs["Selection"])
     is_jamb = tcmp("GREATER_THAN", dnamed("vm_cutter", "FLOAT"), 0.5)
     # jamb boards get wood UVs in meters, the grain along each jamb's length
     # (up the side jambs, along the wall on the head and the sill)
@@ -6518,7 +7820,7 @@ def _build_node_group():
     j_uv = v3(em("MULTIPLY", tsw(j_flat, jpz, j_wall_u), geo_f),
               em("MULTIPLY", tsw(j_flat, j_along, em("ADD", jpx, jpy)), geo_f), 0.0)
     j_st = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT2", domain="CORNER")
-    b.L(c_open.outputs["Geometry"], j_st.inputs["Geometry"])
+    b.L(c_scrap.outputs["Geometry"], j_st.inputs["Geometry"])
     j_st.inputs["Name"].default_value = "UVMap"
     b.L(is_jamb, j_st.inputs["Selection"])
     b.L(j_uv, j_st.inputs["Value"])
@@ -6526,7 +7828,7 @@ def _build_node_group():
                             random_loc())
     # the interior: the host's own faces turned inward a hair inside the wall
     sh_ = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="FACE")
-    b.L(c_open.outputs["Geometry"], sh_.inputs["Geometry"])
+    b.L(c_scrap.outputs["Geometry"], sh_.inputs["Geometry"])
     b.L(is_jamb, sh_.inputs["Selection"])
     sh_n = b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"]
     sh_mv = b.N("GeometryNodeSetPosition", random_loc())
@@ -7101,9 +8403,9 @@ def _build_node_group():
     hs_cross = tand(tcmp("LESS_THAN", dnamed("vm_openmark", "FLOAT"), 0.5),
                     og_near(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"],
                             em("SUBTRACT", em("MULTIPLY", hs_len, 0.5), em("DIVIDE", 0.03, geo_f)), 0.0))
-    b.L(tand(tand(gi.outputs["Cut Openings"], is_fit),
-             bor(bor(is_ph, hs_swing), tand(has_hole, bor(hs_stub, hs_cross)))),
-        h_fall.inputs["Selection"])
+    hf_sel = tand(tand(gi.outputs["Cut Openings"], is_fit),
+                  bor(bor(is_ph, hs_swing), tand(has_hole, bor(hs_stub, hs_cross))))
+    b.L(hf_sel, h_fall.inputs["Selection"])
     # (the wall behind a board this layer drops is cut open too - the cut
     # boxes of the boards' own footprints join the gap boxes; a swinging
     # board's gap the cladding cut already)
@@ -7761,7 +9063,7 @@ def _build_node_group():
         # the cut wall is gone here: no face of it within 1.5 cm
         px_ = b.N("GeometryNodeProximity", random_loc())
         px_.target_element = "FACES"
-        b.L(c_open.outputs["Geometry"], px_.inputs["Geometry"])
+        b.L(c_scrap.outputs["Geometry"], px_.inputs["Geometry"])
         b.L(pos_, px_.inputs["Sample Position"])
         return tcmp("GREATER_THAN", px_.outputs["Distance"], em("DIVIDE", 0.015, geo_f))
     for fz_ in (-0.45, 0.0, 0.45):
@@ -8405,6 +9707,476 @@ def _build_node_group():
     b.L(v_sinst.outputs["Instances"], v_join.inputs["Geometry"])
     b.L(lv_iop.outputs["Instances"], v_join.inputs["Geometry"])
     b.L(v_join.outputs["Geometry"], g_join.inputs["Geometry"])
+
+
+    # ---- v2.32 THE ROOF UNDER A HOLE (the user's reference: a roof torn open,
+    # the battens snapped with splintered raw ends, some hanging into the hole,
+    # shards lying round it). With Batten Props wired the v2.21 plain frame
+    # gives way to REAL wood on a lattice fixed to each roof plane, in world
+    # metres: rafters every ROOF_RAFTER along the eaves (lengths of Rafter
+    # Props joined end to end under a batten) and battens - or deck boards -
+    # every Batten Spacing up the roof, one piece per rafter bay. A bay over a
+    # hole stays whole, is gone, or is snapped (Frame Breakage): a stub nailed
+    # at one rafter or at both, some hanging down into the hole. A roof tile
+    # over a hole with no batten left under its upper half has fallen. Shards
+    # and splinters (Roof Debris) lie on the roof round and below each hole.
+    b.sock("Frame Breakage", "NodeSocketFloat", p_dmg, 0.75, 0.0, 1.0, "FACTOR",
+           "Damage (v2.32) on a roof: how broken the frame under a hole is - battens snapped "
+           "(splintered stubs at the rafters, some hanging into the hole) or gone (0 = all whole). "
+           "Needs Batten Props")
+    b.sock("Batten Spacing", "NodeSocketFloat", p_dmg, 0.25, 0.05, 2.0, "DISTANCE",
+           "Damage (v2.32): battens / deck boards centre to centre up the roof (world m) - 0.25 open "
+           "battens under shakes, 0.15 a closed board deck under asphalt shingles")
+    b.sock("Roof Debris", "NodeSocketFloat", p_dmg, 0.5, 0.0, 4.0, "FACTOR",
+           "Damage (v2.32): shards and splinters lying on the roof round and below each hole "
+           "(0 = none). Needs Roof Debris Props")
+    b.sock("Batten Props", "NodeSocketCollection", p_dmg, None,
+           desc=f"v2.32: battens / deck boards seen in a roof hole - <name>A_NN whole (one {ROOF_RAFTER} m "
+                "rafter bay along X, the top at y = 0), <name>B_NN broken (the nailed end at -X); the "
+                "add-on wires VM_Tiles_Batten. Empty = the v2.21 plain frame")
+    b.sock("Rafter Props", "NodeSocketCollection", p_dmg, None,
+           desc="v2.32: lengths of rafter (along Z, the top at y = 0) under the battens; the add-on "
+                "wires VM_Tiles_Rafter")
+    b.sock("Roof Debris Props", "NodeSocketCollection", p_dmg, None,
+           desc="v2.32: shards / splinters lying flat (the back on y = 0) round a roof hole; the add-on "
+                "wires VM_Tiles_ShakeShard")
+    R_ = ROOF_RAFTER
+
+    def tsw_b(cond, if_false, if_true):
+        n_ = b.N("GeometryNodeSwitch", random_loc())
+        n_.input_type = "BOOLEAN"
+        b.L(cond, n_.inputs["Switch"])
+        b.L(if_false, n_.inputs["False"])
+        b.L(if_true, n_.inputs["True"])
+        return n_.outputs["Output"]
+    bt_inst, bt_n = coll_count("Batten Props")
+    rr_inst, rr_n = coll_count("Rafter Props")
+    db_inst, db_n = coll_count("Roof Debris Props")
+    bt_on = tcmp("GREATER_THAN", bt_n, 1.5)
+    bt_na = em("MAXIMUM", em("FLOOR", em("DIVIDE", bt_n, 2.0)), 1.0)
+    bt_nb = em("MAXIMUM", em("SUBTRACT", bt_n, bt_na), 1.0)
+    bt_bb = b.N("GeometryNodeBoundBox", random_loc())
+    b.L(bt_inst, bt_bb.inputs["Geometry"])
+    _bt_lx, bt_ly, _bt_lz = sxyz(bt_bb.outputs["Min"])
+    _bt_hx, _bt_hy, bt_hz = sxyz(bt_bb.outputs["Max"])
+    bt_th = em("MAXIMUM", em("MULTIPLY", bt_ly, -1.0), 0.005)          # a batten's thickness
+    bt_hw = em("MAXIMUM", bt_hz, 0.01)                                 # its half width
+    bt_pitch = em("MAXIMUM", gi.outputs["Batten Spacing"], 0.05)
+    rr_seg = em("MULTIPLY", bt_pitch, em("MAXIMUM", em("ROUND", em("DIVIDE", RAFTER_SEG, bt_pitch)), 1.0))
+    bt_top = 0.005                                                     # the battens' top under the deck point
+    rd_pos = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+
+    def roof_axes(n_):
+        # the roof plane's lattice axes: u level along the eaves, s up the roof
+        u0_ = vnorm(vmath("CROSS_PRODUCT", v3(0.0, 0.0, 1.0), n_))
+        u_ = vsw(tcmp("GREATER_THAN", em("ABSOLUTE", sxyz(n_)[2]), 0.995), u0_, v3(1.0, 0.0, 0.0))
+        return u_, vnorm(vmath("CROSS_PRODUCT", n_, u_))
+
+    def plane_key(n_):
+        x_, y_, z_ = (em("FLOOR", tm("MULTIPLY_ADD", c_, 20.37, 0.5)) for c_ in sxyz(n_))
+        return tm("MULTIPLY_ADD", em("ADD", x_, 64.0), 16384.0,
+                  tm("MULTIPLY_ADD", em("ADD", y_, 64.0), 128.0, em("ADD", z_, 64.0)))
+
+    def frame_rot(n_, u_):
+        ar_ = b.N("FunctionNodeAxesToRotation", random_loc())
+        ar_.primary_axis = "Y"
+        ar_.secondary_axis = "X"
+        b.L(n_, ar_.inputs["Primary Axis"])
+        b.L(u_, ar_.inputs["Secondary Axis"])
+        return ar_.outputs["Rotation"]
+
+    def rot_local(r_, euler_):
+        eu_ = b.N("FunctionNodeEulerToRotation", random_loc())
+        b.L(euler_, eu_.inputs["Euler"])
+        rr_ = b.N("FunctionNodeRotateRotation", random_loc())
+        rr_.rotation_space = "LOCAL"
+        b.L(r_, rr_.inputs["Rotation"])
+        b.L(eu_.outputs["Rotation"], rr_.inputs["Rotate By"])
+        return rr_.outputs["Rotation"]
+
+    def under_roof(pos_, n_, dmax_):
+        # pos_ lies under (or on) a roof face of its own plane, within dmax_
+        # of it - never past an eave, a gable, a hip or the ridge
+        sp_ = b.N("GeometryNodeSampleNearestSurface", random_loc(), data_type="FLOAT_VECTOR")
+        b.L(c_host.outputs["Geometry"], sp_.inputs["Mesh"])
+        b.L(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"], sp_.inputs["Value"])
+        b.L(pos_, sp_.inputs["Sample Position"])
+        sn_ = b.N("GeometryNodeSampleNearestSurface", random_loc(), data_type="FLOAT_VECTOR")
+        b.L(c_host.outputs["Geometry"], sn_.inputs["Mesh"])
+        b.L(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"], sn_.inputs["Value"])
+        b.L(pos_, sn_.inputs["Sample Position"])
+        return tand(tcmp("GREATER_THAN", vmath("DOT_PRODUCT", sn_.outputs["Value"], n_, out="Value"), 0.98),
+                    tcmp("LESS_THAN", vmath("DISTANCE", pos_, sp_.outputs["Value"], out="Value"), dmax_))
+
+    def hole_at(pos_, n_):
+        # pos_ (on or just under the roof) lies over a hole: a short ray down
+        # the roof normal finds no roof - the cut roof itself, so it matches
+        # the hole you see exactly
+        rc_ = b.N("GeometryNodeRaycast", random_loc())
+        b.L(c_bool.outputs["Mesh"], rc_.inputs["Target Geometry"])
+        b.L(vmath("ADD", pos_, vmath("SCALE", n_, em("DIVIDE", 0.05, geo_f))), rc_.inputs["Source Position"])
+        b.L(vmath("SCALE", n_, -1.0), rc_.inputs["Ray Direction"])
+        b.L(em("DIVIDE", 0.2, geo_f), rc_.inputs["Ray Length"])
+        return tand(has_hole, bnot(rc_.outputs["Is Hit"]))
+
+    def bat_fate(pc_, u_, fu_, i_, j_, key_, n_):
+        # what became of the batten bay (i_, j_) of a plane (key_) whose top
+        # centre is pc_: the same answer wherever it is asked (the frame
+        # itself, a tile asking whether it is still nailed to something)
+        gs_ = [hole_at(vmath("ADD", pc_, vmath("SCALE", u_, em("DIVIDE", (t_ - 0.5) * R_, fu_))), n_)
+               for t_ in (0.06, 0.28, 0.5, 0.72, 0.94)]
+        anyg_ = gs_[0]
+        for g_ in gs_[1:]:
+            anyg_ = bor(anyg_, g_)
+        id_ = tm("MULTIPLY_ADD", i_, 1009.0, tm("MULTIPLY_ADD", j_, 31.0, key_))
+        rv_ = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT_VECTOR")
+        rv_.inputs["Min"].default_value = (0.0, 0.0, 0.0)
+        rv_.inputs["Max"].default_value = (1.0, 1.0, 1.0)
+        b.L(id_, rv_.inputs["ID"])
+        b.L(seed_node(b, d_seed, 701), rv_.inputs["Seed"])
+        r1_, r2_, r3_ = sxyz(rv_.outputs["Value"])
+        rv2_ = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT_VECTOR")
+        rv2_.inputs["Min"].default_value = (0.0, 0.0, 0.0)
+        rv2_.inputs["Max"].default_value = (1.0, 1.0, 1.0)
+        b.L(id_, rv2_.inputs["ID"])
+        b.L(seed_node(b, d_seed, 709), rv2_.inputs["Seed"])
+        r4_, r5_, r6_ = sxyz(rv2_.outputs["Value"])
+        brk_ = gi.outputs["Frame Breakage"]
+        gone_ = tand(anyg_, tcmp("LESS_THAN", r1_, em("MULTIPLY", brk_, 0.4)))
+        snap_ = tand(tand(anyg_, bnot(gone_)), tcmp("LESS_THAN", r1_, brk_))
+        lo_ = tand(snap_, tcmp("GREATER_THAN", r2_, 0.2))
+        hi_ = tand(snap_, tcmp("LESS_THAN", r2_, 0.8))
+        return dict(whole=bnot(bor(gone_, snap_)), lo=lo_, hi=hi_,
+                    hlo=tand(lo_, tcmp("LESS_THAN", r3_, 0.6)), hhi=tand(hi_, tcmp("LESS_THAN", r5_, 0.6)),
+                    alo=tm("MULTIPLY_ADD", r4_, 0.9, 0.25), ahi=tm("MULTIPLY_ADD", r6_, 0.9, 0.25),
+                    pick=em("FRACT", em("MULTIPLY", r1_, 13.7)))
+
+    # the roof hole markers (one per missing shake deep in the damage)
+    rd_kb = dnamed("vm_kb", "FLOAT_VECTOR")
+    rd_n0 = rot(v3(0.0, 1.0, 0.0), dnamed("vm_kr", "QUATERNION"))
+    rd_u0, rd_s0 = roof_axes(rd_n0)
+    rd_fu0 = ws["eff_of"](rd_u0, random_loc())
+    rd_fs0 = ws["eff_of"](rd_s0, random_loc())
+    rd_fn0 = ws["eff_of"](rd_n0, random_loc())
+    rd_ks = sxyz(dnamed("vm_ks", "FLOAT_VECTOR"))
+    rd_hu = tm("MULTIPLY_ADD", em("MULTIPLY", rd_ks[0], 0.5), rd_fu0, 0.06)    # footprint half size + margin (world)
+    rd_hs = tm("MULTIPLY_ADD", em("MULTIPLY", rd_ks[2], 0.5), rd_fs0, 0.06)
+    rd_ca = em("MULTIPLY", vmath("DOT_PRODUCT", rd_kb, rd_u0, out="Value"), rd_fu0)
+    rd_cs = em("MULTIPLY", vmath("DOT_PRODUCT", rd_kb, rd_s0, out="Value"), rd_fs0)
+    rd_key0 = plane_key(rd_n0)
+
+    def lattice(kind_):
+        # every lattice piece a marker's footprint touches -> one point each
+        # (top centre, local) carrying its plane axes and lattice ids;
+        # neighbouring markers offer the same pieces - merged to one
+        if kind_ == "bt":         # batten bays: rows j*pitch up, bays [i, i+1)*R along
+            a0_ = em("FLOOR", em("DIVIDE", em("SUBTRACT", rd_ca, rd_hu), R_))
+            na_ = em("ADD", em("SUBTRACT", em("FLOOR", em("DIVIDE", em("ADD", rd_ca, rd_hu), R_)), a0_), 1.0)
+            b0_ = em("CEIL", em("DIVIDE", em("SUBTRACT", rd_cs, rd_hs), bt_pitch))
+            nb_ = em("MAXIMUM", em("ADD", em("SUBTRACT", em("FLOOR", em("DIVIDE", em("ADD", rd_cs, rd_hs), bt_pitch)),
+                                             b0_), 1.0), 0.0)
+        else:                     # rafter lengths: lines i*R along, lengths [k, k+1)*seg up
+            a0_ = em("CEIL", em("DIVIDE", em("SUBTRACT", rd_ca, rd_hu), R_))
+            na_ = em("MAXIMUM", em("ADD", em("SUBTRACT", em("FLOOR", em("DIVIDE", em("ADD", rd_ca, rd_hu), R_)), a0_),
+                                   1.0), 0.0)
+            b0_ = em("FLOOR", em("DIVIDE", em("SUBTRACT", rd_cs, rd_hs), rr_seg))
+            nb_ = em("ADD", em("SUBTRACT", em("FLOOR", em("DIVIDE", em("ADD", rd_cs, rd_hs), rr_seg)), b0_), 1.0)
+        ch_ = rf_p.outputs["Geometry"]
+        for nm_, dt_, val_ in (("vm_lk", "FLOAT_VECTOR", v3(a0_, b0_, nb_)),
+                               ("vm_lc", "FLOAT_VECTOR", v3(rd_ca, rd_cs, rd_key0)),
+                               ("vm_lu", "FLOAT_VECTOR", rd_u0), ("vm_ls", "FLOAT_VECTOR", rd_s0),
+                               ("vm_ln", "FLOAT_VECTOR", rd_n0),
+                               ("vm_lf", "FLOAT_VECTOR", v3(rd_fu0, rd_fs0, rd_fn0))):
+            st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=dt_, domain="POINT")
+            b.L(ch_, st_.inputs["Geometry"])
+            st_.inputs["Name"].default_value = nm_
+            b.L(val_, st_.inputs["Value"])
+            ch_ = st_.outputs["Geometry"]
+        du_ = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
+        b.L(ch_, du_.inputs["Geometry"])
+        b.L(em("MULTIPLY", na_, nb_), du_.inputs["Amount"])
+        lk_ = sxyz(dnamed("vm_lk", "FLOAT_VECTOR"))
+        lc_ = sxyz(dnamed("vm_lc", "FLOAT_VECTOR"))
+        lf_ = sxyz(dnamed("vm_lf", "FLOAT_VECTOR"))
+        lu_, ls_, ln_ = (dnamed(n_, "FLOAT_VECTOR") for n_ in ("vm_lu", "vm_ls", "vm_ln"))
+        ix_ = du_.outputs["Duplicate Index"]
+        jb_ = em("ADD", lk_[1], em("FLOORED_MODULO", ix_, em("MAXIMUM", lk_[2], 1.0)))
+        ia_ = em("ADD", lk_[0], em("FLOOR", em("DIVIDE", ix_, em("MAXIMUM", lk_[2], 1.0))))
+        if kind_ == "bt":
+            ac_, sc_ = em("MULTIPLY", em("ADD", ia_, 0.5), R_), em("MULTIPLY", jb_, bt_pitch)
+            dn_ = bt_top
+        else:
+            ac_, sc_ = em("MULTIPLY", ia_, R_), em("MULTIPLY", em("ADD", jb_, 0.5), rr_seg)
+            dn_ = em("ADD", bt_top, bt_th)
+        pos_ = vmath("ADD", rd_kb_at(lu_, ls_, ln_, lf_, lc_, ac_, sc_), vmath("SCALE", ln_, em("DIVIDE", em("MULTIPLY", dn_, -1.0) if not isinstance(dn_, float) else -dn_, lf_[2])))
+        ch_ = du_.outputs["Geometry"]
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+        b.L(ch_, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = "vm_lij"
+        b.L(v3(ia_, jb_, lc_[2]), st_.inputs["Value"])
+        mv_ = b.N("GeometryNodeSetPosition", random_loc())
+        b.L(st_.outputs["Geometry"], mv_.inputs["Geometry"])
+        b.L(pos_, mv_.inputs["Position"])
+        mg_ = b.N("GeometryNodeMergeByDistance", random_loc())
+        b.L(mv_.outputs["Geometry"], mg_.inputs["Geometry"])
+        b.L(em("DIVIDE", 0.01, geo_f), mg_.inputs["Distance"])
+        return mg_.outputs["Geometry"]
+
+    def rd_kb_at(lu_, ls_, ln_, lf_, lc_, ac_, sc_):
+        # the deck point at lattice coordinates (ac_, sc_) of the marker's plane
+        return vmath("ADD", dnamed("vm_kb", "FLOAT_VECTOR"),
+                     vmath("ADD", vmath("SCALE", lu_, em("DIVIDE", em("SUBTRACT", ac_, lc_[0]), lf_[0])),
+                           vmath("SCALE", ls_, em("DIVIDE", em("SUBTRACT", sc_, lc_[1]), lf_[1]))))
+
+    # -- the battens: two candidates per bay (side 0: whole or the stub at
+    # the low rafter, side 1: the stub at the high one)
+    bt_pts = lattice("bt")
+    bt_dup = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
+    b.L(bt_pts, bt_dup.inputs["Geometry"])
+    bt_dup.inputs["Amount"].default_value = 2
+    bt_side = tcmp("GREATER_THAN", bt_dup.outputs["Duplicate Index"], 0.5)
+    bt_sst = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="BOOLEAN", domain="POINT")
+    b.L(bt_dup.outputs["Geometry"], bt_sst.inputs["Geometry"])
+    bt_sst.inputs["Name"].default_value = "vm_lside"
+    b.L(bt_side, bt_sst.inputs["Value"])
+    bt_side = dnamed("vm_lside", "BOOLEAN")
+    l_u, l_s, l_n = (dnamed(n_, "FLOAT_VECTOR") for n_ in ("vm_lu", "vm_ls", "vm_ln"))
+    l_f = sxyz(dnamed("vm_lf", "FLOAT_VECTOR"))
+    l_ij = sxyz(dnamed("vm_lij", "FLOAT_VECTOR"))
+    bt_f = bat_fate(rd_pos, l_u, l_f[0], l_ij[0], l_ij[1], l_ij[2], l_n)
+    bt_end = lambda sg_: vmath("ADD", rd_pos, vmath("SCALE", l_u, em("DIVIDE", sg_ * R_ * 0.5, l_f[0])))
+    bt_dmax = em("DIVIDE", em("ADD", bt_top, 0.012), geo_f)
+    bt_ok = tand(under_roof(bt_end(-1.0), l_n, bt_dmax), under_roof(bt_end(1.0), l_n, bt_dmax))
+    bt_keep = tand(bt_ok, tsw_b(bt_side, bor(bt_f["whole"], bt_f["lo"]), bt_f["hi"]))
+    bt_stub = bor(bt_side, bnot(bt_f["whole"]))
+    bt_hang = tsw_b(bt_side, bt_f["hlo"], bt_f["hhi"])
+    bt_ang = tsw(bt_side, bt_f["alo"], bt_f["ahi"])
+    bt_ang = tsw(bt_hang, 0.0, bt_ang)
+    bt_e = vsw(bt_side, l_u, vmath("SCALE", l_u, -1.0))                    # the free end's way
+    bt_nail = vmath("SUBTRACT", rd_pos, vmath("SCALE", bt_e, em("DIVIDE", R_ * 0.5, l_f[0])))
+    bt_cos = b.N("ShaderNodeMath", random_loc(), operation="COSINE")
+    b.L(bt_ang, bt_cos.inputs[0])
+    bt_sin = b.N("ShaderNodeMath", random_loc(), operation="SINE")
+    b.L(bt_ang, bt_sin.inputs[0])
+    bt_at = vmath("ADD", bt_nail, vmath("SUBTRACT",
+                                        vmath("SCALE", bt_e, em("DIVIDE", em("MULTIPLY", bt_cos.outputs["Value"], R_ * 0.5), l_f[0])),
+                                        vmath("SCALE", l_n, em("DIVIDE", em("MULTIPLY", bt_sin.outputs["Value"], R_ * 0.5), l_f[2]))))
+    bt_r = frame_rot(l_n, l_u)
+    bt_r = rot_local(bt_r, v3(0.0, tsw(bt_side, 0.0, math.pi), 0.0))
+    bt_r = rot_local(bt_r, v3(0.0, 0.0, em("MULTIPLY", bt_ang, -1.0)))
+    bt_pk = bt_f["pick"]
+    bt_idx = tsw(bt_stub, em("MINIMUM", em("FLOOR", em("MULTIPLY", bt_pk, bt_na)), em("SUBTRACT", bt_na, 1.0)),
+                 em("ADD", bt_na, em("MINIMUM", em("FLOOR", em("MULTIPLY", bt_pk, bt_nb)), em("SUBTRACT", bt_nb, 1.0))))
+    bt_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(bt_sst.outputs["Geometry"], bt_del.inputs["Geometry"])
+    b.L(bnot(bt_keep), bt_del.inputs["Selection"])
+    bt_mv = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(bt_del.outputs["Geometry"], bt_mv.inputs["Geometry"])
+    b.L(bt_at, bt_mv.inputs["Position"])
+    # vm_fpc (checks): 1 whole batten, 2 a snapped stub, 3 a hanging stub, 4 a rafter
+    bt_fpc = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="POINT")
+    b.L(bt_mv.outputs["Geometry"], bt_fpc.inputs["Geometry"])
+    bt_fpc.inputs["Name"].default_value = "vm_fpc"
+    b.L(tsw(bt_stub, 1.0, tsw(bt_hang, 2.0, 3.0)), bt_fpc.inputs["Value"])
+    bt_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(bt_fpc.outputs["Geometry"], bt_iop.inputs["Points"])
+    b.L(bt_inst, bt_iop.inputs["Instance"])
+    bt_iop.inputs["Pick Instance"].default_value = True
+    b.L(bt_idx, bt_iop.inputs["Instance Index"])
+    b.L(bt_r, bt_iop.inputs["Rotation"])
+    # -- the rafters: whole lengths along every rafter line a hole crosses
+    rr_pts = lattice("rr")
+    rr_end = lambda sg_: vmath("ADD", rd_pos, vmath("SCALE", l_s, em("DIVIDE", em("MULTIPLY", rr_seg, sg_ * 0.5), l_f[1])))
+    rr_dmax = em("DIVIDE", em("ADD", em("ADD", bt_top, bt_th), 0.012), geo_f)
+    rr_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(rr_pts, rr_del.inputs["Geometry"])
+    b.L(bnot(tand(tcmp("GREATER_THAN", rr_n, 0.5),
+                  tand(under_roof(rr_end(-1.0), l_n, rr_dmax), under_roof(rr_end(1.0), l_n, rr_dmax)))),
+        rr_del.inputs["Selection"])
+    rr_rv = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT")
+    b.L(tm("MULTIPLY_ADD", l_ij[0], 1013.0, tm("MULTIPLY_ADD", l_ij[1], 37.0, l_ij[2])), rr_rv.inputs["ID"])
+    b.L(seed_node(b, d_seed, 719), rr_rv.inputs["Seed"])
+    rr_fpc = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="POINT")
+    b.L(rr_del.outputs["Geometry"], rr_fpc.inputs["Geometry"])
+    rr_fpc.inputs["Name"].default_value = "vm_fpc"
+    rr_fpc.inputs["Value"].default_value = 4.0
+    rr_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(rr_fpc.outputs["Geometry"], rr_iop.inputs["Points"])
+    b.L(rr_inst, rr_iop.inputs["Instance"])
+    rr_iop.inputs["Pick Instance"].default_value = True
+    b.L(em("MINIMUM", em("FLOOR", em("MULTIPLY", rr_rv.outputs["Value"], rr_n)), em("SUBTRACT", rr_n, 1.0)),
+        rr_iop.inputs["Instance Index"])
+    b.L(frame_rot(l_n, l_u), rr_iop.inputs["Rotation"])
+    b.L(v3(1.0, 1.0, em("DIVIDE", rr_seg, RAFTER_SEG)), rr_iop.inputs["Scale"])
+    rd_frame = b.N("GeometryNodeJoinGeometry", random_loc())
+    b.L(world_shape(bt_iop.outputs["Instances"]), rd_frame.inputs["Geometry"])
+    b.L(world_shape(rr_iop.outputs["Instances"]), rd_frame.inputs["Geometry"])
+    rd_fsw = b.N("GeometryNodeSwitch", random_loc())
+    rd_fsw.input_type = "GEOMETRY"
+    b.L(bt_on, rd_fsw.inputs["Switch"])
+    b.L(rf_geo.outputs["Geometry"], rd_fsw.inputs["False"])
+    b.L(rd_frame.outputs["Geometry"], rd_fsw.inputs["True"])
+    b.unlink(lambda lk: lk.from_node == rf_geo and lk.to_node == rf_rl)
+    if os.environ.get("VM_DBG_FRAME"):          # (tests: the frame pieces stay instances)
+        b.L(rd_fsw.outputs["Output"], g_join.inputs["Geometry"])
+    else:
+        b.L(rd_fsw.outputs["Output"], rf_rl.inputs["Geometry"])
+
+    # -- a roof tile over a hole hangs on the battens: one with no batten
+    # left under the upper half of it (where its nails are) has fallen
+    ft_ib = b.N("GeometryNodeInputInstanceBounds", random_loc())
+    ft_lo = vmul(ft_ib.outputs["Min"], i_scl)
+    ft_hi = vmul(ft_ib.outputs["Max"], i_scl)
+    ft_ex = sxyz(vmath("SUBTRACT", ft_hi, ft_lo))
+    ft_ip = b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"]
+    ft_up = rot(v3(0.0, 0.0, 1.0), i_rot)
+    ft_roof = tand(tand(tcmp("GREATER_EQUAL", sxyz(rot(v3(0.0, 1.0, 0.0), i_rot))[2], 0.5),
+                        bor(tcmp("GREATER_THAN", ft_ex[2], ft_ex[0]),       # a tile, or a broken stub of
+                            tcmp("LESS_THAN", em("MULTIPLY", ft_ex[0], geo_f), 0.5))),   # one (not a ridge board)
+                   tand(bnot(is_ph), tcmp("LESS_THAN", dnamed("vm_openmark", "FLOAT"), 0.5)))
+    ft_sn = b.N("GeometryNodeSampleNearestSurface", random_loc(), data_type="FLOAT_VECTOR")
+    b.L(c_host.outputs["Geometry"], ft_sn.inputs["Mesh"])
+    b.L(b.N("GeometryNodeInputNormal", random_loc()).outputs["Normal"], ft_sn.inputs["Value"])
+    b.L(ft_ip, ft_sn.inputs["Sample Position"])
+    ft_n = vnorm(ft_sn.outputs["Value"])
+    ft_u, ft_s = roof_axes(ft_n)
+    ft_fu = ws["eff_of"](ft_u, random_loc())
+    ft_fs = ws["eff_of"](ft_s, random_loc())
+    ft_key = plane_key(ft_n)
+    ft_top = vmath("ADD", ft_ip, vmath("SCALE", ft_up, sxyz(ft_hi)[2]))
+    ft_sup = None
+    # (a short broken stub: never probe past its own lower end, world m)
+    ft_len = em("MAXIMUM", em("SUBTRACT", em("MULTIPLY", ft_ex[2], ft_fs), 0.01), 0.005)
+    for ft_k in range(4):
+        ft_q = vmath("SUBTRACT", ft_top, vmath("SCALE", ft_s, em("DIVIDE", em("MINIMUM", 0.02 + 0.065 * ft_k, ft_len),
+                                                                  ft_fs)))
+        ft_aq = em("MULTIPLY", vmath("DOT_PRODUCT", ft_q, ft_u, out="Value"), ft_fu)
+        ft_sq = em("MULTIPLY", vmath("DOT_PRODUCT", ft_q, ft_s, out="Value"), ft_fs)
+        ft_jq = em("ROUND", em("DIVIDE", ft_sq, bt_pitch))
+        ft_iq = em("FLOOR", em("DIVIDE", ft_aq, R_))
+        ft_xq = em("SUBTRACT", ft_aq, em("MULTIPLY", ft_iq, R_))
+        ft_row = tcmp("LESS_THAN", em("ABSOLUTE", em("SUBTRACT", ft_sq, em("MULTIPLY", ft_jq, bt_pitch))), em("ADD", bt_hw, 0.005))
+        ft_pc = vmath("ADD", ft_q, vmath("ADD", vmath("SCALE", ft_u, em("DIVIDE", em("SUBTRACT", em("MULTIPLY", em("ADD", ft_iq, 0.5), R_), ft_aq), ft_fu)),
+                                     vmath("SCALE", ft_s, em("DIVIDE", em("SUBTRACT", em("MULTIPLY", ft_jq, bt_pitch), ft_sq), ft_fs))))
+        ft_f = bat_fate(ft_pc, ft_u, ft_fu, ft_iq, ft_jq, ft_key, ft_n)
+        ft_cov = bor(ft_f["whole"], bor(tand(tand(ft_f["lo"], bnot(ft_f["hlo"])), tcmp("LESS_THAN", ft_xq, R_ * 0.1)),
+                                    tand(tand(ft_f["hi"], bnot(ft_f["hhi"])), tcmp("GREATER_THAN", ft_xq, R_ * 0.9))))
+        s_k = bor(bnot(hole_at(ft_q, ft_n)), tand(ft_row, ft_cov))
+        ft_sup = s_k if ft_sup is None else bor(ft_sup, s_k)
+    ft_fall = tand(tand(bt_on, has_hole), tand(ft_roof, bnot(ft_sup)))
+    b.unlink(lambda lk: lk.to_node == h_fall and lk.to_socket.name == "Selection")
+    b.L(bor(hf_sel, tand(tand(gi.outputs["Cut Openings"], is_fit), ft_fall)), h_fall.inputs["Selection"])
+
+    # -- shards and splinters on the roof, round and (mostly) below each hole,
+    # lying on the tiles (lifted by the nearest tile's thickness)
+    rt_st = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+    b.L(c_inst, rt_st.inputs["Geometry"])
+    rt_st.inputs["Name"].default_value = "vm_tmy"
+    b.L(sxyz(ft_hi)[1], rt_st.inputs["Value"])
+    rt_ch = rt_st.outputs["Geometry"]
+    for nm_, val_ in (("vm_tlo", ft_lo), ("vm_thi", ft_hi), ("vm_tux", rot(v3(1.0, 0.0, 0.0), i_rot)),
+                      ("vm_tuz", ft_up)):
+        st_ = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="INSTANCE")
+        b.L(rt_ch, st_.inputs["Geometry"])
+        st_.inputs["Name"].default_value = nm_
+        b.L(val_, st_.inputs["Value"])
+        rt_ch = st_.outputs["Geometry"]
+    rt_pts = b.N("GeometryNodeInstancesToPoints", random_loc())
+    b.L(rt_ch, rt_pts.inputs["Instances"])
+    b.L(tand(ft_roof, bnot(ft_fall)), rt_pts.inputs["Selection"])      # (v2.36 not on a tile that falls)
+    db_rv = b.N("FunctionNodeRandomValue", random_loc(), data_type="FLOAT")
+    b.L(seed_node(b, d_seed, 727), db_rv.inputs["Seed"])
+    db_ch = rf_p.outputs["Geometry"]
+    for db_nm, db_dt, db_val in (("vm_lc", "FLOAT_VECTOR", v3(rd_ca, rd_cs, rd_hs)),
+                           ("vm_lu", "FLOAT_VECTOR", rd_u0), ("vm_ls", "FLOAT_VECTOR", rd_s0),
+                           ("vm_ln", "FLOAT_VECTOR", rd_n0),
+                           ("vm_lf", "FLOAT_VECTOR", v3(rd_fu0, rd_fs0, rd_fn0)),
+                           ("vm_lh", "FLOAT", rd_hu)):
+        db_st = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type=db_dt, domain="POINT")
+        b.L(db_ch, db_st.inputs["Geometry"])
+        db_st.inputs["Name"].default_value = db_nm
+        b.L(db_val, db_st.inputs["Value"])
+        db_ch = db_st.outputs["Geometry"]
+    db_du = b.N("GeometryNodeDuplicateElements", random_loc(), domain="POINT")
+    b.L(db_ch, db_du.inputs["Geometry"])
+    b.L(em("FLOOR", tm("MULTIPLY_ADD", gi.outputs["Roof Debris"], 2.0, db_rv.outputs["Value"])), db_du.inputs["Amount"])
+    db_id = b.N("GeometryNodeInputIndex", random_loc()).outputs["Index"]
+    db_ra, db_rb, db_rc = v_rand(731, db_id, seed_node(b, d_seed, 733))
+    db_rd, db_re, db_rf = v_rand(737, db_id, seed_node(b, d_seed, 739))
+    db_lc = sxyz(dnamed("vm_lc", "FLOAT_VECTOR"))
+    db_lh = dnamed("vm_lh", "FLOAT")
+    db_below = tcmp("LESS_THAN", db_rc, 0.75)
+    db_s = tsw(db_below, tm("MULTIPLY_ADD", em("SUBTRACT", db_ra, 0.5), em("MULTIPLY", db_lc[2], 2.4), db_lc[1]),
+               em("SUBTRACT", em("SUBTRACT", db_lc[1], db_lc[2]), tm("MULTIPLY_ADD", em("MULTIPLY", db_ra, db_ra), 1.3, 0.03)))
+    db_a = tm("MULTIPLY_ADD", em("SUBTRACT", db_rb, 0.5), tm("MULTIPLY_ADD", db_lh, 2.0, 0.6), db_lc[0])
+    db_p0 = rd_kb_at(l_u, l_s, l_n, l_f, db_lc, db_a, db_s)
+    db_tn = b.N("GeometryNodeSampleNearest", random_loc(), domain="POINT")
+    b.L(rt_pts.outputs["Points"], db_tn.inputs["Geometry"])
+    b.L(db_p0, db_tn.inputs["Sample Position"])
+    db_ty = b.N("GeometryNodeSampleIndex", random_loc(), data_type="FLOAT", domain="POINT")
+    b.L(rt_pts.outputs["Points"], db_ty.inputs["Geometry"])
+    b.L(dnamed("vm_tmy", "FLOAT"), db_ty.inputs["Value"])
+    b.L(db_tn.outputs["Index"], db_ty.inputs["Index"])
+    db_lift = tm("MULTIPLY_ADD", db_ty.outputs["Value"], 0.8, em("DIVIDE", 0.004, geo_f))
+    db_p = vmath("ADD", db_p0, vmath("SCALE", l_n, db_lift))
+    # (v2.36 and a TILE under it: inside the nearest tile's bounds in that
+    # tile's own frame (1 cm slack) - with the lone tiles cleared from the
+    # holes, a shard sampled at the hole box's ragged edge lay on nothing)
+    db_tv = []
+    for nm_ in ("vm_tlo", "vm_thi", "vm_tux", "vm_tuz"):
+        q_ = b.N("GeometryNodeSampleIndex", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+        b.L(rt_pts.outputs["Points"], q_.inputs["Geometry"])
+        b.L(dnamed(nm_, "FLOAT_VECTOR"), q_.inputs["Value"])
+        b.L(db_tn.outputs["Index"], q_.inputs["Index"])
+        db_tv.append(q_.outputs["Value"])
+    db_tq = b.N("GeometryNodeSampleIndex", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(rt_pts.outputs["Points"], db_tq.inputs["Geometry"])
+    b.L(b.N("GeometryNodeInputPosition", random_loc()).outputs["Position"], db_tq.inputs["Value"])
+    b.L(db_tn.outputs["Index"], db_tq.inputs["Index"])
+    db_v = vmath("SUBTRACT", db_p0, db_tq.outputs["Value"])
+    db_lx = vmath("DOT_PRODUCT", db_v, db_tv[2], out="Value")
+    db_lz = vmath("DOT_PRODUCT", db_v, db_tv[3], out="Value")
+    db_sl = em("DIVIDE", 0.01, geo_f)
+    db_on = tand(tand(tcmp("GREATER_THAN", db_lx, em("SUBTRACT", sxyz(db_tv[0])[0], db_sl)),
+                      tcmp("LESS_THAN", db_lx, em("ADD", sxyz(db_tv[1])[0], db_sl))),
+                 tand(tcmp("GREATER_THAN", db_lz, em("SUBTRACT", sxyz(db_tv[0])[2], db_sl)),
+                      tcmp("LESS_THAN", db_lz, em("ADD", sxyz(db_tv[1])[2], db_sl))))
+    db_ok = tand(tand(tand(tcmp("GREATER_THAN", db_n, 0.5), under_roof(db_p0, l_n, em("DIVIDE", 0.012, geo_f))),
+                      bnot(hole_at(db_p0, l_n))), db_on)
+    # (placed and its randoms kept BEFORE the delete: the index shifts after it)
+    db_kr = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT_VECTOR", domain="POINT")
+    b.L(db_du.outputs["Geometry"], db_kr.inputs["Geometry"])
+    db_kr.inputs["Name"].default_value = "vm_dbr"
+    b.L(v3(db_rd, db_re, db_rf), db_kr.inputs["Value"])
+    db_kc = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="POINT")
+    b.L(db_kr.outputs["Geometry"], db_kc.inputs["Geometry"])
+    db_kc.inputs["Name"].default_value = "vm_dbc"
+    b.L(db_rc, db_kc.inputs["Value"])
+    db_ko = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="BOOLEAN", domain="POINT")
+    b.L(db_kc.outputs["Geometry"], db_ko.inputs["Geometry"])
+    db_ko.inputs["Name"].default_value = "vm_dbok"
+    b.L(db_ok, db_ko.inputs["Value"])
+    db_mv = b.N("GeometryNodeSetPosition", random_loc())
+    b.L(db_ko.outputs["Geometry"], db_mv.inputs["Geometry"])
+    b.L(db_p, db_mv.inputs["Position"])
+    db_del = b.N("GeometryNodeDeleteGeometry", random_loc(), domain="POINT")
+    b.L(db_mv.outputs["Geometry"], db_del.inputs["Geometry"])
+    b.L(bnot(dnamed("vm_dbok", "BOOLEAN")), db_del.inputs["Selection"])
+    db_rd, db_re, db_rf = sxyz(dnamed("vm_dbr", "FLOAT_VECTOR"))
+    db_rc = dnamed("vm_dbc", "FLOAT")
+    db_iop = b.N("GeometryNodeInstanceOnPoints", random_loc())
+    b.L(db_del.outputs["Geometry"], db_iop.inputs["Points"])
+    b.L(db_inst, db_iop.inputs["Instance"])
+    db_iop.inputs["Pick Instance"].default_value = True
+    b.L(em("MINIMUM", em("FLOOR", em("MULTIPLY", db_rd, db_n)), em("SUBTRACT", db_n, 1.0)), db_iop.inputs["Instance Index"])
+    b.L(rot_local(frame_rot(l_n, l_u), v3(tm("MULTIPLY_ADD", db_re, 0.2, -0.1), em("MULTIPLY", db_rf, 2.0 * math.pi),
+                                          tm("MULTIPLY_ADD", db_rc, 0.16, -0.08))), db_iop.inputs["Rotation"])
+    b.L(tm("MULTIPLY_ADD", db_re, 0.5, 0.75), db_iop.inputs["Scale"])
+    db_tag = b.N("GeometryNodeStoreNamedAttribute", random_loc(), data_type="FLOAT", domain="INSTANCE")
+    b.L(world_shape(db_iop.outputs["Instances"]), db_tag.inputs["Geometry"])
+    db_tag.inputs["Name"].default_value = "vm_rdebris"
+    db_tag.inputs["Value"].default_value = 1.0
+    b.L(db_tag.outputs["Geometry"], g_join.inputs["Geometry"])
 
     b.finish_menu_defaults()
     b.ng.description = (
@@ -14627,7 +16399,13 @@ def main():
         # out of the weather, so not the siding's silver grey
         sheathb=make_board_material(
             "VM_SheathBoard", os.path.join(ASSET_SRC, "materials", "walls", "brown_planks_09"),
-            "brown_planks_09", 7, 0.08, 0.95, 0.55, 0.9))
+            "brown_planks_09", 7, 0.08, 0.95, 0.55, 0.9),
+        # v2.32: the asphalt shingle roof (procedural granules) and the roof
+        # frame's darker, unweathered wood
+        asphalt=make_asphalt_material("VM_Asphalt"),
+        frame=make_board_material(
+            "VM_RoofFrame", os.path.join(ASSET_SRC, "materials", "walls", "brown_planks_09"),
+            "brown_planks_09", 7, 0.08, 0.95, 0.45, 0.7))
     for cn, maker, mat_ in (("VM_Tiles_Plank", make_siding_variants, lib_mats["siding"]),
                             ("VM_Tiles_Shingle", make_shake_variants, lib_mats["shake"])):
         col_ = bpy.data.collections[cn]
@@ -14640,11 +16418,24 @@ def main():
     # v2.28 bigger pools (the user's 'more variation of damaged planks')
     for cn, maker, mat_, n_ in (("VM_Tiles_PlankBroken", make_broken_siding, lib_mats["siding"], 12),
                                 ("VM_Tiles_PlankWorn", make_worn_siding, lib_mats["siding"], 16),
-                                ("VM_Tiles_ShingleBroken", make_broken_shakes, lib_mats["shake"], 8),
-                                ("VM_Tiles_ShingleWorn", make_worn_shakes, lib_mats["shake"], 12),
+                                ("VM_Tiles_ShingleBroken", make_broken_shakes, lib_mats["shake"], 12),   # (v2.34: 12 groups of 4)
+                                ("VM_Tiles_ShingleWorn", make_worn_shakes, lib_mats["shake"], 20),       # (v2.35: 4 sets of 20: butt, -X / +X side, from above)
                                 # v2.29 sheathing under the siding (10 whole + 10 broken)
                                 ("VM_Tiles_Sheathing", make_sheathing_boards, lib_mats["sheathb"], 10),
-                                ("VM_Tiles_Stud", make_studs, lib_mats["sheathb"], 4)):
+                                ("VM_Tiles_Stud", make_studs, lib_mats["sheathb"], 4),
+                                # v2.32 the roof under a hole: battens, rafters, shards on the roof
+                                ("VM_Tiles_Batten", make_battens, lib_mats["frame"], 6),
+                                ("VM_Tiles_Rafter", make_rafters, lib_mats["frame"], 4),
+                                ("VM_Tiles_ShakeShard", make_roof_shards, lib_mats["shake"], 12),
+                                # v2.32 the asphalt shingle roof: tabs, torn, worn, the board deck
+                                # under them and its shards
+                                ("VM_Tiles_Shingle_Asphalt", make_asphalt_tabs, lib_mats["asphalt"], 8),
+                                ("VM_Tiles_Shingle_AsphaltBroken", make_torn_asphalt, lib_mats["asphalt"], 10),   # (v2.33: 6 -> 10)
+                                ("VM_Tiles_Shingle_AsphaltWorn", make_worn_asphalt, lib_mats["asphalt"], 20),     # (v2.35: 4 sets of 20)
+                                ("VM_Tiles_RoofDeck", lambda c_, n_, k_, m_: make_battens(
+                                    c_, n_, k_, m_, width=0.14, thick=0.019, seed=59), lib_mats["frame"], 5),
+                                ("VM_Tiles_AsphaltShard", lambda c_, n_, k_, m_: make_roof_shards(
+                                    c_, n_, k_, m_, asphalt=True, seed=61), lib_mats["asphalt"], 10)):
         col_ = bpy.data.collections.new(cn)
         tile_parent.children.link(col_)
         maker(col_, cn.replace("VM_Tiles_", ""), n_, mat_)
@@ -14677,7 +16468,11 @@ def main():
             ("Base - Porch house", "Gable", "Gable preset at 45 deg with dormers and a roofed porch "
              "along one ground-floor wall, the door under it (v2.24)", {}),
             ("Base - Balcony house", "Gable", "Gable preset at 55 deg: a porch with a baluster railing "
-             "and a bracketed balcony on one gable end, a door out onto it (v2.25)", {})):
+             "and a bracketed balcony on one gable end, a door out onto it (v2.25)", {}),
+            ("Base - Asphalt roof", "Gable", "Gable preset with an ASPHALT SHINGLE roof (v2.32): 25 x 33 cm "
+             "tabs in 13 cm courses on a board deck", {}),
+            ("Base - Weathered asphalt", "Gable", "The asphalt roof weathered (v2.32): torn and worn shingles, "
+             "holes through the deck with snapped boards and shards round them", weathered)):
         pw = []
         vmt.dress_object(probe, pw)
         rc = probe.modifiers["VM_RoofCap"]
@@ -14697,6 +16492,18 @@ def main():
             # v2.21: and its roof is in a worse state - holes through it
             sl_p = probe.modifiers["VM_SceneDetailer_Shingles"]
             set_params(sl_p, sl_p.node_group, {"Damage Amount": 0.42, "Roof Holes": 0.6})
+        if "asphalt" in pname.lower():  # v2.32: the asphalt set + its deck and shards
+            sl_a = probe.modifiers["VM_SceneDetailer_Shingles"]
+            set_params(sl_a, sl_a.node_group, {
+                "Primary Props": bpy.data.collections["VM_Tiles_Shingle_Asphalt"],
+                "Broken Props": bpy.data.collections["VM_Tiles_Shingle_AsphaltBroken"],
+                "Worn Props": bpy.data.collections["VM_Tiles_Shingle_AsphaltWorn"],
+                "Row Height": 0.13, "Row Overlap": ASPHALT_OVERLAP, "Stagger": 0.5,
+                "Slot Width": 0.25 / (1.0 - ASPHALT_OVERLAP)})
+            wl_a = probe.modifiers["VM_SceneDetailer_Windows"]
+            set_params(wl_a, wl_a.node_group, {
+                "Batten Props": bpy.data.collections["VM_Tiles_RoofDeck"], "Batten Spacing": 0.15,
+                "Roof Debris Props": bpy.data.collections["VM_Tiles_AsphaltShard"]})
         lib_presets[pname] = dict(description=desc, modifiers=vmt.snapshot_object(probe))
     bpy.data.objects.remove(probe)
     txt = bpy.data.texts.get(vmt.PRESETS_TEXT) or bpy.data.texts.new(vmt.PRESETS_TEXT)
@@ -15286,18 +17093,33 @@ def main():
     w_sizes = {cn_[9:]: len(obs_) for cn_, obs_ in wpool.items()}
     w_attr = all(r_ is not None for v_ in wr_.values() for r_ in v_)
     w_dense = w_attr and all(r_[0] >= 300 and r_[3] >= 200 for v_ in wr_.values() for r_ in v_)
-    w_cut = w_attr and all(sum(1 for r_ in v_ if r_[2] > 0.5) * 2 >= len(v_) for v_ in wr_.values())
+    # (v2.33 an old roof's gouges are weathered grey - the raw-wood blobs were
+    # the user's 'muddy' shakes: worn shakes show only a little vm_cut in a
+    # gouge's middle, raw wood stays on the planks and at every fresh break)
+    w_cut = w_attr and all(sum(1 for r_ in v_ if r_[2] > 0.5) * 2 >= len(v_)
+                           for k_, v_ in wr_.items() if k_ != "VM_Tiles_ShingleWorn")
+    w_grey = w_attr and all(r_[2] < 0.5 for r_ in wr_["VM_Tiles_ShingleWorn"])         and sum(1 for r_ in wr_["VM_Tiles_ShingleWorn"] if r_[2] > 0.05) * 2 >= len(wr_["VM_Tiles_ShingleWorn"])
 
     def w_ramp(v_):
         k_ = max(len(v_) // 3, 1)
         return (sum(r_[1] for r_ in v_[:k_]) / k_, sum(r_[1] for r_ in v_[-k_:]) / k_)
-    w_r = {k_: w_ramp(wr_[k_]) for k_ in ("VM_Tiles_PlankWorn", "VM_Tiles_ShingleWorn")} if w_attr else {}
+    # (v2.34 a tall-tile worn pool is light-to-heavy sets, damaged at the
+    # butt, (v2.35) at the -X / +X side (_L / _RNN), from above (_UNN): each
+    # set ramps on its own)
+    h_ = len(wr_["VM_Tiles_ShingleWorn"]) // 4
+    w_r = dict([("VM_Tiles_PlankWorn", w_ramp(wr_["VM_Tiles_PlankWorn"]))]
+               + [("VM_Tiles_ShingleWorn" + s_, w_ramp(wr_["VM_Tiles_ShingleWorn"][k_ * h_:(k_ + 1) * h_]))
+                  for k_, s_ in enumerate(("", "_L", "_R", "_U"))]) if w_attr else {}
     check("v2.28(weathered damage): the damaged boards and shakes are weathered for REAL - bigger pools "
-          "(16 / 12 worn, 12 / 8 broken pairs), a dense surface (grain, worn-round edges, gouges, knot "
-          "holes), vm_wear / vm_cut for the material, the worn variants running light to heavy",
-          w_sizes == {"PlankWorn": 16, "PlankBroken": 24, "ShingleWorn": 12, "ShingleBroken": 16}
-          and w_dense and w_cut and w_r and all(hi_ > lo_ + 0.2 for lo_, hi_ in w_r.values()),
-          f"pools {w_sizes}; attributes={w_attr} dense={w_dense} bared wood={w_cut}; "
+          "(16 / 4x20 worn, 12 pairs / 12 groups of 4 broken - v2.34 the shakes torn from above too, v2.35 at "
+          "the sides), a dense surface (grain, worn-round "
+          "edges, gouges, knot holes), vm_wear / vm_cut for the material (raw wood on the planks and at "
+          "every break; v2.33 the worn shakes' gouges weathered grey), the worn variants running light "
+          "to heavy",
+          w_sizes == {"PlankWorn": 16, "PlankBroken": 24, "ShingleWorn": 80, "ShingleBroken": 48}
+          and w_dense and w_cut and w_grey and w_r and all(hi_ > lo_ + 0.2 for lo_, hi_ in w_r.values()),
+          f"pools {w_sizes}; attributes={w_attr} dense={w_dense} bared wood={w_cut} grey shake "
+          f"gouges={w_grey}; "
           f"mean wear light->heavy {[(round(a_, 2), round(b_, 2)) for a_, b_ in w_r.values()]}; "
           f"vertices {min((r_[0] for v_ in wr_.values() for r_ in v_ if r_), default=0)}-"
           f"{max((r_[0] for v_ in wr_.values() for r_ in v_ if r_), default=0)}")
@@ -15448,6 +17270,461 @@ def main():
           f"X walls {ws_xs}, off the 0.4 m lattice {ws_off}")
     results["world_shape_v230"] = dict(n=ws_n, stretch=ws_an, studs_x=ws_xs, off=ws_off)
     bpy.data.objects.remove(fx_s)
+
+    # ---- v2.32: ROOF DAMAGE like the walls (the user's reference: a hole torn
+    # through the roof, the battens / deck under it snapped - splintered stubs,
+    # some hanging into the hole - tiles with nothing left to hold them fallen,
+    # shards on the roof round it), on shakes and on the new ASPHALT set, and
+    # under an unapplied object scale
+    def roof_house(name_, x_, preset_, osc_=(1.0, 1.0, 1.0)):
+        o_ = fx_cube(name_, x_)
+        o_.data.transform(Matrix.Diagonal((4.0, 3.0, 1.5, 1.0)))     # an 8 x 6 x 3 m house
+        o_.scale = osc_
+        bpy.context.view_layer.update()
+        bpy.ops.vm.apply_preset(preset=preset_)
+        for mn_ in ("VM_SceneDetailer_Planks", "VM_SceneDetailer_Shingles", "VM_SceneDetailer_Windows"):
+            m_ = o_.modifiers[mn_]
+            set_params(m_, m_.node_group, {"Damage": True, "Damage Seed": 7})
+        wl_ = o_.modifiers["VM_SceneDetailer_Windows"]
+        set_params(wl_, wl_.node_group, {"Yard": False})
+        sl_ = o_.modifiers["VM_SceneDetailer_Shingles"]
+        set_params(sl_, sl_.node_group, {"Roof Holes": 1.0})
+        o_.update_tag()
+        dg_ = bpy.context.evaluated_depsgraph_get()
+        dg_.update()
+        top_ = Vector((x_ + 0.5 * osc_[0], -1.5 * osc_[1], 40.0))
+        hit_, loc_, *_r = fx_scene.ray_cast(dg_, top_, Vector((0.0, 0.0, -1.0)))
+        vmt.add_damage_zone(o_, loc_ if hit_ else Vector((x_, -1.5, 4.0)), fx_scene.collection, radius=2.2,
+                            amount=0.9)
+        return o_, wl_, sl_
+
+    def roof_dmg_scan(o_):
+        o_.update_tag()
+        dg_ = bpy.context.evaluated_depsgraph_get()
+        dg_.update()
+        me_ = o_.evaluated_get(dg_).data
+        mw_ = o_.matrix_world
+        bb_ = [mw_ @ v_.co for v_ in o_.data.vertices]
+        lo_ = Vector([min(c_[k_] for c_ in bb_) for k_ in range(3)])
+        hi_ = Vector([max(c_[k_] for c_ in bb_) for k_ in range(3)])
+        ra_ = me_.attributes.get("vm_rafter")
+        raf_ = [mw_ @ me_.polygons[i_].center for i_, d_ in enumerate(ra_.data) if d_.value > 0.5] \
+            if ra_ is not None and ra_.domain == "FACE" else []
+        out_ = sum(1 for c_ in raf_ if c_.z < hi_.z - 0.3 or not (lo_.x - 0.6 < c_.x < hi_.x + 0.6)
+                   or not (lo_.y - 0.6 < c_.y < hi_.y + 0.6))
+        fp_ = me_.attributes.get("vm_fpc")
+        kinds_, raf_x = Counter(), []
+        if fp_ is not None and fp_.domain in ("POINT", "FACE"):
+            els_ = me_.vertices if fp_.domain == "POINT" else me_.polygons
+            for i_, d_ in enumerate(fp_.data):
+                k_ = int(round(d_.value))
+                if k_:
+                    kinds_[k_] += 1
+                    if k_ == 4:
+                        e_ = els_[i_]
+                        raf_x.append((mw_ @ (e_.co if fp_.domain == "POINT" else e_.center)).x)
+        rd_pool = {ob_.name: c_.name for c_ in bpy.data.collections
+                   if c_.name.startswith("VM_Tiles_Shingle") or c_.name in ("VM_Tiles_ShakeShard",
+                                                                            "VM_Tiles_AsphaltShard")
+                   for ob_ in c_.all_objects}
+        bvh_ = BVHTree.FromPolygons([mw_ @ v_.co for v_ in me_.vertices], [list(p_.vertices) for p_ in me_.polygons])
+
+        def under(p_, n_):
+            return bvh_.ray_cast(p_ + n_ * 0.05, -n_, 0.25)[0] is not None
+        # v2.33 the roof itself (not the frame) under a point
+        fr_f = set()
+        if fp_ is not None and fp_.domain in ("POINT", "FACE"):
+            if fp_.domain == "FACE":
+                fr_f = {i_ for i_, d_ in enumerate(fp_.data) if d_.value > 0.5}
+            else:
+                fr_v = {i_ for i_, d_ in enumerate(fp_.data) if d_.value > 0.5}
+                fr_f = {p_.index for p_ in me_.polygons if fr_v.intersection(p_.vertices)}
+
+        def roof_under(p_, n_):
+            h_ = bvh_.ray_cast(p_ + n_ * 0.05, -n_, 0.25)
+            return h_[0] is not None and h_[2] not in fr_f
+        rim_, rim_c, tiles_, sh_maybe, below_, beside_ = Counter(), [], [], [], Counter(), Counter()
+        rim_w, se_c, sedge_ = [], [], Counter()
+        per_, sh_on, sh_off, loose_, lz_ = Counter(), 0, 0, 0, []
+        for inst in dg_.object_instances:
+            if not (inst.is_instance and inst.parent is not None and inst.parent.original == o_):
+                continue
+            cn_ = rd_pool.get(inst.object.name)
+            if cn_ is None:
+                continue
+            per_[cn_] += 1
+            m_ = inst.matrix_world
+            n_ = (m_.to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()
+            if "Shard" in cn_:
+                if under(m_.translation, n_):
+                    sh_on += 1
+                else:
+                    sh_maybe.append(m_.translation.copy())     # (v2.33 it may lie on a tile: see below)
+                continue
+            if n_.z < 0.3:
+                continue
+            lb_ = inst.object.bound_box
+            x0_, x1_ = min(v_[0] for v_ in lb_), max(v_[0] for v_ in lb_)
+            z0_, z1_ = min(v_[2] for v_ in lb_), max(v_[2] for v_ in lb_)
+            # v2.33 a tile whose butt hangs over the hole (no roof under its
+            # butt - and, below, no other tile): a WHOLE outline there frames
+            # the hole like an intact tile
+            tiles_.append((m_.copy(), (x0_, x1_, z0_, z1_), inst.object.name))
+            bp_ = m_ @ Vector((0.0, 0.0, z0_ + 0.015))
+            # (v2.36 the two stagger halves of the butt, for the hole's sides)
+            se_c.append((len(tiles_) - 1, m_ @ Vector((0.5 * x0_, 0.0, z0_ + 0.015)),
+                         m_ @ Vector((0.5 * x1_, 0.0, z0_ + 0.015)), n_, inst.object.name, cn_))
+            if not roof_under(bp_, n_):
+                rim_c.append((len(tiles_) - 1, bp_, "broken" if "Broken" in cn_ else "whole", cn_[9:]))
+            else:
+                # v2.34 a tile just BELOW a hole (roof under its butt, the hole
+                # 1.5 courses up): its damage must face the hole - torn off at
+                # the head (a _U piece), not a whole top framing the hole
+                up_ = (m_.to_3x3() @ Vector((0.0, 0.0, 1.0))).normalized()
+                if not roof_under(bp_ + up_ * 0.2, n_):
+                    below_["torn top" if "Broken" in cn_ and "_U" in inst.object.name else "whole top"] += 1
+                    if not ("Broken" in cn_ and "_U" in inst.object.name):
+                        below_[cn_[9:] + ("_U" if "_U" in inst.object.name else "")] += 1
+                else:
+                    # v2.35 a tile BESIDE a hole (its butt on the roof; 4 cm
+                    # past one side, 6 cm up from the butt, no roof - and
+                    # roof again further along its course, across the hole:
+                    # not the rake, past which the roof never comes back):
+                    # its damage must face the hole - a worn piece broken off
+                    # on THAT side (_LNN / _RNN), not a whole straight side
+                    nm_ = inst.object.name
+                    for sg_, x_e in ((1.0, x1_), (-1.0, x0_)):
+                        if not roof_under(m_ @ Vector((x_e + sg_ * 0.04, 0.0, z0_ + 0.06)), n_) and any(
+                                roof_under(m_ @ Vector((x_e + sg_ * d_, 0.0, z0_ + 0.06)), n_)
+                                for d_ in (0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5, 1.8, 2.1, 2.5)):
+                            side_ok = nm_[-4] == "_" and nm_[-2:].isdigit() and nm_[-3] == ("R" if sg_ > 0 else "L")
+                            beside_["torn side" if side_ok else ("broken" if "Broken" in cn_ else "whole side")] += 1
+                            if not side_ok and "Broken" not in cn_:
+                                beside_[cn_[9:]] += 1
+                            break
+            if under(m_ @ Vector((0.0, 0.0, z1_ - 0.02)), n_):
+                continue
+            nz_ = max(int((z1_ - z0_) / 0.02), 1)
+            if not any(under(m_ @ Vector((x0_ + (x1_ - x0_) * fx_, 0.0, z1_ - (z1_ - z0_) * k_ / nz_)), n_)
+                       for k_ in range(nz_ + 1) for fx_ in (0.2, 0.5, 0.8)):
+                loose_ += 1          # nothing at all under it: roof, batten, deck or rafter
+                if len(lz_) < 4:
+                    lz_.append((inst.object.name, tuple(round(c_, 2) for c_ in m_.translation),
+                                round(z1_ - z0_, 3), round(n_.z, 2)))
+        inv_ = [(m_.inverted(), bb_t) for m_, bb_t, _nm in tiles_]
+        # (v2.33 a shard over cut roof that lies ON a tile is on the roof - the
+        # hole box reaches a little under the tiles round the hole)
+        for p_ in sh_maybe:
+            if any(bt_[0] <= q_.x <= bt_[1] and bt_[2] <= q_.z <= bt_[3] and -0.03 < q_.y < 0.08
+                   for mi_, bt_ in inv_ for q_ in (mi_ @ p_,)):
+                sh_on += 1
+            else:
+                sh_off += 1
+        # v2.36 LONE TILES in a hole (the user's 'loose, unbroken tabs still lie
+        # inside the asphalt hole'): an intact or worn tile with another WHOLE
+        # tile (intact / worn - broken bits round it don't hold it) on at most
+        # one of its four sides (2-8 cm past its head, its butt, either side -
+        # any course) - or a BROKEN piece with none (hanging in the middle of
+        # the hole, its factory head and sides read as a whole tab; a torn rim
+        # piece keeps one). On a whole roof every tile has
+        # three or four (two at a corner of the roof); lone_c counts the whole
+        # tiles with an open side (the hole's and the roof's edges)
+        lone_, lone_n, lone_c = 0, [], 0
+        zr_ = max((m_ @ Vector((0.0, 0.0, bt_[3]))).z for m_, bt_, nm_ in tiles_) if tiles_ else 0.0
+        cel_ = {}
+        for j_, (m_, bt_, nm_) in enumerate(tiles_):
+            cel_.setdefault(tuple(int(math.floor(c_ / 0.5)) for c_ in m_.translation), []).append(j_)
+        for k_, (m_, (x0_, x1_, z0_, z1_), nm_) in enumerate(tiles_):
+            zm_ = 0.5 * (z0_ + z1_)
+            ck_ = tuple(int(math.floor(c_ / 0.5)) for c_ in m_.translation)
+            near_ = [j_ for dx_ in (-1, 0, 1) for dy_ in (-1, 0, 1) for dz_ in (-1, 0, 1)
+                     for j_ in cel_.get((ck_[0] + dx_, ck_[1] + dy_, ck_[2] + dz_), ())
+                     if j_ != k_ and "Broken" not in tiles_[j_][2]]
+            sides_, sd_ = 0, ""
+            # (at 2, 5 and 8 cm past the side: a worn neighbour broken off on
+            # the side facing this tile still holds it)
+            # (above / below at both stagger halves: the course above and the
+            # one below each lie as two tiles, each over half of this one -
+            # the centre line is their joint)
+            sx_ = (0.5 * x0_, 0.5 * x1_)
+            if (m_ @ Vector((0.0, 0.0, z1_))).z > zr_ - 0.08:
+                sides_, sd_ = 1, "^"             # (the top course: held under the ridge cap)
+            for qs_, c_l in (([Vector((f_, 0.0, z1_ + d_)) for d_ in (0.02, 0.05, 0.08) for f_ in sx_], "a"),
+                             ([Vector((f_, 0.0, z0_ - d_)) for d_ in (0.02, 0.05, 0.08) for f_ in sx_], "b"),
+                             ([Vector((x0_ - d_, 0.0, zm_)) for d_ in (0.02, 0.05, 0.08)], "l"),
+                             ([Vector((x1_ + d_, 0.0, zm_)) for d_ in (0.02, 0.05, 0.08)], "r")):
+                if any(bt_[0] <= q_.x <= bt_[1] and bt_[2] <= q_.z <= bt_[3] and -0.04 < q_.y < 0.06
+                       for q_l in qs_ for p_ in (m_ @ q_l,)
+                       for j_ in near_ for mi_, bt_ in (inv_[j_],) for q_ in (mi_ @ p_,)):
+                    sides_ += 1
+                    sd_ += c_l
+                elif not roof_under(m_ @ qs_[0], (m_.to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()):
+                    sd_ += c_l.upper()           # (no roof there either: in the hole or off the roof)
+            lone_c += sides_ < 4
+            if sides_ <= (0 if "Broken" in nm_ else 1):
+                lone_ += 1
+                if len(lone_n) < 4:
+                    lone_n.append((nm_, tuple(round(c_, 2) for c_ in m_.translation), sd_))
+        def over_hole(k_, p_, n_):
+            # no roof and no other tile under p_
+            return not roof_under(p_, n_) and not any(
+                j_ != k_ and bt_[0] <= q_.x <= bt_[1] and bt_[2] <= q_.z <= bt_[3] and -0.03 < q_.y < 0.06
+                for j_, (mi_, bt_) in enumerate(inv_) for q_ in (mi_ @ p_,))
+
+        def side_set(nm_):
+            return nm_[-3] if nm_[-4] == "_" and nm_[-2:].isdigit() and nm_[-3] in "LR" else ""
+        # v2.36 THE HOLE'S SIDE EDGES (the user's 'on the left and right
+        # sides of the hole the damage should face the hole, not downwards'):
+        # a tile with the hole under exactly ONE stagger half of its butt
+        side_ok_k = set()
+        for k_, pl_, pr_, n_, nm_, cn_ in se_c:
+            hl_, hr_ = over_hole(k_, pl_, n_), over_hole(k_, pr_, n_)
+            if hl_ == hr_:
+                continue
+            ss_ = side_set(nm_)
+            if "Broken" not in cn_ and ss_ == ("L" if hl_ else "R"):
+                sedge_["faces the hole"] += 1
+                side_ok_k.add(k_)
+            elif "Broken" in cn_ and "_U" not in nm_:
+                sedge_["torn at the butt"] += 1
+            elif "Broken" in cn_:
+                sedge_["torn at the head"] += 1  # (a corner: the hole above it too - the tear faces it)
+            else:
+                sedge_["other"] += 1
+                sedge_[cn_[9:] + ("_" + ss_ if ss_ else "")] += 1
+        for k_, bp_, kind_, pn_ in rim_c:
+            if k_ in side_ok_k:
+                kind_ = "broken"                 # (v2.36 broken off on the side over the hole)
+            # (another tile under the butt: it lies on that one, not over the hole)
+            if not any(j_ != k_ and bt_[0] <= q_.x <= bt_[1] and bt_[2] <= q_.z <= bt_[3] and -0.03 < q_.y < 0.06
+                       for j_, (mi_, bt_) in enumerate(inv_) for q_ in (mi_ @ bp_,)):
+                rim_[kind_] += 1
+                if kind_ == "whole":
+                    rim_[pn_] += 1
+                    if len(rim_w) < 6:
+                        rim_w.append((tiles_[k_][2], tuple(round(c_, 2) for c_ in bp_)))
+        raf_off = sum(1 for x_ in raf_x if abs((x_ - o_.location.x) / ROOF_RAFTER
+                                               - round((x_ - o_.location.x) / ROOF_RAFTER)) * ROOF_RAFTER > 0.05)
+        return dict(faces=len(raf_), out=out_, kinds=dict(kinds_), pools=dict(per_), sh_on=sh_on, sh_off=sh_off,
+                    loose=loose_, lz=lz_, raf_n=len(raf_x), raf_off=raf_off, rim=dict(rim_), below=dict(below_),
+                    beside=dict(beside_), rim_w=rim_w, lone=lone_, lone_n=lone_n, lone_c=lone_c,
+                    sedge=dict(sedge_))
+
+    fx_r, wl_r, sl_r = roof_house("FreshR", 70.0, "lib:Base - Weathered gable")
+    rr_on = roof_dmg_scan(fx_r)
+    set_params(wl_r, wl_r.node_group, {"Frame Breakage": 0.0})
+    rr_b0 = roof_dmg_scan(fx_r)
+    set_params(wl_r, wl_r.node_group, {"Frame Breakage": 0.75})
+    set_params(sl_r, sl_r.node_group, {"Roof Holes": 0.0})
+    rr_off = roof_dmg_scan(fx_r)
+    shk_ = sum(v_ for k_, v_ in rr_on["pools"].items() if "Shard" in k_)
+    check("v2.32(roof damage): a damage zone on a shake roof tears a hole like the walls - the battens under it "
+          "snapped (splintered stubs, some hanging into the hole) over whole rafters, all inside the roof; no "
+          "tile left with nothing under it; shards on the roof round it, none over the hole; Frame Breakage 0 "
+          "= every batten whole; Roof Holes 0 = no frame, no shards",
+          all(rr_on["kinds"].get(k_, 0) > 0 for k_ in (1, 2, 3, 4)) and rr_on["out"] == 0 and rr_on["loose"] == 0
+          and shk_ > 0 and rr_on["sh_off"] == 0 and rr_b0["kinds"].get(1, 0) > 0
+          and rr_b0["kinds"].get(2, 0) == 0 and rr_b0["kinds"].get(3, 0) == 0
+          and rr_off["faces"] == 0 and not any("Shard" in k_ for k_ in rr_off["pools"]),
+          f"frame elements by kind (1 whole, 2 stub, 3 hanging, 4 rafter) {rr_on['kinds']}, frame faces "
+          f"{rr_on['faces']} (outside the roof {rr_on['out']}), tiles with nothing under them {rr_on['loose']} "
+          f"{rr_on['lz']}, "
+          f"shards {shk_} (over the hole {rr_on['sh_off']}); Frame Breakage 0: {rr_b0['kinds']}; Roof Holes 0: "
+          f"frame faces {rr_off['faces']}, pools {rr_off['pools']}")
+    results["roof_damage_v232"] = dict(on=rr_on, b0=rr_b0["kinds"], off=rr_off["faces"])
+    bpy.data.objects.remove(fx_r)
+
+    fx_p, wl_p, sl_p = roof_house("FreshP", 85.0, "lib:Base - Weathered asphalt")
+    ra_on = roof_dmg_scan(fx_p)
+    a_sets = ("VM_Tiles_Shingle_Asphalt", "VM_Tiles_Shingle_AsphaltBroken", "VM_Tiles_Shingle_AsphaltWorn")
+    shake_ = sum(v_ for k_, v_ in ra_on["pools"].items() if k_.startswith("VM_Tiles_Shingle") and "Asphalt" not in k_)
+    check("v2.32(asphalt): the 'Base - Weathered asphalt' preset covers the roof in ASPHALT shingles - intact, torn "
+          "and worn tabs, no shakes - and a hole through it shows the board deck snapped and hanging over the "
+          "rafters, with asphalt shards on the roof round it; no tile left with nothing under it",
+          all(ra_on["pools"].get(k_, 0) > 0 for k_ in a_sets) and shake_ == 0
+          and all(ra_on["kinds"].get(k_, 0) > 0 for k_ in (1, 2, 4)) and ra_on["out"] == 0 and ra_on["loose"] == 0
+          and ra_on["pools"].get("VM_Tiles_AsphaltShard", 0) > 0 and ra_on["sh_off"] == 0
+          and not ra_on["pools"].get("VM_Tiles_ShakeShard"),
+          f"tiles {({k_[17:]: ra_on['pools'].get(k_, 0) for k_ in a_sets})}, shakes {shake_}, frame "
+          f"by kind {ra_on['kinds']} (outside the roof {ra_on['out']}), tiles with nothing under them "
+          f"{ra_on['loose']} {ra_on['lz']}, shards {ra_on['pools'].get('VM_Tiles_AsphaltShard', 0)} (over the hole "
+          f"{ra_on['sh_off']})")
+    results["asphalt_v232"] = dict(pools=ra_on["pools"], kinds=ra_on["kinds"])
+    rim_w = rr_on["rim"].get("whole", 0) + ra_on["rim"].get("whole", 0)
+    rim_b = rr_on["rim"].get("broken", 0) + ra_on["rim"].get("broken", 0)
+    check("v2.33(torn rim): the shakes and asphalt tabs whose butts hang over a roof hole are torn short (broken "
+          "pieces), not whole tiles framing the hole - on both roofs at most 1 in 5 of the tiles over the hole "
+          "keeps its whole outline",
+          rr_on["rim"].get("broken", 0) > 0 and ra_on["rim"].get("broken", 0) > 0 and rim_w * 4 <= rim_b,
+          f"tiles with no roof under the butt: shakes {rr_on['rim']}, asphalt {ra_on['rim']}; whole ones "
+          f"{rr_on['rim_w']} {ra_on['rim_w']}")
+    results["rim_v233"] = dict(shake=rr_on["rim"], asphalt=ra_on["rim"])
+    bl_t = rr_on["below"].get("torn top", 0) + ra_on["below"].get("torn top", 0)
+    bl_w = rr_on["below"].get("whole top", 0) + ra_on["below"].get("whole top", 0)
+    check("v2.34(damage faces the hole): the shakes and asphalt tabs just BELOW a roof hole are torn off at the "
+          "HEAD - their tear faces the hole - not whole tiles with a straight top and the damage at the butt "
+          "(the user's 'the damage faces the undamaged roof'); on both roofs at least 3 in 4 of them",
+          rr_on["below"].get("torn top", 0) > 0 and ra_on["below"].get("torn top", 0) > 0 and bl_w * 3 <= bl_t,
+          f"tiles with the hole 1.5 courses above the butt: shakes {rr_on['below']}, asphalt {ra_on['below']}")
+    results["below_v234"] = dict(shake=rr_on["below"], asphalt=ra_on["below"])
+    # v2.34 every damaged tall tile lies FLAT where the course above covers it
+    # (its lifts - curl, cup, warp - only in the part that shows): a lift
+    # there pushed through the shakes above ('stuffed into each other')
+    pt_ = {}
+    # (the asset's nominal front: y at the head and at the butt - the taper)
+    for cn_, y_hd, y_bt, ln_, ex_ in (("VM_Tiles_Shingle", 0.0, 0.020, 0.42, SHAKE_EXPOSED),
+                                      ("VM_Tiles_ShingleWorn", 0.0, 0.020, 0.42, SHAKE_EXPOSED),
+                                      ("VM_Tiles_Shingle_AsphaltWorn", -0.001, 0.005, 0.33, 1.0 - ASPHALT_OVERLAP)):
+        worst_ = 0.0
+        for o_ in bpy.data.collections[cn_].all_objects:
+            vs_ = o_.data.vertices
+            z1_ = max(v_.co.z for v_ in vs_)                # the head (whole on every variant)
+            z0_ = z1_ - ln_                                    # the butt line
+            for v_ in vs_:
+                if v_.co.z > z0_ + ex_ * ln_ + 0.01:          # under the course above
+                    worst_ = max(worst_, v_.co.y - (y_hd + (y_bt - y_hd) * (z1_ - v_.co.z) / ln_))
+        pt_[cn_[9:]] = round(worst_ * 1000.0, 1)
+    check("v2.34(no push-through): the intact and worn shakes and the worn asphalt tabs lie flat where the "
+          "course above covers them (no lift over 2.5 mm above their taper there) - a curl or cup under the "
+          "course above pushed through it (the user's 'tiles stuffed into each other, like plasticine')",
+          all(v_ <= 2.5 for v_ in pt_.values()), f"worst lift under the course above, mm: {pt_}")
+    results["flat_v234"] = pt_
+    bs_t = rr_on["beside"].get("torn side", 0) + ra_on["beside"].get("torn side", 0)
+    bs_w = rr_on["beside"].get("whole side", 0) + ra_on["beside"].get("whole side", 0)
+    check("v2.35(damage on every side): the shakes and asphalt tabs BESIDE a roof hole (a neighbour in their "
+          "own course gone) are broken off on the side facing the hole - the shakes split along the grain, "
+          "the tabs broken - not whole tiles framing it with a straight side (the user's 'damage geometry in "
+          "every direction around the hole, not just above and below'); on both roofs at least 3 in 4 of the "
+          "unbroken ones",
+          rr_on["beside"].get("torn side", 0) > 0 and ra_on["beside"].get("torn side", 0) > 0 and bs_w * 3 <= bs_t,
+          f"tiles with the hole 4 cm past a side: shakes {rr_on['beside']}, asphalt {ra_on['beside']}")
+    results["beside_v235"] = dict(shake=rr_on["beside"], asphalt=ra_on["beside"])
+    # v2.36 no lone whole tiles in a hole (the user's 'loose, unbroken tabs
+    # still lie inside the asphalt hole - their straight factory edges show')
+    check("v2.36(no lone tiles): no shake or asphalt tab lies alone in a roof hole - every intact or worn tile "
+          "keeps another whole tile on at least two of its four sides, every broken piece on at least one (the "
+          "torn rim), none hangs in the middle of the hole (the user's 'loose, unbroken tabs inside the asphalt "
+          "hole, their straight factory edges show'); both roofs have tiles at the hole's edge to judge",
+          rr_on["lone_c"] > 0 and ra_on["lone_c"] > 0 and rr_on["lone"] == 0 and ra_on["lone"] == 0,
+          f"tiles with an open side (judged) shakes {rr_on['lone_c']}, asphalt {ra_on['lone_c']}; lone: shakes "
+          f"{rr_on['lone']} {rr_on['lone_n']}, asphalt {ra_on['lone']} {ra_on['lone_n']}")
+    results["lone_v236"] = dict(shake=rr_on["lone"], asphalt=ra_on["lone"])
+    # v2.36 the hole's side edges face the hole (the user's marked render)
+    se_b = rr_on["sedge"].get("torn at the butt", 0) + ra_on["sedge"].get("torn at the butt", 0)
+    se_n = sum(v_ for d_ in (rr_on["sedge"], ra_on["sedge"]) for k_, v_ in d_.items()
+               if k_ in ("faces the hole", "torn at the head", "torn at the butt", "other"))
+    check("v2.36(sides face the hole): the shakes and asphalt tabs at a hole's LEFT and RIGHT edges - the hole "
+          "under one half of the butt - are broken off on the side over the hole, not torn at the butt "
+          "pointing down the roof (the user's 'on the left and the right sides of the hole the damage geometry "
+          "should be facing the hole, not downwards'; at a corner, with the hole above too, a head tear faces "
+          "it as well); both roofs have such tiles, at most 1 in 5 torn at the butt",
+          rr_on["sedge"].get("faces the hole", 0) > 0 and ra_on["sedge"].get("faces the hole", 0) > 0
+          and se_b * 5 <= se_n,
+          f"tiles at a side edge: shakes {rr_on['sedge']}, asphalt {ra_on['sedge']}")
+    results["sedge_v236"] = dict(shake=rr_on["sedge"], asphalt=ra_on["sedge"])
+
+    # v2.35 an asphalt BREAK is a brittle fracture, not a straight cut (the
+    # user's 'if you throw a piece on the ground and it breaks, it's not a
+    # perfectly straight cut'): along every break edge of the torn and worn
+    # tabs and the shards (real metres: a torn piece's z times the length it
+    # was drawn at), the share of the break that runs straight (within 0.5
+    # mm of a chord) for 2 cm or more, and the longest straight run
+    def bk_outline(me_):
+        vs_ = me_.vertices
+        adj_ = {}
+        for p_ in me_.polygons:                      # side walls: a front and a back vertex per (x, z)
+            q_ = list(p_.vertices)
+            if len(q_) != 4:
+                continue
+            g_ = {}
+            for i_ in q_:
+                g_.setdefault((round(vs_[i_].co.x, 6), round(vs_[i_].co.z, 6)), []).append(i_)
+            if len(g_) == 2 and all(len(v_) == 2 for v_ in g_.values()):
+                a_, b_ = [min(v_, key=lambda i_: vs_[i_].co.y) for v_ in g_.values()]
+                adj_.setdefault(a_, []).append(b_)
+                adj_.setdefault(b_, []).append(a_)
+        seen_, best_ = set(), []
+        for s_ in adj_:
+            if s_ in seen_:
+                continue
+            lp_, pv_, cu_ = [], None, s_
+            while cu_ is not None and cu_ not in seen_:
+                seen_.add(cu_)
+                lp_.append(cu_)
+                nx_ = [k_ for k_ in adj_[cu_] if k_ != pv_ and k_ not in seen_]
+                pv_, cu_ = cu_, (nx_[0] if nx_ else None)
+            if len(lp_) > len(best_):
+                best_ = lp_
+        return [(vs_[i_].co.x, vs_[i_].co.z) for i_ in best_]
+
+    def bk_straight(pts_, isb_, tol_=0.0005):
+        runs_, cur_ = [], []
+        for p_ in pts_ + pts_[:1]:
+            if isb_(p_) and (not cur_ or math.dist(cur_[-1], p_) < 0.025):   # (a jump: the trace broke)
+                cur_.append(p_)
+            else:
+                if len(cur_) > 1:
+                    runs_.append(cur_)
+                cur_ = [p_] if isb_(p_) else []
+        if len(cur_) > 1:
+            runs_.append(cur_)
+        lng_, tot_, st_ = 0.0, 0.0, 0.0
+        for r_ in runs_:
+            tot_ += sum(math.dist(r_[i_], r_[i_ + 1]) for i_ in range(len(r_) - 1))
+            i_ = 0
+            while i_ < len(r_) - 1:
+                j_ = i_ + 1
+                while j_ + 1 < len(r_) and all(_seg_d(r_[k_][0], r_[k_][1], r_[i_], r_[j_ + 1]) < tol_
+                                               for k_ in range(i_ + 1, j_ + 1)):
+                    j_ += 1
+                l_ = math.dist(r_[i_], r_[j_])
+                lng_ = max(lng_, l_)
+                st_ += l_ if l_ >= 0.02 else 0.0
+                i_ = j_
+        return lng_, st_, tot_
+    bk_ = {}
+    for cn_, kind_ in (("VM_Tiles_Shingle_AsphaltBroken", "torn"), ("VM_Tiles_Shingle_AsphaltWorn", "worn"),
+                       ("VM_Tiles_AsphaltShard", "shard")):
+        rs_ = []
+        for o_ in bpy.data.collections[cn_].all_objects:
+            pts_ = bk_outline(o_.data)
+            if kind_ == "torn":
+                zz_ = 0.15 if "_U" in o_.name else 0.25
+                pts_ = [(x_, z_ * zz_) for x_, z_ in pts_]
+                isb_ = (lambda p_: abs(p_[0]) < 0.123 and abs(p_[1]) > 0.002)
+            elif kind_ == "worn":
+                isb_ = (lambda p_: abs(p_[0]) < 0.123 and abs(p_[1]) < 0.163)
+            else:
+                isb_ = (lambda p_: True)
+            r_ = bk_straight(pts_, isb_)
+            if r_[2] > 0.01:
+                rs_.append(r_)
+        lg_ = sorted(r_[0] for r_ in rs_)
+        bk_[cn_[9:]] = dict(n=len(rs_), objects=len(bpy.data.collections[cn_].all_objects),
+                            longest_mm=round(lg_[len(lg_) // 2] * 1000.0, 1) if lg_ else None,
+                            straight=round(sum(r_[1] for r_ in rs_) / max(sum(r_[2] for r_ in rs_), 1e-9), 3))
+    check("v2.35(brittle asphalt): every asphalt break - the torn tabs' tears, the worn tabs' broken corners, "
+          "bites, side breaks and cracks, the shards - is a brittle fracture in angled facets, rough at every "
+          "scale, not a straight cut (the user's 'it's not a perfectly straight cut'): at most 20 % of the "
+          "break length runs straight for 2 cm or more and the typical longest straight run is under 3 cm; "
+          "the worn pool has its four sets (butt, -X / +X side, from above)",
+          all(v_["n"] > 0 and v_["straight"] <= 0.2 and (v_["longest_mm"] or 99.0) < 30.0 for v_ in bk_.values())
+          and bk_["Shingle_AsphaltWorn"]["objects"] == 80,
+          f"per pool (pieces with breaks, pool size, median longest straight run mm, straight share): {bk_}")
+    results["brittle_v235"] = bk_
+    bpy.data.objects.remove(fx_p)
+
+    fx_q, wl_q, sl_q = roof_house("FreshQ", 100.0, "lib:Base - Weathered gable", (1.4, 1.0, 1.2))
+    rq_on = roof_dmg_scan(fx_q)
+    check("v2.32(world-space): with the house's (1.4, 1.0, 1.2) scale NOT applied, the roof frame under a hole "
+          "keeps its rafters every 0.6 WORLD m along the eaves, stays inside the roof, and no tile or shard floats",
+          rq_on["raf_n"] > 0 and rq_on["raf_off"] == 0 and rq_on["out"] == 0 and rq_on["loose"] == 0
+          and rq_on["sh_on"] > 0 and rq_on["sh_off"] == 0,
+          f"rafter elements {rq_on['raf_n']} (off the 0.6 m lattice {rq_on['raf_off']}), frame outside the roof "
+          f"{rq_on['out']}, loose tiles {rq_on['loose']}, shards on the roof {rq_on['sh_on']} / over the hole "
+          f"{rq_on['sh_off']}")
+    results["world_roof_v232"] = dict(raf=rq_on["raf_n"], off=rq_on["raf_off"])
+    bpy.data.objects.remove(fx_q)
 
     # ---- v2.10: UPDATE an older engine in place - settings survive
     planks_a = fx_a.modifiers["VM_SceneDetailer_Planks"]
@@ -16136,7 +18413,7 @@ def main():
 
     # deliverables
     os.makedirs(DELIVER, exist_ok=True)
-    for f in ("build_engine.py", "pack_ingest.py", "USAGE.txt", "VM_Tools_Addon.py"):
+    for f in ("build_engine.py", "pack_ingest.py", "split_library.py", "USAGE.txt", "VM_Tools_Addon.py"):
         src = os.path.join(_HERE, f)   # sources live next to this script, not in the build dir
         if os.path.abspath(src) != os.path.abspath(os.path.join(DELIVER, f)):
             shutil.copy2(src, os.path.join(DELIVER, f))
@@ -16146,7 +18423,20 @@ def main():
     shutil.copy2(STARTER_PATH, os.path.join(DELIVER, "VM_Starter.blend"))
     shutil.copy2(BLEND_PATH, os.path.join(DELIVER, "VM_SceneDetailer.blend"))
     shutil.copy2(ROOFCAP_PATH, os.path.join(DELIVER, "VM_RoofCap.blend"))
-    shutil.copy2(ASSETS_PATH, os.path.join(DELIVER, "VM_Assets.blend"))
+    # v2.36: the shipped library is the CORE (engine-own assets, empty door / window / yard
+    # collections); the example doors, windows and yard are the optional VM_ExampleAssets.blend.
+    # The checks above ran on the full library (ASSETS_PATH), which stays in the build folder.
+    import subprocess
+    split_dir = os.path.join(ROOT, "split")
+    r = subprocess.run([bpy.app.binary_path, "-b", "--factory-startup", ASSETS_PATH, "--python",
+                        os.path.join(_HERE, "split_library.py"), "--", split_dir],
+                       capture_output=True, text=True)
+    split_log = [ln for ln in r.stdout.splitlines() if ln.startswith("SPLIT")]
+    log("\n".join("  " + ln[:200] for ln in split_log))
+    if r.returncode != 0 or "SPLIT OK" not in split_log:
+        raise RuntimeError("split_library.py failed:\n" + r.stdout[-3000:] + r.stderr[-3000:])
+    for f in ("VM_Assets.blend", "VM_ExampleAssets.blend"):
+        shutil.copy2(os.path.join(split_dir, f), os.path.join(DELIVER, f))
     shutil.copy2(os.path.join(ROOT, "verification_v2.json"), os.path.join(DELIVER, "verification_v2.json"))
     for r in sorted(os.listdir(os.path.join(ROOT, "renders"))):
         if r.startswith("preview_"):

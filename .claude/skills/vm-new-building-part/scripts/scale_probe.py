@@ -22,6 +22,9 @@ vmt = importlib.util.module_from_spec(spec); sys.modules["VM_Tools_Addon"] = vmt
 bpy.ops.wm.read_factory_settings(use_empty=True)
 vmt.register(); vmt.LIBRARY_PATH_OVERRIDE = os.path.join(HERE, "build", "stage", "VM_Assets.blend")
 vmt.import_engine(vmt.LIBRARY_PATH_OVERRIDE, [])
+_EX = vmt.example_library_path()   # build/stage holds the CORE library (v2.36 split): add the examples
+if _EX and vmt.examples_missing(_EX):
+    print("examples:", vmt.import_examples(_EX, []))
 if "rebuild" in ARGS:       # the node groups rebuilt from the working copy of build_engine.py
     sys.path.insert(0, HERE)
     import build_engine as be

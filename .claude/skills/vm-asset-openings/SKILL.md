@@ -24,6 +24,14 @@ cut openings and jambs since v2.15, glass since v2.18. Scale probe: see
   Both layers use Opening Fit "Scale To Face": every variant is scaled into the
   slot, down to Min Fit Scale 0.5.
 - `AUTO_COLLECTIONS`: Primary Props → `VM_Doors` / `VM_Windows`.
+- v2.36: the shipped core `VM_Assets.blend` has these collections EMPTY (no
+  openings are cut until something is in them). The Sketchfab packs we build
+  with (WornWoodenDoorsPack, WeatheredWoodenWindow, BrokenWindow01, all CC-BY)
+  are EXAMPLE assets in the optional `VM_ExampleAssets.blend` ('Add Example
+  Assets'). A new door / window set is either the user's own (they drop it in
+  these collections, or a preset points the sockets at `VM_Doors_<Style>`) or
+  a new example: add it to `EXAMPLE_COLS` / `CREDITS` in `split_library.py`,
+  `CREDITS.md` and the licence check (no BlenderKit; CC-BY needs the author).
 - The cut hole, the jamb depth (Wall Depth 0.15, Opening Inset 0.03) and the glass
   pane are all derived from the **instance bounds**, so the bbox must be the
   opening.
